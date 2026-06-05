@@ -38,6 +38,8 @@ const editingId = ref<string | null>(null)
 const editText = ref('')
 const selectedId = ref<string | null>(null)
 const collapsedIds = ref<Set<string>>(new Set())
+// per-node drag offsets, persisted across re-layouts
+const nodeOffsets = reactive(new Map<string, { x: number; y: number }>())
 
 // pan/zoom
 const scale = ref(1)
@@ -150,18 +152,46 @@ function onNodeDragMove(e: MouseEvent) {
 }
 
 function onNodeDragEnd() {
+  if (draggingNodeId.value && dragDelta.value) {
+    // commit offset
+    const off = nodeOffsets.get(draggingNodeId.value) ?? { x: 0, y: 0 }
+    nodeOffsets.set(draggingNodeId.value, {
+      x: off.x + dragDelta.value.x,
+      y: off.y + dragDelta.value.y,
+    })
+    // also move children along with parent so the tree stays connected
+    const childIds = collectDescendants(draggingNodeId.value)
+    for (const cid of childIds) {
+      const c = nodeOffsets.get(cid) ?? { x: 0, y: 0 }
+      nodeOffsets.set(cid, { x: c.x + dragDelta.value.x, y: c.y + dragDelta.value.y })
+    }
+  }
   draggingNodeId.value = null
   window.removeEventListener('mousemove', onNodeDragMove)
   window.removeEventListener('mouseup', onNodeDragEnd)
-  setTimeout(() => (dragDelta.value = null), 0)
+  dragDelta.value = null
+}
+
+function collectDescendants(rootId: string): string[] {
+  const out: string[] = []
+  const walk = (n: LayoutNode) => {
+    for (const c of n.children) {
+      out.push(c.id)
+      walk(c)
+    }
+  }
+  const root = nodesById.value.get(rootId)
+  if (root) walk(root)
+  return out
 }
 
 function nodePos(n: LayoutNode) {
   const d = dragDelta.value
+  const off = nodeOffsets.get(n.id) ?? { x: 0, y: 0 }
   if (d && draggingNodeId.value === n.id) {
-    return { x: n.x + d.x, y: n.y + d.y }
+    return { x: n.x + off.x + d.x, y: n.y + off.y + d.y }
   }
-  return { x: n.x, y: n.y }
+  return { x: n.x + off.x, y: n.y + off.y }
 }
 
 function startPan(e: MouseEvent) {
@@ -239,6 +269,9 @@ watch(
 )
 
 function onKey(e: KeyboardEvent) {
+  // ignore when typing in any input/textarea/contenteditable
+  const tgt = e.target as HTMLElement | null
+  if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable)) return
   if (editingId.value) return
   if (props.readonly) return
   if (e.key === 'Tab') {
@@ -337,18 +370,21 @@ function bezierPath(from: { x: number; y: number }, to: { x: number; y: number }
   return `M ${from.x} ${from.y} C ${sx} ${from.y}, ${ex} ${to.y}, ${to.x} ${to.y}`
 }
 
-function lineAnchor(n: LayoutNode, side: 'in' | 'out' = 'in'): { x: number; y: number } {
-  const y = n.y
+function lineAnchor(n: LayoutNode, side: 'in' | 'out', dir?: 1 | -1): { x: number; y: number } {
+  const p = nodePos(n)
+  const y = p.y
   if (n.isRoot) {
-    return { x: side === 'out' ? n.x + n.width / 2 : n.x - n.width / 2, y }
+    const d = (dir ?? 1) as 1 | -1
+    return { x: p.x + d * (n.width / 2), y }
   }
-  // for non-root: x is the right edge of the node on the connecting side
-  // we use LayoutNode.side — out means from this node to its children, in means from parent
-  const dir = (n.parent?.children.indexOf(n) ?? 0) % 2 === 0 ? 1 : -1
-  if (side === 'out') {
-    return { x: n.x + (dir === 1 ? n.width / 2 : -n.width / 2), y }
+  let d: 1 | -1
+  if (side === 'in') {
+    d = (((n.parent?.children.indexOf(n) ?? 0) % 2 === 0 ? 1 : -1) * -1) as 1 | -1
+  } else {
+    d = n.side
   }
-  return { x: n.x - (dir === 1 ? n.width / 2 : -n.width / 2), y }
+  if (dir !== undefined) d = dir
+  return { x: p.x + d * (n.width / 2), y }
 }
 </script>
 
@@ -385,7 +421,7 @@ function lineAnchor(n: LayoutNode, side: 'in' | 'out' = 'in'): { x: number; y: n
             <path
               v-for="e in edges"
               :key="e.key"
-              :d="bezierPath(lineAnchor(e.from, 'out'), lineAnchor(e.to, 'in'))"
+              :d="bezierPath(lineAnchor(e.from, 'out', e.to.side), lineAnchor(e.to, 'in'))"
               fill="none"
               :stroke="theme.lineColor"
               stroke-width="1.4"
@@ -405,7 +441,7 @@ function lineAnchor(n: LayoutNode, side: 'in' | 'out' = 'in'): { x: number; y: n
           :style="{
             left: nodePos(n).x - n.width / 2 + 'px',
             top: nodePos(n).y - LAYOUT.NODE_H / 2 + 'px',
-            width: n.width + 'px',
+            minWidth: n.width + 'px',
             height: LAYOUT.NODE_H + 'px',
             background: n.isRoot ? theme.rootBg : theme.branchBg,
             color: n.isRoot ? theme.rootText : theme.branchText,
@@ -514,6 +550,7 @@ function lineAnchor(n: LayoutNode, side: 'in' | 'out' = 'in'): { x: number; y: n
   align-items: center;
   justify-content: center;
   padding: 6px 28px;
+  box-sizing: border-box;
   border-radius: 8px;
   border: 1px solid;
   font-size: 0.9em;

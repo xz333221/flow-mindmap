@@ -15,7 +15,7 @@ export interface LayoutNode {
 
 import type { MindMapNode } from '../types'
 
-const NODE_W = 120
+const NODE_W = 140
 const NODE_H = 36
 const H_GAP = 60
 const V_GAP = 14
