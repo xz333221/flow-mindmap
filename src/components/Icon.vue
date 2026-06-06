@@ -83,5 +83,29 @@ defineProps<{
       <line x1="10.5" y1="13.2" x2="5.2" y2="17.6" />
       <line x1="13.5" y1="13.2" x2="18.8" y2="17.6" />
     </template>
+    <!-- import: arrow down into tray -->
+    <template v-else-if="name === 'import'">
+      <path d="M12 4 V15" />
+      <polyline points="7 10 12 15 17 10" />
+      <path d="M4 19 H20" />
+    </template>
+    <!-- export: arrow up out of tray -->
+    <template v-else-if="name === 'export'">
+      <path d="M12 15 V4" />
+      <polyline points="7 9 12 4 17 9" />
+      <path d="M4 19 H20" />
+    </template>
+    <!-- balance: two arrows pointing inward, suggesting even distribution -->
+    <template v-else-if="name === 'balance'">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+      <polyline points="9 4 5 6 9 8" />
+      <polyline points="15 4 19 6 15 8" />
+      <polyline points="9 10 5 12 9 14" />
+      <polyline points="15 10 19 12 15 14" />
+      <polyline points="9 16 5 18 9 20" />
+      <polyline points="15 16 19 18 15 20" />
+    </template>
   </svg>
 </template>

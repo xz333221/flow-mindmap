@@ -1,0 +1,92 @@
+import { ref, reactive, type Ref } from 'vue'
+import type { LayoutNode } from '../core/layout'
+
+export interface NodeDragOptions {
+  scale: Ref<number>
+  getNodeById: (id: string) => LayoutNode | undefined
+  collectDescendants: (id: string) => string[]
+  onChange?: () => void
+}
+
+export function useNodeDrag(opts: NodeDragOptions) {
+  const draggingNodeId: Ref<string | null> = ref(null)
+  const dragStart = reactive<{ x: number; y: number; sx: number; sy: number }>({
+    x: 0,
+    y: 0,
+    sx: 0,
+    sy: 0,
+  })
+  const dragDelta = ref<{ x: number; y: number } | null>(null)
+  // committed per-node offsets (layout coords) — must outlive the drag and be passed in
+  const nodeOffsets = reactive(new Map<string, { x: number; y: number }>())
+
+  function getOffset(id: string): { x: number; y: number } {
+    return nodeOffsets.get(id) ?? { x: 0, y: 0 }
+  }
+
+  function nodePos(n: LayoutNode): { x: number; y: number } {
+    const off = getOffset(n.id)
+    if (draggingNodeId.value === n.id && dragDelta.value) {
+      return { x: n.x + off.x + dragDelta.value.x, y: n.y + off.y + dragDelta.value.y }
+    }
+    return { x: n.x + off.x, y: n.y + off.y }
+  }
+
+  function startNodeDrag(e: MouseEvent, n: LayoutNode, readonly: boolean) {
+    if (readonly) return
+    e.stopPropagation()
+    draggingNodeId.value = n.id
+    dragStart.x = e.clientX
+    dragStart.y = e.clientY
+    dragStart.sx = n.x
+    dragStart.sy = n.y
+    dragDelta.value = { x: 0, y: 0 }
+    window.addEventListener('mousemove', onNodeDragMove)
+    window.addEventListener('mouseup', onNodeDragEnd)
+  }
+
+  function onNodeDragMove(e: MouseEvent) {
+    if (!draggingNodeId.value) return
+    const scaleFix = 1 / opts.scale.value
+    dragDelta.value = {
+      x: (e.clientX - dragStart.x) * scaleFix,
+      y: (e.clientY - dragStart.y) * scaleFix,
+    }
+  }
+
+  function onNodeDragEnd() {
+    if (draggingNodeId.value && dragDelta.value) {
+      const id = draggingNodeId.value
+      const dx = dragDelta.value.x
+      const dy = dragDelta.value.y
+      // commit offset for the dragged node
+      const off = nodeOffsets.get(id) ?? { x: 0, y: 0 }
+      nodeOffsets.set(id, { x: off.x + dx, y: off.y + dy })
+      // also move children along so the tree stays connected
+      const ids = opts.collectDescendants(id)
+      for (const cid of ids) {
+        const c = nodeOffsets.get(cid) ?? { x: 0, y: 0 }
+        nodeOffsets.set(cid, { x: c.x + dx, y: c.y + dy })
+      }
+      opts.onChange?.()
+    }
+    draggingNodeId.value = null
+    window.removeEventListener('mousemove', onNodeDragMove)
+    window.removeEventListener('mouseup', onNodeDragEnd)
+    dragDelta.value = null
+  }
+
+  function resetOffsets() {
+    nodeOffsets.clear()
+  }
+
+  return {
+    draggingNodeId,
+    dragDelta,
+    nodeOffsets,
+    getOffset,
+    nodePos,
+    startNodeDrag,
+    resetOffsets,
+  }
+}

@@ -1,9 +1,23 @@
 <script setup lang="ts">
-import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import Icon from './Icon.vue'
 import { layout, LAYOUT, type LayoutNode } from '../core/layout'
-import { addChild, addSibling, removeNode, findNode, findParent, clone } from '../tree'
-import type { MindMapNode, MindMapTheme, MindMapExpose } from '../types'
+import {
+  addChild,
+  addSibling,
+  addSiblingBefore,
+  removeNode,
+  findNode,
+  findParent,
+  duplicateNode,
+  clone,
+  DEFAULT_NEW_NODE_TEXT,
+} from '../tree'
+import type { MindMapNode, MindMapTheme, MindMapExpose, MindMapSettings, NodeStyle } from '../types' 
+import { usePanZoom } from '../composables/usePanZoom'
+import { useNodeDrag } from '../composables/useNodeDrag'
+import { useKeyboard } from '../composables/useKeyboard'
+import { useHistory } from '../composables/useHistory'
 
 const props = withDefaults(
   defineProps<{
@@ -19,34 +33,79 @@ const emit = defineEmits<{
   (e: 'select', node: MindMapNode | null): void
 }>()
 
-defineExpose<MindMapExpose>({
-  addChild: (parentId: string) => doAddChild(parentId),
-  addSibling: (nodeId: string) => doAddSibling(nodeId),
-  removeNode: (nodeId: string) => doRemove(nodeId),
-  getData: () => dataRef.value,
-  setData: (d) => {
-    dataRef.value = clone(d)
-    triggerRef()
-  },
-  resetView: () => resetView(),
-})
-
-const dataRef = ref<MindMapNode>(clone(props.data))
-const containerRef = ref<HTMLElement | null>(null)
 const wrapperRef = ref<HTMLElement | null>(null)
 const editingId = ref<string | null>(null)
 const editText = ref('')
 const selectedId = ref<string | null>(null)
 const collapsedIds = ref<Set<string>>(new Set())
-// per-node drag offsets, persisted across re-layouts
-const nodeOffsets = reactive(new Map<string, { x: number; y: number }>())
+const dataRef = ref<MindMapNode>(clone(props.data))
+// Per-node style overrides.  Keyed by node id.  Stored in a reactive
+// Map (not Vue reactive Map) so .set/.delete work; the template re-
+// reads via the ref-of-Map we wrap it in.
+const nodeStylesRef = ref<Map<string, NodeStyle>>(new Map())
+const nodeStyles = nodeStylesRef.value
+function applyNodeStyle(id: string, style: NodeStyle) {
+  // shallow copy to keep the public surface pure
+  const cleaned: NodeStyle = {}
+  if (style.bg) cleaned.bg = style.bg
+  if (style.textColor) cleaned.textColor = style.textColor
+  if (style.borderColor) cleaned.borderColor = style.borderColor
+  if (style.fontWeight) cleaned.fontWeight = style.fontWeight
+  if (Object.keys(cleaned).length === 0) {
+    nodeStyles.delete(id)
+  } else {
+    nodeStyles.set(id, cleaned)
+  }
+  // bump ref so reactive consumers re-render
+  nodeStylesRef.value = new Map(nodeStyles)
+}
+function getNodeStyle(id: string): NodeStyle {
+  return nodeStyles.get(id) ?? {}
+}
+function getNodeStyleOr(id: string, fallback: NodeStyle): NodeStyle {
+  return nodeStyles.get(id) ?? fallback
+}
+const layoutVersion = ref(0)
+// Compact layout is the default. The user clicks "balance" to snap
+// everything into the balanced layout, undo any manual drag offsets,
+// and re-center the view — the layout reverts on the next data change
+// unless the caller opts in via setBalanced(true).
+const balanced = ref(false)
 
-// pan/zoom
-const scale = ref(1)
-const offsetX = ref(0)
-const offsetY = ref(0)
-const isPanning = ref(false)
-const panStart = reactive<{ x: number; y: number; ox: number; oy: number }>({ x: 0, y: 0, ox: 0, oy: 0 })
+/** Undo/redo stack.  Every mutation calls `record()` AFTER applying the
+ *  change; undo() / redo() then swap dataRef with a previous snapshot. */
+const history = useHistory(100)
+
+/** Snapshot the current tree so the next mutation can be undone. */
+function record() {
+  history.record(dataRef.value)
+}
+
+/** Apply a new tree, push to emit, refresh layout.  Used by mutations
+ *  and by undo/redo (where the tree already came from history). */
+function applyData(next: MindMapNode, opts: { resetCollapsed?: boolean; resetSelection?: boolean } = {}) {
+  dataRef.value = clone(next)
+  if (opts.resetCollapsed) collapsedIds.value = new Set()
+  if (opts.resetSelection) {
+    selectedId.value = null
+    emit('select', null)
+  }
+  triggerRef()
+  emit('change', dataRef.value)
+}
+
+function triggerRef() {
+  collapsedIds.value = new Set(collapsedIds.value)
+  layoutVersion.value++
+  // If the user opted in to "auto-balance on change", snap to balanced
+  // layout after every mutation.  We schedule it in nextTick so it
+  // runs after the current layoutResult computed settles.
+  if (settings.autoBalanceOnChange && !props.readonly) {
+    nextTick(() => {
+      balanced.value = true
+    })
+  }
+}
 
 const theme = computed<Required<MindMapTheme>>(() => ({
   rootBg: props.theme?.rootBg ?? '#1f2937',
@@ -56,122 +115,121 @@ const theme = computed<Required<MindMapTheme>>(() => ({
   lineColor: props.theme?.lineColor ?? '#94a3b8',
   bgColor: props.theme?.bgColor ?? '#f8fafc',
   fontSize: props.theme?.fontSize ?? 14,
+  lineWidthStart: props.theme?.lineWidthStart ?? 2.2,
+  lineWidthEnd: props.theme?.lineWidthEnd ?? 0.8,
+  rainbowBranch: props.theme?.rainbowBranch ?? false,
 }))
 
-const layoutVersion = ref(0)
-function triggerRef() {
-  collapsedIds.value = new Set(collapsedIds.value)
-  layoutVersion.value++
-}
-
-watch(
-  () => props.data,
-  (v) => {
-    dataRef.value = clone(v)
-    triggerRef()
-  },
-  { deep: false }
-)
-
-const layoutResult = computed(() => {
-  // apply collapse
-  const data = clone(dataRef.value)
-  applyCollapse(data)
-  return layout(data)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  void layoutVersion.value
+// ---------------------------------------------------------------------------
+// User-controllable settings (settings panel / applySettings)
+// ---------------------------------------------------------------------------
+const settings = reactive<MindMapSettings>({
+  autoBalanceOnChange: false,
+  lineWidthStart: 2.2,
+  lineWidthEnd: 0.8,
+  rainbowBranch: false,
 })
 
-function applyCollapse(n: MindMapNode) {
-  if (collapsedIds.value.has(n.id)) {
-    n.children = []
-    n.collapsed = true
-    return
-  }
-  n.collapsed = false
-  for (const c of n.children) applyCollapse(c)
-}
+const lrRootChildren = computed<LayoutNode[]>(() => layoutResult.value.root.children)
 
-const allNodes = computed<LayoutNode[]>(() => {
-  const out: LayoutNode[] = []
-  const walk = (n: LayoutNode) => {
-    out.push(n)
-    n.children.forEach(walk)
-  }
-  walk(layoutResult.value.root)
-  return out
-})
+const RAINBOW = [
+  '#f87171', '#fb923c', '#fbbf24', '#a3e635',
+  '#34d399', '#22d3ee', '#818cf8', '#c084fc',
+]
 
-const nodesById = computed(() => {
-  const m = new Map<string, LayoutNode>()
-  for (const n of allNodes.value) m.set(n.id, n)
+const branchColor = computed<Map<string, string>>(() => {
+  const m = new Map<string, string>()
+  if (!settings.rainbowBranch) return m
+  for (let i = 0; i < lrRootChildren.value.length; i++) {
+    const c = lrRootChildren.value[i]
+    m.set(c.id, RAINBOW[i % RAINBOW.length])
+  }
+  const walk = (n: LayoutNode, hue: string) => {
+    m.set(n.id, hue)
+    for (const c of n.children) walk(c, hue)
+  }
+  for (let i = 0; i < lrRootChildren.value.length; i++) {
+    const c = lrRootChildren.value[i]
+    walk(c, RAINBOW[i % RAINBOW.length])
+  }
   return m
 })
 
-const edges = computed(() => {
-  const out: { from: LayoutNode; to: LayoutNode; key: string }[] = []
-  for (const n of allNodes.value) {
-    for (const c of n.children) {
-      out.push({ from: n, to: c, key: `${n.id}->${c.id}` })
-    }
+function lineColorFor(_parent: LayoutNode, child: LayoutNode): string {
+  if (settings.rainbowBranch) {
+    return branchColor.value.get(child.id) ?? theme.value.lineColor
   }
-  return out
+  return theme.value.lineColor
+}
+
+function nodeBg(n: LayoutNode): string {
+  const s = getNodeStyle(n.id)
+  if (s.bg) return s.bg
+  if (n.isRoot) return theme.value.rootBg
+  if (settings.rainbowBranch) {
+    const hue = branchColor.value.get(n.id)
+    if (hue) return hexWithAlpha(hue, 0.18)
+  }
+  return theme.value.branchBg
+}
+function nodeFg(n: LayoutNode): string {
+  const s = getNodeStyle(n.id)
+  if (s.textColor) return s.textColor
+  if (n.isRoot) return theme.value.rootText
+  if (settings.rainbowBranch) {
+    const hue = branchColor.value.get(n.id)
+    if (hue) return darken(hue, 0.55)
+  }
+  return theme.value.branchText
+}
+function nodeBorder(n: LayoutNode): string {
+  const s = getNodeStyle(n.id)
+  if (s.borderColor) return s.borderColor
+  if (n.isRoot) return theme.value.rootBg
+  if (settings.rainbowBranch) {
+    const hue = branchColor.value.get(n.id)
+    if (hue) return darken(hue, 0.3)
+  }
+  return theme.value.lineColor
+}
+function nodeFontWeight(n: LayoutNode): number {
+  const s = getNodeStyle(n.id)
+  return s.fontWeight ?? (n.isRoot ? 600 : 400)
+}
+
+function hexWithAlpha(hex: string, alpha: number): string {
+  const h = hex.replace('#', '')
+  const full = h.length === 6 ? h : h.split('').map((c) => c + c).join('')
+  const r = parseInt(full.slice(0, 2), 16)
+  const g = parseInt(full.slice(2, 4), 16)
+  const b = parseInt(full.slice(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+function darken(hex: string, amount: number): string {
+  const h = hex.replace('#', '')
+  const full = h.length === 6 ? h : h.split('').map((c) => c + c).join('')
+  const r = Math.round(parseInt(full.slice(0, 2), 16) * (1 - amount))
+  const g = Math.round(parseInt(full.slice(2, 4), 16) * (1 - amount))
+  const b = Math.round(parseInt(full.slice(4, 6), 16) * (1 - amount))
+  return `rgb(${r}, ${g}, ${b})`
+}
+
+// pan / zoom
+const panZoom = usePanZoom({ getContainer: () => wrapperRef.value })
+
+// node drag — collectDescendants and getNodeById need access to allNodes
+const allNodesComputed = ref<LayoutNode[]>([])
+const nodesByIdComputed = ref<Map<string, LayoutNode>>(new Map())
+const allNodes = computed<LayoutNode[]>(() => {
+  // touch layoutVersion so updates propagate
+  void layoutVersion.value
+  return allNodesComputed.value
 })
-
-// svg viewBox centered on root
-const viewBox = computed(() => {
-  const r = layoutResult.value
-  return `${r.vbX} ${r.vbY} ${r.vbW} ${r.vbH}`
+const nodesById = computed(() => {
+  void layoutVersion.value
+  return nodesByIdComputed.value
 })
-
-// drag state for node
-const draggingNodeId = ref<string | null>(null)
-const dragStart = reactive<{ x: number; y: number; sx: number; sy: number }>({ x: 0, y: 0, sx: 0, sy: 0 })
-const dragDelta = ref<{ x: number; y: number } | null>(null)
-
-function startNodeDrag(e: MouseEvent, n: LayoutNode) {
-  if (props.readonly) return
-  e.stopPropagation()
-  draggingNodeId.value = n.id
-  dragStart.x = e.clientX
-  dragStart.y = e.clientY
-  dragStart.sx = n.x
-  dragStart.sy = n.y
-  dragDelta.value = { x: 0, y: 0 }
-  window.addEventListener('mousemove', onNodeDragMove)
-  window.addEventListener('mouseup', onNodeDragEnd)
-}
-
-function onNodeDragMove(e: MouseEvent) {
-  if (!draggingNodeId.value) return
-  const scaleFix = 1 / scale.value
-  dragDelta.value = {
-    x: (e.clientX - dragStart.x) * scaleFix,
-    y: (e.clientY - dragStart.y) * scaleFix,
-  }
-}
-
-function onNodeDragEnd() {
-  if (draggingNodeId.value && dragDelta.value) {
-    // commit offset
-    const off = nodeOffsets.get(draggingNodeId.value) ?? { x: 0, y: 0 }
-    nodeOffsets.set(draggingNodeId.value, {
-      x: off.x + dragDelta.value.x,
-      y: off.y + dragDelta.value.y,
-    })
-    // also move children along with parent so the tree stays connected
-    const childIds = collectDescendants(draggingNodeId.value)
-    for (const cid of childIds) {
-      const c = nodeOffsets.get(cid) ?? { x: 0, y: 0 }
-      nodeOffsets.set(cid, { x: c.x + dragDelta.value.x, y: c.y + dragDelta.value.y })
-    }
-  }
-  draggingNodeId.value = null
-  window.removeEventListener('mousemove', onNodeDragMove)
-  window.removeEventListener('mouseup', onNodeDragEnd)
-  dragDelta.value = null
-}
-
 function collectDescendants(rootId: string): string[] {
   const out: string[] = []
   const walk = (n: LayoutNode) => {
@@ -184,140 +242,91 @@ function collectDescendants(rootId: string): string[] {
   if (root) walk(root)
   return out
 }
-
-function nodePos(n: LayoutNode) {
-  const d = dragDelta.value
-  const off = nodeOffsets.get(n.id) ?? { x: 0, y: 0 }
-  if (d && draggingNodeId.value === n.id) {
-    return { x: n.x + off.x + d.x, y: n.y + off.y + d.y }
-  }
-  return { x: n.x + off.x, y: n.y + off.y }
-}
-
-function startPan(e: MouseEvent) {
-  if ((e.target as HTMLElement).closest('.zm-node, .zm-toolbar, button')) return
-  isPanning.value = true
-  panStart.x = e.clientX
-  panStart.y = e.clientY
-  panStart.ox = offsetX.value
-  panStart.oy = offsetY.value
-  window.addEventListener('mousemove', onPanMove)
-  window.addEventListener('mouseup', endPan)
-  selectedId.value = null
-  emit('select', null)
-}
-
-function onPanMove(e: MouseEvent) {
-  if (!isPanning.value) return
-  offsetX.value = panStart.ox + (e.clientX - panStart.x)
-  offsetY.value = panStart.oy + (e.clientY - panStart.y)
-}
-
-function endPan() {
-  isPanning.value = false
-  window.removeEventListener('mousemove', onPanMove)
-  window.removeEventListener('mouseup', endPan)
-}
-
-function onWheel(e: WheelEvent) {
-  e.preventDefault()
-  const delta = -e.deltaY * 0.001
-  const next = Math.min(3, Math.max(0.2, scale.value * (1 + delta)))
-  // zoom towards cursor
-  const rect = wrapperRef.value!.getBoundingClientRect()
-  const cx = e.clientX - rect.left
-  const cy = e.clientY - rect.top
-  const wx = (cx - offsetX.value) / scale.value
-  const wy = (cy - offsetY.value) / scale.value
-  scale.value = next
-  offsetX.value = cx - wx * next
-  offsetY.value = cy - wy * next
-}
-
-function zoomIn() {
-  scale.value = Math.min(3, scale.value * 1.2)
-}
-function zoomOut() {
-  scale.value = Math.max(0.2, scale.value / 1.2)
-}
-function resetView() {
-  if (!wrapperRef.value) return
-  const rect = wrapperRef.value.getBoundingClientRect()
-  const padding = 60
-  const { width, height } = layoutResult.value
-  const sx = (rect.width - padding * 2) / width
-  const sy = (rect.height - padding * 2) / height
-  const fit = Math.min(1, Math.max(0.3, Math.min(sx, sy)))
-  scale.value = fit
-  // center root (layout x=0, y=layoutResult.root.y) in the viewport
-  offsetX.value = rect.width / 2
-  offsetY.value = rect.height / 2 - layoutResult.value.root.y * fit
-}
-
-onMounted(() => {
-  nextTick(() => resetView())
-  window.addEventListener('keydown', onKey)
-})
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKey)
+const nodeDrag = useNodeDrag({
+  scale: panZoom.scale,
+  getNodeById: (id) => nodesById.value.get(id),
+  collectDescendants,
+  onChange: () => triggerRef(),
 })
 
-// re-center view when layout dimensions change
-watch(
-  () => layoutResult.value.width,
-  () => nextTick(() => resetView())
-)
-
-function onKey(e: KeyboardEvent) {
-  // ignore when typing in any input/textarea/contenteditable
-  const tgt = e.target as HTMLElement | null
-  if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable)) return
-  if (editingId.value) return
-  if (props.readonly) return
-  if (e.key === 'Tab') {
-    e.preventDefault()
-    if (selectedId.value) doAddChild(selectedId.value)
-  } else if (e.key === 'Enter') {
-    e.preventDefault()
-    if (selectedId.value) doAddSibling(selectedId.value)
-  } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId.value && selectedId.value !== dataRef.value.id) {
-    e.preventDefault()
-    doRemove(selectedId.value)
-  } else if (e.key === 'F2' && selectedId.value) {
-    e.preventDefault()
-    startEdit(selectedId.value)
-  } else if (e.key === 'Escape') {
+// keyboard
+useKeyboard({
+  isEditing: () => editingId.value !== null,
+  isReadonly: () => props.readonly,
+  getSelectedId: () => selectedId.value,
+  getRootId: () => dataRef.value.id,
+  // If nothing is selected, default Tab/Enter to the root so the user
+  // can build a tree from scratch without first clicking somewhere.
+  defaultTargetId: () => dataRef.value.id,
+  onAddChild: doAddChild,
+  onAddSibling: doAddSibling,
+  onAddSiblingBefore: doAddSiblingBefore,
+  onRemove: doRemove,
+  onStartEdit: startEdit,
+  onClearSelection: () => {
     selectedId.value = null
     emit('select', null)
-  }
-}
+  },
+  onDuplicate: doDuplicate,
+  onUndo: doUndo,
+  onRedo: doRedo,
+  onNavigate: doNavigate,
+  onSelectRoot: () => {
+    selectedId.value = dataRef.value.id
+    const n = findNode(dataRef.value, dataRef.value.id)
+    if (n) emit('select', n)
+  },
+})
 
-function doAddChild(parentId: string) {
-  const n = addChild(dataRef.value, parentId, '新节点')
-  if (n) {
-    triggerRef()
-    emit('change', dataRef.value)
-    nextTick(() => startEdit(n.id))
+// layout
+const layoutResult = computed(() => {
+  const data = clone(dataRef.value)
+  applyCollapse(data)
+  const r = layout(data, { balanced: balanced.value })
+  return r
+})
+
+// Walk the layout in one pass, building both the flat node list and the lookup map
+watch(
+  layoutResult,
+  (r) => {
+    const list: LayoutNode[] = []
+    const map = new Map<string, LayoutNode>()
+    const walk = (n: LayoutNode) => {
+      list.push(n)
+      map.set(n.id, n)
+      for (const c of n.children) walk(c)
+    }
+    walk(r.root)
+    allNodesComputed.value = list
+    nodesByIdComputed.value = map
+  },
+  { immediate: true }
+)
+
+const edges = computed(() => {
+  const out: { from: LayoutNode; to: LayoutNode; key: string }[] = []
+  for (const n of allNodes.value) {
+    for (const c of n.children) {
+      out.push({ from: n, to: c, key: `${n.id}->${c.id}` })
+    }
   }
-}
-function doAddSibling(nodeId: string) {
-  if (nodeId === dataRef.value.id) {
-    doAddChild(nodeId)
+  return out
+})
+
+const viewBox = computed(
+  () =>
+    `${layoutResult.value.vbX} ${layoutResult.value.vbY} ${layoutResult.value.vbW} ${layoutResult.value.vbH}`
+)
+
+function applyCollapse(n: MindMapNode) {
+  if (collapsedIds.value.has(n.id)) {
+    n.children = []
+    n.collapsed = true
     return
   }
-  const n = addSibling(dataRef.value, nodeId, '新节点')
-  if (n) {
-    triggerRef()
-    emit('change', dataRef.value)
-    nextTick(() => startEdit(n.id))
-  }
-}
-function doRemove(nodeId: string) {
-  if (nodeId === dataRef.value.id) return
-  removeNode(dataRef.value, nodeId)
-  if (selectedId.value === nodeId) selectedId.value = null
-  triggerRef()
-  emit('change', dataRef.value)
+  n.collapsed = false
+  for (const c of n.children) applyCollapse(c)
 }
 
 function startEdit(id: string) {
@@ -325,20 +334,170 @@ function startEdit(id: string) {
   if (!n) return
   editingId.value = id
   editText.value = n.text
+  // The input is mounted conditionally; once it appears we have to focus
+  // it ourselves.  Use nextTick so the v-else branch has rendered.
+  nextTick(() => {
+    const el = document.querySelector('.zm-input') as HTMLInputElement | null
+    el?.focus()
+    el?.select()
+  })
 }
 
-function commitEdit() {
+function commitEdit(opts: { addSibling?: 'after' | 'before'; addChild?: boolean } = {}) {
   if (!editingId.value) return
   const n = findNode(dataRef.value, editingId.value)
-  if (n) {
+  if (n && n.text !== (editText.value.trim() || ' ')) {
     n.text = editText.value.trim() || ' '
+    record()
     emit('change', dataRef.value)
   }
+  const id = editingId.value
   editingId.value = null
+  // After committing, optionally add a new node in the same pass.
+  // This matches xmind: pressing Enter while editing commits the text
+  // AND creates a fresh sibling ready to type into.  Tab while editing
+  // commits and creates a child of the same node.
+  if (opts.addChild) {
+    nextTick(() => doAddChild(id))
+  } else if (opts.addSibling === 'after') {
+    nextTick(() => doAddSibling(id))
+  } else if (opts.addSibling === 'before') {
+    nextTick(() => doAddSiblingBefore(id))
+  }
 }
 
 function cancelEdit() {
   editingId.value = null
+}
+
+function onEditKeydown(e: KeyboardEvent) {
+  const mod = e.metaKey || e.ctrlKey
+  if (mod && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+    e.preventDefault()
+    doUndo()
+  } else if (
+    (mod && e.shiftKey && (e.key === 'z' || e.key === 'Z')) ||
+    (mod && (e.key === 'y' || e.key === 'Y') && !e.shiftKey)
+  ) {
+    e.preventDefault()
+    doRedo()
+  }
+}
+
+function doAddChild(parentId: string) {
+  const n = addChild(dataRef.value, parentId, DEFAULT_NEW_NODE_TEXT)
+  if (n) {
+    record()
+    triggerRef()
+    emit('change', dataRef.value)
+    nextTick(() => startEdit(n.id))
+  }
+}
+
+function doAddSibling(nodeId: string) {
+  if (nodeId === dataRef.value.id) {
+    doAddChild(nodeId)
+    return
+  }
+  const n = addSibling(dataRef.value, nodeId, DEFAULT_NEW_NODE_TEXT)
+  if (n) {
+    record()
+    triggerRef()
+    emit('change', dataRef.value)
+    nextTick(() => startEdit(n.id))
+  }
+}
+
+function doAddSiblingBefore(nodeId: string) {
+  // root has no siblings to insert before — fall back to addChild
+  if (nodeId === dataRef.value.id) {
+    doAddChild(nodeId)
+    return
+  }
+  const n = addSiblingBefore(dataRef.value, nodeId, DEFAULT_NEW_NODE_TEXT)
+  if (n) {
+    record()
+    triggerRef()
+    emit('change', dataRef.value)
+    nextTick(() => startEdit(n.id))
+  }
+}
+
+function doDuplicate(nodeId: string) {
+  if (nodeId === dataRef.value.id) return
+  const n = duplicateNode(dataRef.value, nodeId)
+  if (n) {
+    record()
+    selectedId.value = n.id
+    emit('change', dataRef.value)
+    triggerRef()
+  }
+}
+
+function doUndo() {
+  const restored = history.undo()
+  if (restored) {
+    dataRef.value = restored
+    selectedId.value = null
+    emit('select', null)
+    triggerRef()
+    emit('change', dataRef.value)
+  }
+}
+
+function doRedo() {
+  const restored = history.redo()
+  if (restored) {
+    dataRef.value = restored
+    selectedId.value = null
+    emit('select', null)
+    triggerRef()
+    emit('change', dataRef.value)
+  }
+}
+
+function doNavigate(dx: number, dy: number) {
+  const cur = selectedId.value ?? dataRef.value.id
+  const node = findNode(dataRef.value, cur)
+  if (!node) return
+  let nextId: string | null = null
+  if (dy === +1) {
+    // next sibling
+    const p = findParent(dataRef.value, node.id)
+    if (p) {
+      const i = p.children.findIndex((c) => c.id === node.id)
+      if (i >= 0 && i < p.children.length - 1) nextId = p.children[i + 1].id
+    }
+  } else if (dy === -1) {
+    // previous sibling
+    const p = findParent(dataRef.value, node.id)
+    if (p) {
+      const i = p.children.findIndex((c) => c.id === node.id)
+      if (i > 0) nextId = p.children[i - 1].id
+    }
+  } else if (dx === +1) {
+    // parent (up the tree)
+    const p = findParent(dataRef.value, node.id)
+    if (p) nextId = p.id
+  } else if (dx === -1) {
+    // first child
+    if (node.children.length > 0) nextId = node.children[0].id
+  }
+  if (nextId) {
+    selectedId.value = nextId
+    const next = findNode(dataRef.value, nextId)
+    if (next) emit('select', next)
+  }
+}
+
+function doRemove(nodeId: string) {
+  if (nodeId === dataRef.value.id) return
+  if (removeNode(dataRef.value, nodeId)) {
+    record()
+    if (selectedId.value === nodeId) selectedId.value = null
+    triggerRef()
+    emit('change', dataRef.value)
+  }
 }
 
 function toggleCollapse(id: string) {
@@ -354,6 +513,19 @@ function onNodeClick(e: MouseEvent, n: LayoutNode) {
   emit('select', data)
 }
 
+/** Click on the canvas background (not on a node) — clear the
+ *  current selection and tell the parent. */
+function onCanvasClick(e: MouseEvent) {
+  const target = e.target as HTMLElement | null
+  if (!target) return
+  // Ignore clicks that land on a node or its control buttons.
+  if (target.closest('.zm-node')) return
+  if (selectedId.value !== null) {
+    selectedId.value = null
+    emit('select', null)
+  }
+}
+
 function isCollapsed(id: string) {
   return collapsedIds.value.has(id)
 }
@@ -363,15 +535,80 @@ function nodeHasChildren(n: LayoutNode) {
   return !!data && data.children.length > 0
 }
 
-function bezierPath(from: { x: number; y: number }, to: { x: number; y: number }): string {
-  const dx = (to.x - from.x) * 0.5
-  const sx = from.x + dx
-  const ex = to.x - dx
+function bezierPath(
+  from: { x: number; y: number },
+  to: { x: number; y: number }
+): string {
+  // xmind-style: from the parent's side edge horizontally out, then bend
+  // to the child's side edge. Control points are 50% of the horizontal gap
+  // away from each end, on the SAME y as the endpoint they belong to,
+  // which gives a smooth S-curve that hugs the horizontal first.
+  const dx = Math.abs(to.x - from.x) * 0.5
+  const sx = from.x + (to.x > from.x ? dx : -dx)
+  const ex = to.x + (to.x > from.x ? -dx : dx)
   return `M ${from.x} ${from.y} C ${sx} ${from.y}, ${ex} ${to.y}, ${to.x} ${to.y}`
 }
 
-function lineAnchor(n: LayoutNode, side: 'in' | 'out', dir?: 1 | -1): { x: number; y: number } {
-  const p = nodePos(n)
+/** Control points for the same bezier as bezierPath(), returned as
+ *  {x1,y1,x2,y2} so the template can split the curve into N
+ *  segments for the tapered-stroke effect. */
+function bezierControls(
+  from: { x: number; y: number },
+  to: { x: number; y: number }
+): { x1: number; y1: number; x2: number; y2: number } {
+  const dx = Math.abs(to.x - from.x) * 0.5
+  const sx = from.x + (to.x > from.x ? dx : -dx)
+  const ex = to.x + (to.x > from.x ? -dx : dx)
+  return { x1: sx, y1: from.y, x2: ex, y2: to.y }
+}
+
+/** Cubic Bezier point at parameter t in [0,1].  P0=P(from),
+ *  P1=(x1,y1), P2=(x2,y2), P3=P(to). */
+function cubicAt(
+  t: number,
+  from: { x: number; y: number },
+  c: { x1: number; y1: number; x2: number; y2: number },
+  to: { x: number; y: number }
+) {
+  const u = 1 - t
+  const x = u * u * u * from.x + 3 * u * u * t * c.x1 + 3 * u * t * t * c.x2 + t * t * t * to.x
+  const y = u * u * u * from.y + 3 * u * u * t * c.y1 + 3 * u * t * t * c.y2 + t * t * t * to.y
+  return { x, y }
+}
+
+/** Render one edge as a sequence of small segments whose stroke
+ *  width tapers from `start` at the parent end to `end` at the child
+ *  end.  Returns an array of { d, w } for the template. */
+function taperedSegments(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  start: number,
+  end: number,
+  n = 6
+): { d: string; w: number }[] {
+  const c = bezierControls(from, to)
+  const out: { d: string; w: number }[] = []
+  for (let i = 0; i < n; i++) {
+    const t0 = i / n
+    const t1 = (i + 1) / n
+    const p0 = i === 0 ? from : cubicAt(t0, from, c, to)
+    const p1 = cubicAt(t1, from, c, to)
+    // taper: width lerps from `start` (at t=0) to `end` (at t=1)
+    const w = start + (end - start) * t0
+    out.push({ d: `M ${p0.x} ${p0.y} L ${p1.x} ${p1.y}`, w: Math.max(0.2, w) })
+  }
+  return out
+}
+
+function lineAnchor(
+  n: LayoutNode,
+  side: 'in' | 'out',
+  dir?: 1 | -1
+): { x: number; y: number } {
+  const p = nodeDrag.nodePos(n)
+  // Both 'in' and 'out' anchor at the node's own y so the line lands
+  // precisely on the node's side mid-point. The bezier control points do
+  // the smoothing (xmind-style).
   const y = p.y
   if (n.isRoot) {
     const d = (dir ?? 1) as 1 | -1
@@ -379,31 +616,171 @@ function lineAnchor(n: LayoutNode, side: 'in' | 'out', dir?: 1 | -1): { x: numbe
   }
   let d: 1 | -1
   if (side === 'in') {
-    d = (((n.parent?.children.indexOf(n) ?? 0) % 2 === 0 ? 1 : -1) * -1) as 1 | -1
+    // the 'in' side faces the parent, so it is the opposite of n.side
+    d = (-n.side) as 1 | -1
   } else {
     d = n.side
   }
   if (dir !== undefined) d = dir
   return { x: p.x + d * (n.width / 2), y }
 }
+
+function resetView() {
+  const r = layoutResult.value
+  panZoom.resetView(r.width, r.height, r.root.y)
+}
+
+function runBalance() {
+  // 1. clear all manual drag offsets so dragged nodes return to the
+  //    algorithm-defined position
+  nodeDrag.resetOffsets()
+  // 2. apply balanced layout (re-runs the layout computed with
+  //    { balanced: true })
+  balanced.value = true
+  // 3. force a layoutVersion bump so the computed re-runs immediately
+  triggerRef()
+  // 4. re-center the view so the user sees the result
+  nextTick(() => resetView())
+}
+
+function exportData(): string {
+  return JSON.stringify(dataRef.value, null, 2)
+}
+
+function importData(json: string): boolean {
+  try {
+    const parsed = JSON.parse(json) as MindMapNode
+    if (!parsed.id || !Array.isArray(parsed.children)) return false
+    history.reset()
+    dataRef.value = clone(parsed)
+    selectedId.value = null
+    collapsedIds.value = new Set()
+    nodeDrag.resetOffsets()
+    triggerRef()
+    nextTick(() => resetView())
+    emit('change', dataRef.value)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function importFromFile() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'application/json'
+  input.onchange = () => {
+    const f = input.files?.[0]
+    if (!f) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        if (!importData(reader.result)) alert('导入失败:JSON 格式无效')
+      }
+    }
+    reader.readAsText(f)
+  }
+  input.click()
+}
+
+function exportToFile() {
+  const blob = new Blob([exportData()], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${dataRef.value.text || 'mindmap'}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+defineExpose<MindMapExpose>({
+  addChild: (parentId: string) => doAddChild(parentId),
+  addSibling: (nodeId: string) => doAddSibling(nodeId),
+  removeNode: (nodeId: string) => doRemove(nodeId),
+  duplicateNode: (nodeId: string) => doDuplicate(nodeId),
+  getData: () => dataRef.value,
+  setData: (d) => {
+    history.reset()
+    dataRef.value = clone(d)
+    selectedId.value = null
+    collapsedIds.value = new Set()
+    nodeDrag.resetOffsets()
+    triggerRef()
+    nextTick(() => resetView())
+  },
+  resetView: () => resetView(),
+  exportData,
+  importData,
+  // Make balanced the active layout (sticky).  Subsequent data changes
+  // and additions stay in balanced mode.  Pass `false` to revert to the
+  // default compact layout.
+  setBalanced: (v: boolean) => {
+    balanced.value = v
+  },
+  isBalanced: () => balanced.value,
+  // Re-balance now: clear all manual drag offsets, re-run the balanced
+  // layout, and re-center the view.  This is the action tied to the
+  // "balance" toolbar button.
+  balance: () => runBalance(),
+  applyNodeStyle: (id: string, style: NodeStyle) => applyNodeStyle(id, style),
+  getNodeStyle: (id: string): NodeStyle => getNodeStyle(id),
+  undo: () => doUndo(),
+  redo: () => doRedo(),
+  canUndo: () => history.canUndo(),
+  canRedo: () => history.canRedo(),
+  // Settings panel / external mutation hooks
+  applySettings: (s: Partial<MindMapSettings>) => {
+    if (s.autoBalanceOnChange !== undefined) settings.autoBalanceOnChange = s.autoBalanceOnChange
+    if (s.lineWidthStart !== undefined)
+      settings.lineWidthStart = Math.max(0.3, Math.min(8, s.lineWidthStart))
+    if (s.lineWidthEnd !== undefined)
+      settings.lineWidthEnd = Math.max(0.2, Math.min(8, s.lineWidthEnd))
+    if (s.rainbowBranch !== undefined) settings.rainbowBranch = s.rainbowBranch
+  },
+  getSettings: (): MindMapSettings => ({
+    autoBalanceOnChange: settings.autoBalanceOnChange,
+    lineWidthStart: settings.lineWidthStart,
+    lineWidthEnd: settings.lineWidthEnd,
+    rainbowBranch: settings.rainbowBranch,
+  }),
+})
+
+watch(
+  () => props.data,
+  (v) => {
+    dataRef.value = clone(v)
+    triggerRef()
+  },
+  { deep: false }
+)
+
+onMounted(() => {
+  nextTick(() => resetView())
+})
+
+// re-center when layout dimensions change
+watch(
+  () => layoutResult.value.width,
+  () => nextTick(() => resetView())
+)
 </script>
 
 <template>
   <div
-    ref="containerRef"
     class="zm-mindmap"
     :style="{ background: theme.bgColor, fontSize: theme.fontSize + 'px' }"
   >
     <div
       ref="wrapperRef"
       class="zm-canvas"
-      @mousedown="startPan"
-      @wheel="onWheel"
+      @mousedown="panZoom.startPan"
+      @wheel="panZoom.onWheel"
+      @click="onCanvasClick"
     >
       <div
         class="zm-world"
         :style="{
-          transform: `translate(${offsetX}px, ${offsetY}px) scale(${scale})`,
+          transform: `translate(${panZoom.offsetX.value}px, ${panZoom.offsetY.value}px) scale(${panZoom.scale.value})`,
         }"
       >
         <svg
@@ -418,14 +795,16 @@ function lineAnchor(n: LayoutNode, side: 'in' | 'out', dir?: 1 | -1): { x: numbe
           }"
         >
           <g class="zm-edges">
-            <path
-              v-for="e in edges"
-              :key="e.key"
-              :d="bezierPath(lineAnchor(e.from, 'out', e.to.side), lineAnchor(e.to, 'in'))"
-              fill="none"
-              :stroke="theme.lineColor"
-              stroke-width="1.4"
-            />
+            <template v-for="e in edges" :key="e.key">
+              <path
+                v-for="(seg, i) in taperedSegments(lineAnchor(e.from, 'out', e.to.side), lineAnchor(e.to, 'in'), settings.lineWidthStart, settings.lineWidthEnd)"
+                :key="e.key + '-s' + i"
+                :d="seg.d"
+                fill="none"
+                :stroke="lineColorFor(e.from, e.to)"
+                :stroke-width="seg.w"
+              />
+            </template>
           </g>
         </svg>
 
@@ -439,15 +818,16 @@ function lineAnchor(n: LayoutNode, side: 'in' | 'out', dir?: 1 | -1): { x: numbe
             'is-editing': editingId === n.id,
           }"
           :style="{
-            left: nodePos(n).x - n.width / 2 + 'px',
-            top: nodePos(n).y - LAYOUT.NODE_H / 2 + 'px',
+            left: nodeDrag.nodePos(n).x - n.width / 2 + 'px',
+            top: nodeDrag.nodePos(n).y - LAYOUT.NODE_H / 2 + 'px',
             minWidth: n.width + 'px',
             height: LAYOUT.NODE_H + 'px',
-            background: n.isRoot ? theme.rootBg : theme.branchBg,
-            color: n.isRoot ? theme.rootText : theme.branchText,
-            borderColor: n.isRoot ? theme.rootBg : theme.lineColor,
+            background: nodeBg(n),
+            color: nodeFg(n),
+            borderColor: nodeBorder(n),
+            fontWeight: nodeFontWeight(n),
           }"
-          @mousedown="(e) => startNodeDrag(e, n)"
+          @mousedown="(e) => nodeDrag.startNodeDrag(e, n, readonly)"
           @click="(e) => onNodeClick(e, n)"
           @dblclick="(e) => { e.stopPropagation(); if (!readonly) startEdit(n.id) }"
         >
@@ -457,9 +837,12 @@ function lineAnchor(n: LayoutNode, side: 'in' | 'out', dir?: 1 | -1): { x: numbe
             class="zm-input"
             v-model="editText"
             autofocus
-            @blur="commitEdit"
-            @keydown.enter="commitEdit"
+            @blur="commitEdit()"
+            @keydown.enter.exact="commitEdit({ addSibling: 'after' })"
+            @keydown.shift.enter.prevent.exact="commitEdit({ addSibling: 'before' })"
+            @keydown.tab.prevent="commitEdit({ addChild: true })"
             @keydown.esc="cancelEdit"
+            @keydown="onEditKeydown"
             @mousedown.stop
             @click.stop
           />
@@ -498,17 +881,53 @@ function lineAnchor(n: LayoutNode, side: 'in' | 'out', dir?: 1 | -1): { x: numbe
     </div>
 
     <div class="zm-toolbar">
-      <button class="zm-tb-btn" title="放大" @click="zoomIn"><Icon name="zoom-in" /></button>
-      <button class="zm-tb-btn" title="缩小" @click="zoomOut"><Icon name="zoom-out" /></button>
-      <button class="zm-tb-btn" title="重置视图" @click="resetView"><Icon name="reset" /></button>
+      <button class="zm-tb-btn" title="放大" @click="panZoom.zoomIn">
+        <Icon name="zoom-in" />
+      </button>
+      <button class="zm-tb-btn" title="缩小" @click="panZoom.zoomOut">
+        <Icon name="zoom-out" />
+      </button>
+      <button class="zm-tb-btn" title="重置视图" @click="resetView">
+        <Icon name="reset" />
+      </button>
       <span class="zm-tb-divider" />
-      <button v-if="!readonly" class="zm-tb-btn" title="添加子节点 (Tab)" @click="selectedId && doAddChild(selectedId)">
+      <button
+        v-if="!readonly"
+        class="zm-tb-btn"
+        title="添加子节点 (Tab)"
+        @click="selectedId && doAddChild(selectedId)"
+      >
         <Icon name="add" />
       </button>
-      <button v-if="!readonly" class="zm-tb-btn" title="添加同级 (Enter)" @click="selectedId && doAddSibling(selectedId)">
+      <button
+        v-if="!readonly"
+        class="zm-tb-btn"
+        title="添加同级 (Enter)"
+        @click="selectedId && doAddSibling(selectedId)"
+      >
         <Icon name="edit" />
       </button>
-      <span class="zm-tb-tip">{{ Math.round(scale * 100) }}%</span>
+      <span class="zm-tb-divider" />
+      <button
+        class="zm-tb-btn"
+        title="平衡图表:重新均匀分布各分支,并撤销手动拖动"
+        @click="runBalance"
+      >
+        <Icon name="balance" />
+      </button>
+      <span class="zm-tb-divider" />
+      <button
+        v-if="!readonly"
+        class="zm-tb-btn"
+        title="导入 JSON"
+        @click="importFromFile"
+      >
+        <Icon name="import" />
+      </button>
+      <button class="zm-tb-btn" title="导出 JSON" @click="exportToFile">
+        <Icon name="export" />
+      </button>
+      <span class="zm-tb-tip">{{ Math.round(panZoom.scale.value * 100) }}%</span>
     </div>
   </div>
 </template>
