@@ -132,73 +132,38 @@ const settings = reactive<MindMapSettings>({
 
 const lrRootChildren = computed<LayoutNode[]>(() => layoutResult.value.root.children)
 
-// Per-side anchor positions on the root. Anchors are placed on a
-// half-ellipse around the root, not on a vertical strip off the
-// side edge. The half-ellipse uses the root's half-width on the x
-// axis and a y axis that grows to match the spread of children on
-// the same side — so 5+ children at very different heights get 5
-// anchors that fan out across the ellipse instead of stacking on
-// a single vertical line.
-//
-// theta for each child is derived from its rank in sorted order, so
-// the topmost child gets theta=-PI/2 (anchor at the top of the
-// ellipse, just past the root's top corner) and the bottommost gets
-// theta=+PI/2. Single children snap to the side mid-edge (theta=0).
-//
-// Result: middle children exit from the side mid-edge, extremes
-// wrap toward the corners — and never look detached from the root
-// because each anchor is on the ellipse surface, not floating
-// outside it.
+// Per-side anchor positions on the root. Anchor x is the root's
+// side edge (or, for a non-root parent, the node's own side edge)
+// — no outward offset, no inward pull, no ellipse projection.
+// Anchor y mirrors the child's y, clamped to a small overshoot
+// past the root box so 5+ branches on a side still spread out a
+// bit, but the anchors never wrap to the top/bottom of the root
+// (which would put the path's parent end on top of the root
+// rectangle itself, hiding the connection).
 const rootEdgeAnchor = computed<Map<string, { x: number; y: number }>>(() => {
   const m = new Map<string, { x: number; y: number }>()
   const root = layoutResult.value.root
   const pos = nodeDrag.nodePos(root)
   const halfW = root.width / 2
   const halfH = root.height / 2
-  const xOut = 2
+  // y reach: a small overshoot past the root half-height so 4+
+  // branches on a side have a little room to spread, but not so
+  // much that the topmost anchor lands on the root's top edge.
+  const yReach = halfH * 1.15
   for (const side of [-1, 1] as const) {
     const sideKids = root.children
       .filter((c) => c.side === side)
       .slice()
       .sort((a, b) => nodeDrag.nodePos(a).y - nodeDrag.nodePos(b).y)
-    const n = sideKids.length
-    if (n === 0) continue
-    // y reach: at least the root's half-height so a couple of
-    // branches still spread, but the bigger driver is the actual
-    // child y-span (so 5 branches at y 100..600 get 500px of fan).
-    const ys = sideKids.map((c) => nodeDrag.nodePos(c).y)
-    const childSpan = Math.max(...ys) - Math.min(...ys)
-    const b = Math.max(halfH, childSpan * 0.6)
-    // x reach: half-width plus a small outward offset so the
-    // 3.5px-thick parent stroke doesn't get hidden behind the root
-    // box at the side-edge mid-point.
-    const a = halfW + xOut
-    if (n === 1) {
-      // Single child: side mid-edge, clamped so a child directly
-      // above/below the root still gets a line starting on the
-      // side edge.
-      const top = pos.y - halfH + 1
-      const bot = pos.y + halfH - 1
-      const cy = Math.max(top, Math.min(bot, ys[0]))
-      // Place on the ellipse at the angle that produces y=cy.
-      const sin = (cy - pos.y) / b
-      const cos = Math.sqrt(Math.max(0, 1 - sin * sin))
-      m.set(sideKids[0].id, { x: pos.x + side * a * cos, y: cy })
-      continue
-    }
-    // theta spans (-thetaMax, +thetaMax) so extremes wrap toward
-    // the corners but don't land directly above/below the root
-    // (which would put the anchor on the root box itself).
-    const thetaMax = (Math.PI / 2) * 0.85
-    for (let i = 0; i < n; i++) {
-      const t = i / (n - 1)
-      const theta = -thetaMax + t * (2 * thetaMax)
-      const cos = Math.cos(theta)
-      const sin = Math.sin(theta)
-      m.set(sideKids[i].id, {
-        x: pos.x + side * a * cos,
-        y: pos.y + b * sin,
-      })
+    if (sideKids.length === 0) continue
+    const x = pos.x + side * halfW
+    for (const c of sideKids) {
+      const cy = nodeDrag.nodePos(c).y
+      // Map child y into [-yReach, +yReach] around root center,
+      // clamping at the ends so anchors stay attached to the side
+      // edge.
+      const y = Math.max(pos.y - yReach, Math.min(pos.y + yReach, cy))
+      m.set(c.id, { x, y })
     }
   }
   return m
@@ -611,13 +576,12 @@ function bezierPath(
   from: { x: number; y: number },
   to: { x: number; y: number }
 ): string {
-  // xmind-style: from the parent's side edge horizontally out, then bend
-  // to the child's side edge. Control points are 50% of the horizontal gap
-  // away from each end, on the SAME y as the endpoint they belong to,
-  // which gives a smooth S-curve that hugs the horizontal first.
-  const dx = Math.abs(to.x - from.x) * 0.5
-  const sx = from.x + (to.x > from.x ? dx : -dx)
-  const ex = to.x + (to.x > from.x ? -dx : dx)
+  // xmind-style "fish gill" curve: parent's control point at 85%
+  // of the gap (so the line leaves the parent heading almost
+  // horizontally for a long stretch), child-end at 50%.
+  const gap = to.x - from.x
+  const sx = from.x + gap * 0.85
+  const ex = to.x - gap * 0.5
   return `M ${from.x} ${from.y} C ${sx} ${from.y}, ${ex} ${to.y}, ${to.x} ${to.y}`
 }
 
@@ -628,9 +592,16 @@ function bezierControls(
   from: { x: number; y: number },
   to: { x: number; y: number }
 ): { x1: number; y1: number; x2: number; y2: number } {
-  const dx = Math.abs(to.x - from.x) * 0.5
-  const sx = from.x + (to.x > from.x ? dx : -dx)
-  const ex = to.x + (to.x > from.x ? -dx : dx)
+  // xmind-style "fish gill" curve: the parent-end control point
+  // sits at ~85% of the horizontal gap (so the path leaves the
+  // parent heading almost horizontally for a long stretch before
+  // bending to the child), and the child-end control point sits at
+  // ~50% of the gap (so it lands on the child smoothly). y1 stays
+  // at from.y and y2 at to.y, giving the characteristic S-bend
+  // that hugs the side-edge at both ends.
+  const gap = to.x - from.x
+  const sx = from.x + gap * 0.85
+  const ex = to.x - gap * 0.5
   return { x1: sx, y1: from.y, x2: ex, y2: to.y }
 }
 
