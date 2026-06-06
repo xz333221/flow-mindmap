@@ -320,8 +320,10 @@ function buildLayout(
   // fixed: changing it would push children into the root
   // rectangle (children are positioned at root.x ± (root.width/2
   // + H_GAP + child.width/2)).
-  const rootHeightBoost =
-    depth === 0 ? Math.min(100, Math.max(0, node.children.length - 2) * 8) : 0
+  // Root keeps a fixed height regardless of how many direct
+  // children it has — only the children's own y-positions
+  // change with depth, the root's box stays put.
+  const rootHeightBoost = 0
   const ln: LayoutNode = {
     id: node.id,
     text: node.text,

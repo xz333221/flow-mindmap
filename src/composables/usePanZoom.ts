@@ -7,6 +7,13 @@ export interface PanZoomOptions {
   getContainer: () => HTMLElement | null
 }
 
+export interface MarqueeRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export function usePanZoom(opts: PanZoomOptions) {
   const minScale = opts.minScale ?? 0.2
   const maxScale = opts.maxScale ?? 3
@@ -22,6 +29,19 @@ export function usePanZoom(opts: PanZoomOptions) {
     ox: 0,
     oy: 0,
   })
+
+  // Marquee (rectangle selection) state. Set when the user left-presses
+  // on the empty canvas, cleared when the pointer goes back up.
+  const isMarquee = ref(false)
+  const marqueeStart = reactive<{ x: number; y: number }>({ x: 0, y: 0 })
+  const marquee = reactive<MarqueeRect>({ x: 0, y: 0, width: 0, height: 0 })
+  const marqueeVersion = ref(0) // bump so templates can watch marquee
+  // Optional callback fired when a marquee ends. Caller sets this
+  // to apply their own selection logic on the final rect.
+  let onMarqueeEndCb: (() => void) | null = null
+  function setOnMarqueeEnd(cb: (() => void) | null) {
+    onMarqueeEndCb = cb
+  }
 
   function onWheel(e: WheelEvent) {
     e.preventDefault()
@@ -46,7 +66,8 @@ export function usePanZoom(opts: PanZoomOptions) {
     scale.value = Math.max(minScale, scale.value / step)
   }
 
-  function startPan(e: MouseEvent) {
+  // Right-button drag on empty canvas → pan the canvas.
+  function startPan(e: PointerEvent | MouseEvent) {
     const target = e.target as HTMLElement
     if (target.closest('.zm-node, .zm-toolbar, button, input, textarea')) return
     isPanning.value = true
@@ -56,6 +77,7 @@ export function usePanZoom(opts: PanZoomOptions) {
     panStart.oy = offsetY.value
     window.addEventListener('mousemove', onPanMove)
     window.addEventListener('mouseup', endPan)
+    e.preventDefault?.()
   }
 
   function onPanMove(e: MouseEvent) {
@@ -68,6 +90,57 @@ export function usePanZoom(opts: PanZoomOptions) {
     isPanning.value = false
     window.removeEventListener('mousemove', onPanMove)
     window.removeEventListener('mouseup', endPan)
+  }
+
+  // Left-button drag on empty canvas → start a marquee selection.
+  // Caller passes in the pointer position in *world* coordinates
+  // (already converted through scale/offset). We update the
+  // marquee rect in real time; when the user releases, the
+  // caller reads marquee.value and intersects it against node
+  // bboxes to select nodes.
+  function startMarquee(worldX: number, worldY: number) {
+    isMarquee.value = true
+    marqueeStart.x = worldX
+    marqueeStart.y = worldY
+    marquee.x = worldX
+    marquee.y = worldY
+    marquee.width = 0
+    marquee.height = 0
+    marqueeVersion.value++
+    window.addEventListener('mousemove', onMarqueeMove)
+    window.addEventListener('mouseup', endMarquee)
+  }
+
+  function updateMarquee(worldX: number, worldY: number) {
+    if (!isMarquee.value) return
+    const x1 = Math.min(marqueeStart.x, worldX)
+    const y1 = Math.min(marqueeStart.y, worldY)
+    const x2 = Math.max(marqueeStart.x, worldX)
+    const y2 = Math.max(marqueeStart.y, worldY)
+    marquee.x = x1
+    marquee.y = y1
+    marquee.width = x2 - x1
+    marquee.height = y2 - y1
+    marqueeVersion.value++
+  }
+
+  function endMarquee() {
+    isMarquee.value = false
+    window.removeEventListener('mousemove', onMarqueeMove)
+    window.removeEventListener('mouseup', endMarquee)
+    if (onMarqueeEndCb) onMarqueeEndCb()
+  }
+
+  function onMarqueeMove(e: MouseEvent) {
+    if (!isMarquee.value) return
+    // Convert screen coords back to world coords through the
+    // current scale / offset.
+    const container = opts.getContainer()
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    const wx = (e.clientX - rect.left - offsetX.value) / scale.value
+    const wy = (e.clientY - rect.top - offsetY.value) / scale.value
+    updateMarquee(wx, wy)
   }
 
   function resetView(
@@ -96,6 +169,12 @@ export function usePanZoom(opts: PanZoomOptions) {
     zoomIn,
     zoomOut,
     startPan,
+    startMarquee,
+    updateMarquee,
+    isMarquee,
+    marquee,
+    marqueeVersion,
+    setOnMarqueeEnd,
     resetView,
   }
 }

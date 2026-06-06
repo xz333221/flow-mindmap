@@ -276,6 +276,7 @@ function darken(hex: string, amount: number): string {
 
 // pan / zoom
 const panZoom = usePanZoom({ getContainer: () => wrapperRef.value })
+panZoom.setOnMarqueeEnd(onMarqueeEnd)
 
 // node drag — collectDescendants and getNodeById need access to allNodes
 const allNodesComputed = ref<LayoutNode[]>([])
@@ -574,6 +575,28 @@ function onNodeClick(e: MouseEvent, n: LayoutNode) {
 
 /** Click on the canvas background (not on a node) — clear the
  *  current selection and tell the parent. */
+function onCanvasMouseDown(e: MouseEvent) {
+  const target = e.target as HTMLElement | null
+  if (!target) return
+  // Don't start a canvas-level gesture when the press lands on a
+  // node, the toolbar, or any control button — those have their
+  // own handlers (drag-node, button click, etc).
+  if (target.closest('.zm-node, .zm-toolbar, button, input, textarea')) return
+  if (e.button === 2) {
+    // Right button: pan the canvas.
+    panZoom.startPan(e)
+    return
+  }
+  if (e.button !== 0) return
+  // Left button: start a marquee (rectangle selection) anchored
+  // at the press point. Convert screen → world coords through the
+  // current scale / offset.
+  const rect = wrapperRef.value!.getBoundingClientRect()
+  const wx = (e.clientX - rect.left - panZoom.offsetX.value) / panZoom.scale.value
+  const wy = (e.clientY - rect.top - panZoom.offsetY.value) / panZoom.scale.value
+  panZoom.startMarquee(wx, wy)
+}
+
 function onCanvasClick(e: MouseEvent) {
   const target = e.target as HTMLElement | null
   if (!target) return
@@ -582,6 +605,37 @@ function onCanvasClick(e: MouseEvent) {
   if (selectedId.value !== null) {
     selectedId.value = null
     emit('select', null)
+  }
+}
+
+// When a marquee ends, intersect the marquee rectangle with
+// every node's world-space bbox and select all that overlap.
+function onMarqueeEnd() {
+  const m = panZoom.marquee
+  if (m.width < 4 && m.height < 4) {
+    // Treat tiny drags as a click — fall through to onCanvasClick.
+    return
+  }
+  // Compute marquee corners.
+  const x1 = m.x
+  const y1 = m.y
+  const x2 = m.x + m.width
+  const y2 = m.y + m.height
+  const hit: string[] = []
+  for (const n of allNodes.value) {
+    const halfW = n.width / 2
+    const halfH = n.height / 2
+    // Quick AABB intersect in world coords.
+    if (n.x + halfW >= x1 && n.x - halfW <= x2 && n.y + halfH >= y1 && n.y - halfH <= y2) {
+      hit.push(n.id)
+    }
+  }
+  if (hit.length > 0) {
+    // Pick the first hit as the primary selection; downstream code
+    // can use the array via emitted 'select'.
+    selectedId.value = hit[0]
+    const data = findNode(dataRef.value, hit[0])
+    if (data) emit('select', data)
   }
 }
 
@@ -910,7 +964,8 @@ watch(
     <div
       ref="wrapperRef"
       class="zm-canvas"
-      @mousedown="panZoom.startPan"
+      @mousedown="onCanvasMouseDown"
+      @contextmenu.prevent
       @wheel="panZoom.onWheel"
       @click="onCanvasClick"
     >
@@ -922,8 +977,7 @@ watch(
         :style="{
           transform: `translate(${panZoom.offsetX.value}px, ${panZoom.offsetY.value}px)`,
         }"
-      >
-        <svg
+      >        <svg
           class="zm-svg"
           :viewBox="viewBox"
           preserveAspectRatio="xMidYMid meet"
@@ -945,6 +999,21 @@ watch(
           </g>
         </svg>
       </div>
+
+      <!-- Marquee rectangle: shown when the user is dragging on
+           the empty canvas. Positioned in screen-space (does NOT
+           follow the world transform) so it tracks the pointer
+           1:1 regardless of zoom or pan. -->
+      <div
+        v-if="panZoom.isMarquee.value"
+        class="zm-marquee"
+        :style="{
+          left: (panZoom.marquee.x * panZoom.scale.value + panZoom.offsetX.value) + 'px',
+          top: (panZoom.marquee.y * panZoom.scale.value + panZoom.offsetY.value) + 'px',
+          width: (panZoom.marquee.width * panZoom.scale.value) + 'px',
+          height: (panZoom.marquee.height * panZoom.scale.value) + 'px',
+        }"
+      />
 
       <div
         class="zm-world"
@@ -1106,6 +1175,13 @@ watch(
   top: 0;
   transform-origin: 0 0;
   pointer-events: none;
+}
+.zm-marquee {
+  position: absolute;
+  border: 1px dashed #3b82f6;
+  background: rgba(59, 130, 246, 0.08);
+  pointer-events: none;
+  z-index: 5;
 }
 .zm-svg {
   position: absolute;
