@@ -132,6 +132,36 @@ const settings = reactive<MindMapSettings>({
 
 const lrRootChildren = computed<LayoutNode[]>(() => layoutResult.value.root.children)
 
+// Spread the root's outgoing edge anchors evenly along its side edge,
+// per side. Without this, every child's line starts at the root's
+// center (or clamps to the corners), bundling them visually. xmind
+// places each line at an evenly-spaced fraction of the root's height
+// so the fan reads as a fan, not a bundle.
+const rootEdgeY = computed<Map<string, number>>(() => {
+  const m = new Map<string, number>()
+  const root = layoutResult.value.root
+  const pos = nodeDrag.nodePos(root)
+  const innerPad = 6 // keep anchors a few px in from the rounded corners
+  const top = pos.y - root.height / 2 + innerPad
+  const bot = pos.y + root.height / 2 - innerPad
+  for (const side of [-1, 1] as const) {
+    const sideKids = root.children
+      .filter((c) => c.side === side)
+      .slice()
+      .sort((a, b) => nodeDrag.nodePos(a).y - nodeDrag.nodePos(b).y)
+    const n = sideKids.length
+    if (n === 0) continue
+    if (n === 1) {
+      m.set(sideKids[0].id, pos.y)
+      continue
+    }
+    // n anchors, distributed [top, bot] inclusive
+    const step = (bot - top) / (n - 1)
+    for (let i = 0; i < n; i++) m.set(sideKids[i].id, top + step * i)
+  }
+  return m
+})
+
 const RAINBOW = [
   '#f87171', '#fb923c', '#fbbf24', '#a3e635',
   '#34d399', '#22d3ee', '#818cf8', '#c084fc',
@@ -604,19 +634,16 @@ function lineAnchor(
   n: LayoutNode,
   side: 'in' | 'out',
   dir?: 1 | -1,
-  toY?: number
+  child?: LayoutNode
 ): { x: number; y: number } {
   const p = nodeDrag.nodePos(n)
-  // For the root, fan the outgoing lines out from the node's side edge
-  // along its height — each line starts at the y of its target child
-  // (clamped to the root's vertical extent). This matches xmind's
-  // "spread" look instead of bundling every line through the root center.
+  // Root outgoing edges fan along the root's side edge: each edge gets
+  // an evenly-spaced y inside the root's height, computed per-side in
+  // rootEdgeY. Falls back to the root center if the child is not on
+  // the table (shouldn't happen, but keeps the path total).
   if (n.isRoot && side === 'out') {
     const d = (dir ?? 1) as 1 | -1
-    const half = n.height / 2
-    const top = p.y - half
-    const bot = p.y + half
-    const y = toY === undefined ? p.y : Math.max(top, Math.min(bot, toY))
+    const y = child ? rootEdgeY.value.get(child.id) ?? p.y : p.y
     return { x: p.x + d * (n.width / 2), y }
   }
   // Both 'in' and (non-root) 'out' anchor at the node's own y so the line
@@ -810,7 +837,7 @@ watch(
           <g class="zm-edges">
             <template v-for="e in edges" :key="e.key">
               <path
-                v-for="(seg, i) in taperedSegments(lineAnchor(e.from, 'out', e.to.side, nodeDrag.nodePos(e.to).y), lineAnchor(e.to, 'in'), settings.lineWidthStart, settings.lineWidthEnd)"
+                v-for="(seg, i) in taperedSegments(lineAnchor(e.from, 'out', e.to.side, e.to), lineAnchor(e.to, 'in'), settings.lineWidthStart, settings.lineWidthEnd)"
                 :key="e.key + '-s' + i"
                 :d="seg.d"
                 fill="none"
