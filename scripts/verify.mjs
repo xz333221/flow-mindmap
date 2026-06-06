@@ -260,6 +260,21 @@ console.log('outline action copy: success')
 
 await page.screenshot({ path: `${outDir}/09-app-drawers.png`, fullPage: true })
 
+// Fan layout: switch the data to the #fan fixture (9 top-level
+// branches) so the wide-fan anchors at the root are visible. We
+// just set location.hash and let the app's hashchange listener pick
+// it up — no need to reload the page.
+await page.evaluate(() => {
+  location.hash = '#fan'
+})
+await page.waitForTimeout(700)
+await page.waitForSelector('.zm-node', { timeout: 8000 })
+await page.screenshot({ path: `${outDir}/10-fan-compact.png`, fullPage: true })
+// trigger balanced
+await page.locator('.zm-tb-btn[title*="平衡"]').click()
+await page.waitForTimeout(400)
+await page.screenshot({ path: `${outDir}/11-fan-balanced.png`, fullPage: true })
+
 await browser.close()
 
 if (errors.length) {

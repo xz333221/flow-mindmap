@@ -42,7 +42,30 @@ const initialData: MindMapNode = {
   ],
 }
 
-const data = ref<MindMapNode>(initialData)
+function pickDataByHash(): MindMapNode {
+  if (typeof location !== 'undefined' && location.hash === '#fan') return fanData
+  return initialData
+}
+
+// Test fixture: load a multi-branch dataset when the URL has #fan.
+// Used by the verify smoke test to exercise the wide-fan path.
+const fanData: MindMapNode = {
+  id: 'root',
+  text: 'z-mind 思维导图',
+  children: [
+    { id: 'n_a', text: '主题一', children: [] },
+    { id: 'n_b', text: '主题二', children: [] },
+    { id: 'n_c', text: '主题三', children: [] },
+    { id: 'n_d', text: '主题四', children: [] },
+    { id: 'n_e', text: '主题五', children: [] },
+    { id: 'n_f', text: '主题六', children: [] },
+    { id: 'n_g', text: '主题七', children: [] },
+    { id: 'n_h', text: '主题八', children: [] },
+    { id: 'n_i', text: '主题九', children: [] },
+  ],
+}
+
+const data = ref<MindMapNode>(pickDataByHash())
 const selectedNode = ref<MindMapNode | null>(null)
 const collapsedIds = ref<Set<string>>(new Set())
 const showOutline = ref(false)
@@ -50,13 +73,19 @@ const showData = ref(false)
 const showSettings = ref(false)
 const mindMapRef = ref<InstanceType<typeof MindMap> | null>(null)
 
+// React to URL hash changes so the verify smoke test (and a manual
+// reload) can switch to the multi-branch fan fixture.
+function syncHashData() {
+  data.value = pickDataByHash()
+}
+
 // Local mirror of the MindMap settings; we apply changes by calling
 // applySettings on the component.  The initial state matches the
 // MindMap's own defaults so the UI is consistent.
 const settings = reactive<MindMapSettings>({
   autoBalanceOnChange: false,
-  lineWidthStart: 3.0,
-  lineWidthEnd: 1.0,
+  lineWidthStart: 4.0,
+  lineWidthEnd: 0.6,
   rainbowBranch: true,
 })
 
@@ -73,8 +102,8 @@ function onNodeStyleChange(style: { bg?: string; textColor?: string; borderColor
 function resetSettings() {
   const defaults: MindMapSettings = {
     autoBalanceOnChange: false,
-    lineWidthStart: 3.0,
-    lineWidthEnd: 1.0,
+    lineWidthStart: 4.0,
+    lineWidthEnd: 0.6,
     rainbowBranch: true,
   }
   Object.assign(settings, defaults)
@@ -99,6 +128,7 @@ function onKeydown(e: KeyboardEvent) {
 onMounted(() => {
   document.addEventListener('click', onDocClick)
   document.addEventListener('keydown', onKeydown)
+  window.addEventListener('hashchange', syncHashData)
   // Push initial settings to the MindMap so the rainbow / line-width
   // defaults take effect on first render.
   mindMapRef.value?.applySettings({
@@ -110,6 +140,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('hashchange', syncHashData)
 })
 
 function onChange(next: MindMapNode) {

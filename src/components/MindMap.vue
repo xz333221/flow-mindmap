@@ -125,32 +125,29 @@ const theme = computed<Required<MindMapTheme>>(() => ({
 // ---------------------------------------------------------------------------
 const settings = reactive<MindMapSettings>({
   autoBalanceOnChange: false,
-  lineWidthStart: 3.0,
-  lineWidthEnd: 1.0,
+  lineWidthStart: 4.0,
+  lineWidthEnd: 0.6,
   rainbowBranch: true,
 })
 
 const lrRootChildren = computed<LayoutNode[]>(() => layoutResult.value.root.children)
 
-// Per-side anchor positions on the root, computed as points along the
-// root's side edge with the y-spread extended a little past the box
-// for the extreme children. We keep x locked to the side edge (x =
-// pos.x + side * halfW) so every anchor visually sits on the root
-// surface — branches don't look detached, and the root rectangle
-// can't cover the path's start. The y range is the root's half-height
-// plus a small extra pad so 4+ branches still fan out instead of
-// stacking at the corners.
+// Per-side anchor positions on the root, computed as points along
+// the root's side edge. y-spread is at least 1.6x the root's
+// half-height and grows with how far the side's children stretch
+// vertically — so a side with 5+ scattered branches fans out
+// properly instead of bundling at the corners. x is the root's
+// side edge with a tiny outward offset (2px) so each path starts
+// visually attached to the root, not buried under it.
 const rootEdgeAnchor = computed<Map<string, { x: number; y: number }>>(() => {
   const m = new Map<string, { x: number; y: number }>()
   const root = layoutResult.value.root
   const pos = nodeDrag.nodePos(root)
   const halfW = root.width / 2
   const halfH = root.height / 2
-  // Slightly extend the y range past the box so extreme branches can
-  // reach a little above/below; keeps the "fan" feeling while every
-  // anchor still touches the side edge of the root.
-  const yPad = Math.min(8, halfH * 0.5)
-  const yMax = halfH + yPad
+  // minimum vertical reach past root center: 1.6x half-height so 3+
+  // branches can't pile up at the corners
+  const minReach = halfH * 1.6
   for (const side of [-1, 1] as const) {
     const sideKids = root.children
       .filter((c) => c.side === side)
@@ -158,15 +155,21 @@ const rootEdgeAnchor = computed<Map<string, { x: number; y: number }>>(() => {
       .sort((a, b) => nodeDrag.nodePos(a).y - nodeDrag.nodePos(b).y)
     const n = sideKids.length
     if (n === 0) continue
-    const x = pos.x + side * halfW
+    const x = pos.x + side * halfW + side * 2
     if (n === 1) {
       m.set(sideKids[0].id, { x, y: pos.y })
       continue
     }
-    // Distribute y over [-yMax, +yMax] (single child = center).
+    // Take the children's y span: the farther apart they sit, the
+    // wider the fan. Scale by 0.55 (matches xmind visually) and
+    // enforce a min reach so few/squeezed children still spread.
+    const yMin = nodeDrag.nodePos(sideKids[0]).y
+    const yMax = nodeDrag.nodePos(sideKids[n - 1]).y
+    const childSpan = (yMax - yMin) * 0.55
+    const reach = Math.max(minReach, childSpan)
     for (let i = 0; i < n; i++) {
-      const t = n === 1 ? 0.5 : i / (n - 1)
-      const y = pos.y - yMax + t * (2 * yMax)
+      const t = i / (n - 1)
+      const y = pos.y - reach + t * (2 * reach)
       m.set(sideKids[i].id, { x, y })
     }
   }
