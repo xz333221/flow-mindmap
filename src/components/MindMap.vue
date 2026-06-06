@@ -132,18 +132,22 @@ const settings = reactive<MindMapSettings>({
 
 const lrRootChildren = computed<LayoutNode[]>(() => layoutResult.value.root.children)
 
-// Spread the root's outgoing edge anchors evenly along its side edge,
-// per side. Without this, every child's line starts at the root's
-// center (or clamps to the corners), bundling them visually. xmind
-// places each line at an evenly-spaced fraction of the root's height
-// so the fan reads as a fan, not a bundle.
-const rootEdgeY = computed<Map<string, number>>(() => {
-  const m = new Map<string, number>()
+// Per-side anchor positions on the root, computed as points on a
+// half-ellipse centered at the root with horizontal axis = rootHalfW
+// and vertical axis stretched up to fan multiple branches above and
+// below the box. Children sorted by y get evenly-spaced angles in
+// (-PI/2, PI/2) — middle children come out near the side mid-edge,
+// extremes come out near the rounded corners and slightly above /
+// below the box (matching xmind's wide fan look without leaving the
+// anchors visually detached).
+const rootEdgeAnchor = computed<Map<string, { x: number; y: number }>>(() => {
+  const m = new Map<string, { x: number; y: number }>()
   const root = layoutResult.value.root
   const pos = nodeDrag.nodePos(root)
-  const innerPad = 6 // keep anchors a few px in from the rounded corners
-  const top = pos.y - root.height / 2 + innerPad
-  const bot = pos.y + root.height / 2 - innerPad
+  const halfW = root.width / 2
+  // Vertical half-axis grows with branch count so 6+ children still
+  // fan out; capped so a couple of branches don't look stretched.
+  const halfH = root.height / 2
   for (const side of [-1, 1] as const) {
     const sideKids = root.children
       .filter((c) => c.side === side)
@@ -152,12 +156,23 @@ const rootEdgeY = computed<Map<string, number>>(() => {
     const n = sideKids.length
     if (n === 0) continue
     if (n === 1) {
-      m.set(sideKids[0].id, pos.y)
+      m.set(sideKids[0].id, { x: pos.x + side * halfW, y: pos.y })
       continue
     }
-    // n anchors, distributed [top, bot] inclusive
-    const step = (bot - top) / (n - 1)
-    for (let i = 0; i < n; i++) m.set(sideKids[i].id, top + step * i)
+    // Vertical fan reach: scales with sibling count, with a hard ceiling
+    // so the anchors don't drift wildly off the root box.
+    const fanReach = Math.min(halfH + (n - 2) * 14, halfH * 3.2)
+    // Spread angles in (-thetaMax, +thetaMax). thetaMax close to PI/2
+    // sends extreme branches up and down; PI/2 itself would put them
+    // exactly above/below the center, which we avoid.
+    const thetaMax = (Math.PI / 2) * 0.92
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1) // 0..1
+      const theta = -thetaMax + t * (2 * thetaMax)
+      const x = pos.x + side * halfW * Math.cos(theta)
+      const y = pos.y + fanReach * Math.sin(theta)
+      m.set(sideKids[i].id, { x, y })
+    }
   }
   return m
 })
@@ -660,14 +675,16 @@ function lineAnchor(
   child?: LayoutNode
 ): { x: number; y: number } {
   const p = nodeDrag.nodePos(n)
-  // Root outgoing edges fan along the root's side edge: each edge gets
-  // an evenly-spaced y inside the root's height, computed per-side in
-  // rootEdgeY. Falls back to the root center if the child is not on
-  // the table (shouldn't happen, but keeps the path total).
+  // Root outgoing edges anchor on a half-ellipse around the root, so
+  // extreme branches come out near the corners and middle ones come out
+  // from the side mid-edge — this is the wide xmind-style fan.
   if (n.isRoot && side === 'out') {
+    if (child) {
+      const a = rootEdgeAnchor.value.get(child.id)
+      if (a) return a
+    }
     const d = (dir ?? 1) as 1 | -1
-    const y = child ? rootEdgeY.value.get(child.id) ?? p.y : p.y
-    return { x: p.x + d * (n.width / 2), y }
+    return { x: p.x + d * (n.width / 2), y: p.y }
   }
   // Both 'in' and (non-root) 'out' anchor at the node's own y so the line
   // lands precisely on the node's side mid-point. The bezier control points
