@@ -667,19 +667,17 @@ function variableWidthPath(
   // an angular xmind branch style.
   // 'curve' = the classic mind-map bezier from the project's
   // research doc: control points sit at the parent's y and the
-  // child's y respectively, only offset *horizontally* by 50% of
-  // the gap. This is the "horizontal" mode — parent leaves
-  // horizontally, child approaches horizontally, the curve
-  // bends naturally in between. For parents / children on the
-  // same side this gives the smooth S the rest of the industry
-  // uses; for a child directly above or below the parent, the
-  // horizontal control point sits at the parent and the curve
-  // collapses to a straight line (the degenerate case).
+  // child's y respectively, offset only on x. The doc's reference
+  // uses 0.5 * gap, but with a 4px-thick parent ribbon that
+  // produces a long straight tail before the bend, which reads
+  // as a "hook" when many siblings share the parent's y. 0.25
+  // keeps the same overall S-curve but trims the tail.
   if (style === 'curve') {
     const gap = to.x - from.x
-    const sx = from.x + (gap > 0 ? gap * 0.5 : -gap * 0.5)
+    const off = Math.abs(gap) * 0.25
+    const sx = from.x + (gap >= 0 ? off : -off)
     const sy = from.y
-    const ex = to.x - (gap > 0 ? gap * 0.5 : -gap * 0.5)
+    const ex = to.x - (gap >= 0 ? off : -off)
     const ey = to.y
     const c = { x1: sx, y1: sy, x2: ex, y2: ey }
     const deriv = (t: number) => {
