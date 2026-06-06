@@ -128,6 +128,7 @@ const settings = reactive<MindMapSettings>({
   lineWidthStart: 2.0,
   lineWidthEnd: 0.6,
   rainbowBranch: true,
+  lineStyle: 'curve',
 })
 
 const lrRootChildren = computed<LayoutNode[]>(() => layoutResult.value.root.children)
@@ -649,13 +650,34 @@ function variableWidthPath(
   to: { x: number; y: number },
   startW: number,
   endW: number,
-  n = 32
+  n = 32,
+  style: 'curve' | 'straight' = 'curve'
 ): string {
+  // 'straight' draws the ribbon as a simple quad: the centerline
+  // is a single line segment, the width is the only thing that
+  // tapers from startW to endW. Cheaper to compute and reads as
+  // an angular xmind branch style.
+  if (style === 'straight') {
+    const dx = to.x - from.x
+    const dy = to.y - from.y
+    let len = Math.hypot(dx, dy)
+    if (len < 1e-6) len = 1
+    // unit normal: rotate tangent 90° CCW
+    const nx = -dy / len
+    const ny = dx / len
+    const halfStart = startW / 2
+    const halfEnd = endW / 2
+    const a = { x: from.x + nx * halfStart, y: from.y + ny * halfStart }
+    const b = { x: from.x - nx * halfStart, y: from.y - ny * halfStart }
+    const c = { x: to.x - nx * halfEnd, y: to.y - ny * halfEnd }
+    const d = { x: to.x + nx * halfEnd, y: to.y + ny * halfEnd }
+    return `M ${a.x.toFixed(2)} ${a.y.toFixed(2)} L ${d.x.toFixed(2)} ${d.y.toFixed(2)} L ${c.x.toFixed(2)} ${c.y.toFixed(2)} L ${b.x.toFixed(2)} ${b.y.toFixed(2)} Z`
+  }
+
   const c = bezierControls(from, to)
   // First-derivative of cubic at t (for tangent direction).
   const deriv = (t: number) => {
     const u = 1 - t
-    // d/dt of B(t) = -3u^2 P0 + 3(u^2 - 2ut) P1 + 3(2ut - t^2) P2 + 3t^2 P3
     const dx = -3 * u * u * from.x + 3 * (u * u - 2 * u * t) * c.x1 + 3 * (2 * u * t - t * t) * c.x2 + 3 * t * t * to.x
     const dy = -3 * u * u * from.y + 3 * (u * u - 2 * u * t) * c.y1 + 3 * (2 * u * t - t * t) * c.y2 + 3 * t * t * to.y
     return { dx, dy }
@@ -833,12 +855,14 @@ defineExpose<MindMapExpose>({
     if (s.lineWidthEnd !== undefined)
       settings.lineWidthEnd = Math.max(0.3, Math.min(10, s.lineWidthEnd))
     if (s.rainbowBranch !== undefined) settings.rainbowBranch = s.rainbowBranch
+    if (s.lineStyle !== undefined) settings.lineStyle = s.lineStyle
   },
   getSettings: (): MindMapSettings => ({
     autoBalanceOnChange: settings.autoBalanceOnChange,
     lineWidthStart: settings.lineWidthStart,
     lineWidthEnd: settings.lineWidthEnd,
     rainbowBranch: settings.rainbowBranch,
+    lineStyle: settings.lineStyle,
   }),
 })
 
@@ -898,7 +922,7 @@ watch(
             <path
               v-for="e in edges"
               :key="e.key"
-              :d="variableWidthPath(lineAnchor(e.from, 'out', e.to.side, e.to), lineAnchor(e.to, 'in'), settings.lineWidthStart, settings.lineWidthEnd)"
+              :d="variableWidthPath(lineAnchor(e.from, 'out', e.to.side, e.to), lineAnchor(e.to, 'in'), settings.lineWidthStart, settings.lineWidthEnd, 32, settings.lineStyle)"
               :fill="lineColorFor(e.from, e.to)"
               stroke="none"
             />

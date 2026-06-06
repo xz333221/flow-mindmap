@@ -32,6 +32,8 @@ export interface MindMapTheme {
   rainbowBranch?: boolean
 }
 
+export type LineStyle = 'curve' | 'straight'
+
 export interface MindMapSettings {
   /** When the user adds a new node or finishes a drag, automatically
    *  snap the layout back to balanced mode.  Default false. */
@@ -42,6 +44,9 @@ export interface MindMapSettings {
   lineWidthEnd: number
   /** Color-cycle the top-level branches. */
   rainbowBranch: boolean
+  /** Edge shape between parent and child. 'curve' = fish-gill bezier
+   *  (xmind default), 'straight' = direct line segment. */
+  lineStyle: LineStyle
 }
 
 export interface NodeStyle {
