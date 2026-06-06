@@ -55,9 +55,9 @@ const mindMapRef = ref<InstanceType<typeof MindMap> | null>(null)
 // MindMap's own defaults so the UI is consistent.
 const settings = reactive<MindMapSettings>({
   autoBalanceOnChange: false,
-  lineWidthStart: 2.2,
-  lineWidthEnd: 0.8,
-  rainbowBranch: false,
+  lineWidthStart: 3.0,
+  lineWidthEnd: 1.0,
+  rainbowBranch: true,
 })
 
 function onSettingsChange(s: Partial<MindMapSettings>) {
@@ -73,9 +73,9 @@ function onNodeStyleChange(style: { bg?: string; textColor?: string; borderColor
 function resetSettings() {
   const defaults: MindMapSettings = {
     autoBalanceOnChange: false,
-    lineWidthStart: 2.2,
-    lineWidthEnd: 0.8,
-    rainbowBranch: false,
+    lineWidthStart: 3.0,
+    lineWidthEnd: 1.0,
+    rainbowBranch: true,
   }
   Object.assign(settings, defaults)
   mindMapRef.value?.applySettings(defaults)
@@ -99,6 +99,13 @@ function onKeydown(e: KeyboardEvent) {
 onMounted(() => {
   document.addEventListener('click', onDocClick)
   document.addEventListener('keydown', onKeydown)
+  // Push initial settings to the MindMap so the rainbow / line-width
+  // defaults take effect on first render.
+  mindMapRef.value?.applySettings({
+    rainbowBranch: settings.rainbowBranch,
+    lineWidthStart: settings.lineWidthStart,
+    lineWidthEnd: settings.lineWidthEnd,
+  })
 })
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClick)

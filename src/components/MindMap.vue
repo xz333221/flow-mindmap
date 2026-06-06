@@ -125,29 +125,32 @@ const theme = computed<Required<MindMapTheme>>(() => ({
 // ---------------------------------------------------------------------------
 const settings = reactive<MindMapSettings>({
   autoBalanceOnChange: false,
-  lineWidthStart: 2.2,
-  lineWidthEnd: 0.8,
-  rainbowBranch: false,
+  lineWidthStart: 3.0,
+  lineWidthEnd: 1.0,
+  rainbowBranch: true,
 })
 
 const lrRootChildren = computed<LayoutNode[]>(() => layoutResult.value.root.children)
 
-// Per-side anchor positions on the root, computed as points on a
-// half-ellipse centered at the root with horizontal axis = rootHalfW
-// and vertical axis stretched up to fan multiple branches above and
-// below the box. Children sorted by y get evenly-spaced angles in
-// (-PI/2, PI/2) — middle children come out near the side mid-edge,
-// extremes come out near the rounded corners and slightly above /
-// below the box (matching xmind's wide fan look without leaving the
-// anchors visually detached).
+// Per-side anchor positions on the root, computed as points along the
+// root's side edge with the y-spread extended a little past the box
+// for the extreme children. We keep x locked to the side edge (x =
+// pos.x + side * halfW) so every anchor visually sits on the root
+// surface — branches don't look detached, and the root rectangle
+// can't cover the path's start. The y range is the root's half-height
+// plus a small extra pad so 4+ branches still fan out instead of
+// stacking at the corners.
 const rootEdgeAnchor = computed<Map<string, { x: number; y: number }>>(() => {
   const m = new Map<string, { x: number; y: number }>()
   const root = layoutResult.value.root
   const pos = nodeDrag.nodePos(root)
   const halfW = root.width / 2
-  // Vertical half-axis grows with branch count so 6+ children still
-  // fan out; capped so a couple of branches don't look stretched.
   const halfH = root.height / 2
+  // Slightly extend the y range past the box so extreme branches can
+  // reach a little above/below; keeps the "fan" feeling while every
+  // anchor still touches the side edge of the root.
+  const yPad = Math.min(8, halfH * 0.5)
+  const yMax = halfH + yPad
   for (const side of [-1, 1] as const) {
     const sideKids = root.children
       .filter((c) => c.side === side)
@@ -155,22 +158,15 @@ const rootEdgeAnchor = computed<Map<string, { x: number; y: number }>>(() => {
       .sort((a, b) => nodeDrag.nodePos(a).y - nodeDrag.nodePos(b).y)
     const n = sideKids.length
     if (n === 0) continue
+    const x = pos.x + side * halfW
     if (n === 1) {
-      m.set(sideKids[0].id, { x: pos.x + side * halfW, y: pos.y })
+      m.set(sideKids[0].id, { x, y: pos.y })
       continue
     }
-    // Vertical fan reach: scales with sibling count, with a hard ceiling
-    // so the anchors don't drift wildly off the root box.
-    const fanReach = Math.min(halfH + (n - 2) * 14, halfH * 3.2)
-    // Spread angles in (-thetaMax, +thetaMax). thetaMax close to PI/2
-    // sends extreme branches up and down; PI/2 itself would put them
-    // exactly above/below the center, which we avoid.
-    const thetaMax = (Math.PI / 2) * 0.92
+    // Distribute y over [-yMax, +yMax] (single child = center).
     for (let i = 0; i < n; i++) {
-      const t = i / (n - 1) // 0..1
-      const theta = -thetaMax + t * (2 * thetaMax)
-      const x = pos.x + side * halfW * Math.cos(theta)
-      const y = pos.y + fanReach * Math.sin(theta)
+      const t = n === 1 ? 0.5 : i / (n - 1)
+      const y = pos.y - yMax + t * (2 * yMax)
       m.set(sideKids[i].id, { x, y })
     }
   }
@@ -812,9 +808,9 @@ defineExpose<MindMapExpose>({
   applySettings: (s: Partial<MindMapSettings>) => {
     if (s.autoBalanceOnChange !== undefined) settings.autoBalanceOnChange = s.autoBalanceOnChange
     if (s.lineWidthStart !== undefined)
-      settings.lineWidthStart = Math.max(0.3, Math.min(8, s.lineWidthStart))
+      settings.lineWidthStart = Math.max(0.5, Math.min(10, s.lineWidthStart))
     if (s.lineWidthEnd !== undefined)
-      settings.lineWidthEnd = Math.max(0.2, Math.min(8, s.lineWidthEnd))
+      settings.lineWidthEnd = Math.max(0.3, Math.min(10, s.lineWidthEnd))
     if (s.rainbowBranch !== undefined) settings.rainbowBranch = s.rainbowBranch
   },
   getSettings: (): MindMapSettings => ({
