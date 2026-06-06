@@ -132,22 +132,26 @@ const settings = reactive<MindMapSettings>({
 
 const lrRootChildren = computed<LayoutNode[]>(() => layoutResult.value.root.children)
 
-// Per-side anchor positions on the root, computed as points along
-// the root's side edge. y is strictly clamped to the root's box
-// (top..bottom) so the parent end of every path is visually
-// attached to the root rectangle — even when a child sits directly
-// below or above the root, the line still starts ON the side edge.
-// Distribution: clamp each child's y to the box, then place n
-// anchors evenly across the box so 4+ branches still fan out.
+// Per-side anchor positions on the root. y can extend well past
+// the root box (up to 1.5x half-height above/below) so 4+ branches
+// fan out instead of piling up on a 40px side edge. x sits a few
+// pixels OUTSIDE the side edge so the path's parent end visibly
+// starts on the root's outer surface — with the 3.5px parent
+// stroke that means a ~1px visual seam, not a 4px gap. A branch
+// directly above/below the root still gets its anchor pulled back
+// inside the box so the line doesn't float in mid-air.
 const rootEdgeAnchor = computed<Map<string, { x: number; y: number }>>(() => {
   const m = new Map<string, { x: number; y: number }>()
   const root = layoutResult.value.root
   const pos = nodeDrag.nodePos(root)
   const halfW = root.width / 2
   const halfH = root.height / 2
-  // Inset 1px so the anchor doesn't sit right on the rounded corner.
-  const top = pos.y - halfH + 1
-  const bot = pos.y + halfH - 1
+  // 1.5x halfH above and below the root center, so 4+ branches on a
+  // side don't pile up on the side edge's 40px height.
+  const reach = halfH * 1.5
+  // small outward offset so the parent's thick stroke is visible
+  // on the outside of the root rectangle, not hidden under it
+  const xOut = 3
   for (const side of [-1, 1] as const) {
     const sideKids = root.children
       .filter((c) => c.side === side)
@@ -155,22 +159,27 @@ const rootEdgeAnchor = computed<Map<string, { x: number; y: number }>>(() => {
       .sort((a, b) => nodeDrag.nodePos(a).y - nodeDrag.nodePos(b).y)
     const n = sideKids.length
     if (n === 0) continue
-    const x = pos.x + side * halfW
     if (n === 1) {
       // Single child: clamp its target y into the box so the line
-      // visibly starts ON the side edge, not above/below it.
+      // starts on the root's side edge, not in mid-air above/below.
       const targetY = nodeDrag.nodePos(sideKids[0]).y
-      const y = Math.max(top, Math.min(bot, targetY))
-      m.set(sideKids[0].id, { x, y })
+      const top = pos.y - halfH + 1
+      const bot = pos.y + halfH - 1
+      m.set(sideKids[0].id, {
+        x: pos.x + side * halfW + side * xOut,
+        y: Math.max(top, Math.min(bot, targetY)),
+      })
       continue
     }
-    // Multiple children: spread anchors evenly across the box
-    // (top → bot). Order by child y to keep the topmost child near
-    // the top edge and the bottommost near the bottom edge.
+    // Multiple children: spread across the full vertical reach so
+    // the fan opens up. Order by child y to keep the visual
+    // ordering stable.
+    const top = pos.y - reach
+    const bot = pos.y + reach
+    const x = pos.x + side * halfW + side * xOut
     for (let i = 0; i < n; i++) {
       const t = i / (n - 1)
-      const y = top + t * (bot - top)
-      m.set(sideKids[i].id, { x, y })
+      m.set(sideKids[i].id, { x, y: top + t * (bot - top) })
     }
   }
   return m
