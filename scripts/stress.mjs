@@ -67,19 +67,35 @@ console.log(
 console.log(`total edges: ${edges.length}`)
 
 // Identify root edges (those whose start x is near rootLeft or rootRight
-// within ±20px). Then assert every such start y is inside the root
-// box.
+// within ±25px, OR whose start y is near rootTop or rootBottom within
+// ±2px — anchors can now sit on any of the 4 root edges, not just
+// left/right).
 let rootEdges = 0
 let offBox = 0
 const offBoxExamples = []
 for (const e of edges) {
   const nearLeft = Math.abs(e.start.x - rootLeft) < 25
   const nearRight = Math.abs(e.start.x - rootRight) < 25
-  if (!nearLeft && !nearRight) continue
+  const nearTop = Math.abs(e.start.y - rootTop) < 2
+  const nearBottom = Math.abs(e.start.y - rootBottom) < 2
+  if (!nearLeft && !nearRight && !nearTop && !nearBottom) continue
   rootEdges++
-  if (e.start.y < rootTop - 1 || e.start.y > rootBottom + 1) {
-    offBox++
-    if (offBoxExamples.length < 5) offBoxExamples.push(e.start)
+  // The anchor must be on the root rectangle boundary (not inside
+  // or floating outside it). For top/bottom anchors, x must also
+  // be inside the root's horizontal extent; for left/right anchors,
+  // y must be inside the vertical extent.
+  const insideX = e.start.x >= rootLeft - 1 && e.start.x <= rootRight + 1
+  const insideY = e.start.y >= rootTop - 1 && e.start.y <= rootBottom + 1
+  if (nearTop || nearBottom) {
+    if (!insideX) {
+      offBox++
+      if (offBoxExamples.length < 5) offBoxExamples.push(e.start)
+    }
+  } else {
+    if (!insideY) {
+      offBox++
+      if (offBoxExamples.length < 5) offBoxExamples.push(e.start)
+    }
   }
 }
 console.log(`root edges: ${rootEdges}, off-box anchors: ${offBox}`)
@@ -119,12 +135,21 @@ const result2 = await page.evaluate(() => {
     edges,
   }
 })
+// balanced mode: re-derive
 let offBox2 = 0
 for (const e of result2.edges) {
   const nearLeft = Math.abs(e.start.x - result2.rootLeft) < 25
   const nearRight = Math.abs(e.start.x - result2.rootRight) < 25
-  if (!nearLeft && !nearRight) continue
-  if (e.start.y < result2.rootTop - 1 || e.start.y > result2.rootBottom + 1) offBox2++
+  const nearTop = Math.abs(e.start.y - result2.rootTop) < 2
+  const nearBottom = Math.abs(e.start.y - result2.rootBottom) < 2
+  if (!nearLeft && !nearRight && !nearTop && !nearBottom) continue
+  const insideX = e.start.x >= result2.rootLeft - 1 && e.start.x <= result2.rootRight + 1
+  const insideY = e.start.y >= result2.rootTop - 1 && e.start.y <= result2.rootBottom + 1
+  if (nearTop || nearBottom) {
+    if (!insideX) offBox2++
+  } else {
+    if (!insideY) offBox2++
+  }
 }
 console.log(`balanced: off-box anchors: ${offBox2}`)
 if (offBox2 > 0) {

@@ -132,39 +132,52 @@ const settings = reactive<MindMapSettings>({
 
 const lrRootChildren = computed<LayoutNode[]>(() => layoutResult.value.root.children)
 
-// Per-side anchor positions on the root. Anchor x is the root's
-// side edge exactly. Anchors distribute y evenly across the root
-// box (top..bottom) per side, ordered by the children's y. This
-// is the "fan" — even when children bunch at a single y, anchors
-// still spread across the full side edge instead of stacking at
-// a single point.
+// Per-side anchor positions on the root. Project the root's
+// center through each child and snap to the root rectangle
+// edge — the ray from (root.x, root.y) to (child.x, child.y)
+// intersects the root's left/right/top/bottom edge at the
+// anchor. This is the "fan" geometry xmind uses: the anchor
+// always sits exactly on the root rectangle's surface, but its
+// position on the rectangle is determined by the child's
+// direction. Children below the root anchor on the bottom
+// edge, children on the left anchor on the left edge, etc.
 const rootEdgeAnchor = computed<Map<string, { x: number; y: number }>>(() => {
   const m = new Map<string, { x: number; y: number }>()
   const root = layoutResult.value.root
   const pos = nodeDrag.nodePos(root)
   const halfW = root.width / 2
   const halfH = root.height / 2
-  // 1px inset so anchors don't sit on the rounded corners.
-  const top = pos.y - halfH + 1
-  const bot = pos.y + halfH - 1
-  for (const side of [-1, 1] as const) {
-    const sideKids = root.children
-      .filter((c) => c.side === side)
-      .slice()
-      .sort((a, b) => nodeDrag.nodePos(a).y - nodeDrag.nodePos(b).y)
-    const n = sideKids.length
-    if (n === 0) continue
-    const x = pos.x + side * halfW
-    if (n === 1) {
-      m.set(sideKids[0].id, { x, y: pos.y })
+  const left = pos.x - halfW
+  const right = pos.x + halfW
+  const top = pos.y - halfH
+  const bot = pos.y + halfH
+  for (const c of root.children) {
+    const tx = nodeDrag.nodePos(c).x
+    const ty = nodeDrag.nodePos(c).y
+    const dx = tx - pos.x
+    const dy = ty - pos.y
+    // Time parameter t > 0 at which the ray (pos + t*dir) hits
+    // each of the four edges. Take the smallest positive t to
+    // get the nearest intersection.
+    const tCandidates: number[] = []
+    if (dx !== 0) {
+      const tL = (left - pos.x) / dx
+      const tR = (right - pos.x) / dx
+      if (tL > 0) tCandidates.push(tL)
+      if (tR > 0) tCandidates.push(tR)
+    }
+    if (dy !== 0) {
+      const tT = (top - pos.y) / dy
+      const tB = (bot - pos.y) / dy
+      if (tT > 0) tCandidates.push(tT)
+      if (tB > 0) tCandidates.push(tB)
+    }
+    if (tCandidates.length === 0) {
+      m.set(c.id, { x: pos.x + c.side * halfW, y: pos.y })
       continue
     }
-    // n anchors evenly spread across the box. Order by child y
-    // keeps the topmost child near the top edge.
-    for (let i = 0; i < n; i++) {
-      const t = i / (n - 1)
-      m.set(sideKids[i].id, { x, y: top + t * (bot - top) })
-    }
+    const t = Math.min(...tCandidates)
+    m.set(c.id, { x: pos.x + dx * t, y: pos.y + dy * t })
   }
   return m
 })
