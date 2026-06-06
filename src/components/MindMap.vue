@@ -131,6 +131,24 @@ const settings = reactive<MindMapSettings>({
   lineStyle: 'curve',
 })
 
+// Stroke width by source-node depth.  Each ribbon takes its
+// parent-end width from the parent's depth and its child-end
+// width from the child's depth, so the taper is much stronger
+// than a single global value could express.  The default ratios
+// match the project demo (22, 6, 3, 1.5) but tuned down to a
+// less aggressive 6, 4, 2.5, 1.
+function lineWidthForDepth(depth: number): number {
+  if (depth <= 0) return settings.lineWidthStart
+  if (depth === 1) return Math.max(1.5, settings.lineWidthStart * 0.67)
+  if (depth === 2) return Math.max(0.8, settings.lineWidthStart * 0.42)
+  return Math.max(settings.lineWidthEnd, settings.lineWidthStart * 0.17)
+}
+function endWidthForDepth(depth: number): number {
+  if (depth <= 1) return Math.max(0.8, settings.lineWidthStart * 0.42)
+  if (depth === 2) return Math.max(0.5, settings.lineWidthStart * 0.25)
+  return settings.lineWidthEnd
+}
+
 const lrRootChildren = computed<LayoutNode[]>(() => layoutResult.value.root.children)
 
 // Per-side anchor positions on the root. Project the root's
@@ -733,15 +751,14 @@ function variableWidthPath(
   // tapers from startW to endW. Cheaper to compute and reads as
   // an angular xmind branch style.
   // 'curve' = the classic mind-map bezier from the project's
-  // research doc: control points sit at the parent's y and the
-  // child's y respectively, offset only on x. The doc's reference
-  // uses 0.5 * gap, but with a 4px-thick parent ribbon that
-  // produces a long straight tail before the bend, which reads
-  // as a "hook" when many siblings share the parent's y. 0.25
-  // keeps the same overall S-curve but trims the tail.
+  // research doc AND the XMind-style demo reference. Control
+  // points sit at the parent's y and the child's y respectively,
+  // offset only on x by 50% of the gap — this gives the
+  // long horizontal "fish gill" look the rest of the industry
+  // uses.
   if (style === 'curve') {
     const gap = to.x - from.x
-    const off = Math.abs(gap) * 0.25
+    const off = Math.abs(gap) * 0.5
     const sx = from.x + (gap >= 0 ? off : -off)
     const sy = from.y
     const ex = to.x - (gap >= 0 ? off : -off)
@@ -900,6 +917,8 @@ defineExpose<MindMapExpose>({
   addSibling: (nodeId: string) => doAddSibling(nodeId),
   removeNode: (nodeId: string) => doRemove(nodeId),
   duplicateNode: (nodeId: string) => doDuplicate(nodeId),
+  lineWidthForDepth,
+  endWidthForDepth,
   getData: () => dataRef.value,
   setData: (d) => {
     history.reset()
@@ -1005,7 +1024,7 @@ watch(
             <path
               v-for="e in edges"
               :key="e.key"
-              :d="variableWidthPath(lineAnchor(e.from, 'out', e.to.side, e.to), lineAnchor(e.to, 'in'), settings.lineWidthStart, settings.lineWidthEnd, 32, settings.lineStyle)"
+              :d="variableWidthPath(lineAnchor(e.from, 'out', e.to.side, e.to), lineAnchor(e.to, 'in'), lineWidthForDepth(e.from.depth), endWidthForDepth(e.to.depth), 32, settings.lineStyle)"
               :fill="lineColorFor(e.from, e.to)"
               stroke="none"
             />

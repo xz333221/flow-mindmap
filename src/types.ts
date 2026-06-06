@@ -81,4 +81,12 @@ export interface MindMapExpose {
   applySettings: (s: Partial<MindMapSettings>) => void
   /** Read the current effective settings. */
   getSettings: () => MindMapSettings
+  /** Stroke width used for the parent end of an edge that starts at
+   *  a node of the given depth. Lets the canvas taper sharply
+   *  (root → 1st → 2nd → 3rd+) instead of using a single global
+   *  width. */
+  lineWidthForDepth: (depth: number) => number
+  /** Stroke width used for the child end of an edge that ends at
+   *  a node of the given depth. */
+  endWidthForDepth: (depth: number) => number
 }
