@@ -589,13 +589,15 @@ function bezierPath(
   from: { x: number; y: number },
   to: { x: number; y: number }
 ): string {
-  // xmind-style "fish gill" curve: parent's control point at 85%
-  // of the gap (so the line leaves the parent heading almost
-  // horizontally for a long stretch), child-end at 50%.
-  const gap = to.x - from.x
-  const sx = from.x + gap * 0.85
-  const ex = to.x - gap * 0.5
-  return `M ${from.x} ${from.y} C ${sx} ${from.y}, ${ex} ${to.y}, ${to.x} ${to.y}`
+  // xmind-style: control points lie along the actual line from
+  // parent to child, so the line bends along the natural
+  // direction (horizontal for left/right children, vertical for
+  // above/below children, diagonal otherwise).
+  const sx = from.x + (to.x - from.x) * 0.85
+  const sy = from.y + (to.y - from.y) * 0.85
+  const ex = to.x - (to.x - from.x) * 0.5
+  const ey = to.y - (to.y - from.y) * 0.5
+  return `M ${from.x} ${from.y} C ${sx} ${sy}, ${ex} ${ey}, ${to.x} ${to.y}`
 }
 
 /** Control points for the same bezier as bezierPath(), returned as
@@ -605,17 +607,21 @@ function bezierControls(
   from: { x: number; y: number },
   to: { x: number; y: number }
 ): { x1: number; y1: number; x2: number; y2: number } {
-  // xmind-style "fish gill" curve: the parent-end control point
-  // sits at ~85% of the horizontal gap (so the path leaves the
-  // parent heading almost horizontally for a long stretch before
-  // bending to the child), and the child-end control point sits at
-  // ~50% of the gap (so it lands on the child smoothly). y1 stays
-  // at from.y and y2 at to.y, giving the characteristic S-bend
-  // that hugs the side-edge at both ends.
-  const gap = to.x - from.x
-  const sx = from.x + gap * 0.85
-  const ex = to.x - gap * 0.5
-  return { x1: sx, y1: from.y, x2: ex, y2: to.y }
+  // xmind-style "fish gill" curve, but the control points lie
+  // along the actual line from `from` to `to` rather than just
+  // horizontally. So:
+  //   - child directly left/right of parent: control point
+  //     heads horizontally → fish-gill with long horizontal run
+  //   - child directly above/below parent: control point heads
+  //     vertically → line goes straight diagonally
+  //   - child diagonal: control point heads diagonal → smooth
+  //     gentle curve
+  // 85% on the parent side, 50% on the child side.
+  const sx = from.x + (to.x - from.x) * 0.85
+  const sy = from.y + (to.y - from.y) * 0.85
+  const ex = to.x - (to.x - from.x) * 0.5
+  const ey = to.y - (to.y - from.y) * 0.5
+  return { x1: sx, y1: sy, x2: ex, y2: ey }
 }
 
 /** Cubic Bezier point at parameter t in [0,1].  P0=P(from),
