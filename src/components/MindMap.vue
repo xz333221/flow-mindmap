@@ -606,28 +606,51 @@ function cubicAt(
   return { x, y }
 }
 
-/** Render one edge as a sequence of small segments whose stroke
- *  width tapers from `start` at the parent end to `end` at the child
- *  end.  Returns an array of { d, w } for the template. */
-function taperedSegments(
+/** Build a single closed-fill SVG path that visually represents the
+ *  cubic Bezier from `from` to `to` with a stroke width that tapers
+ *  linearly from `startW` (at the parent end) to `endW` (at the child
+ *  end).  Sampling at ~32 points and offsetting along the curve's
+ *  normal gives a smooth filled ribbon — much cleaner than stitching
+ *  N straight-line strokes, which show seams when zoomed in. */
+function variableWidthPath(
   from: { x: number; y: number },
   to: { x: number; y: number },
-  start: number,
-  end: number,
-  n = 6
-): { d: string; w: number }[] {
+  startW: number,
+  endW: number,
+  n = 32
+): string {
   const c = bezierControls(from, to)
-  const out: { d: string; w: number }[] = []
-  for (let i = 0; i < n; i++) {
-    const t0 = i / n
-    const t1 = (i + 1) / n
-    const p0 = i === 0 ? from : cubicAt(t0, from, c, to)
-    const p1 = cubicAt(t1, from, c, to)
-    // taper: width lerps from `start` (at t=0) to `end` (at t=1)
-    const w = start + (end - start) * t0
-    out.push({ d: `M ${p0.x} ${p0.y} L ${p1.x} ${p1.y}`, w: Math.max(0.2, w) })
+  // First-derivative of cubic at t (for tangent direction).
+  const deriv = (t: number) => {
+    const u = 1 - t
+    // d/dt of B(t) = -3u^2 P0 + 3(u^2 - 2ut) P1 + 3(2ut - t^2) P2 + 3t^2 P3
+    const dx = -3 * u * u * from.x + 3 * (u * u - 2 * u * t) * c.x1 + 3 * (2 * u * t - t * t) * c.x2 + 3 * t * t * to.x
+    const dy = -3 * u * u * from.y + 3 * (u * u - 2 * u * t) * c.y1 + 3 * (2 * u * t - t * t) * c.y2 + 3 * t * t * to.y
+    return { dx, dy }
   }
-  return out
+  const left: { x: number; y: number }[] = []
+  const right: { x: number; y: number }[] = []
+  for (let i = 0; i <= n; i++) {
+    const t = i / n
+    const p = i === 0 ? from : i === n ? to : cubicAt(t, from, c, to)
+    const d = deriv(t)
+    let len = Math.hypot(d.dx, d.dy)
+    if (len < 1e-6) len = 1
+    // unit normal: rotate tangent 90deg CCW
+    const nx = -d.dy / len
+    const ny = d.dx / len
+    const halfW = (startW + (endW - startW) * t) / 2
+    left.push({ x: p.x + nx * halfW, y: p.y + ny * halfW })
+    right.push({ x: p.x - nx * halfW, y: p.y - ny * halfW })
+  }
+  // Walk forward along the left edge, then back along the right edge,
+  // and close. Browsers smooth the polygon at any zoom because the SVG
+  // is rendered as a vector.
+  let d = `M ${left[0].x.toFixed(2)} ${left[0].y.toFixed(2)}`
+  for (let i = 1; i <= n; i++) d += ` L ${left[i].x.toFixed(2)} ${left[i].y.toFixed(2)}`
+  for (let i = n; i >= 0; i--) d += ` L ${right[i].x.toFixed(2)} ${right[i].y.toFixed(2)}`
+  d += ' Z'
+  return d
 }
 
 function lineAnchor(
@@ -817,37 +840,44 @@ watch(
       @wheel="panZoom.onWheel"
       @click="onCanvasClick"
     >
+      <!-- SVG layer: only translates with pan; scale is applied to the
+           SVG's own width/height so paths render as vectors at any zoom
+           (instead of getting rasterized by CSS transform: scale). -->
       <div
-        class="zm-world"
+        class="zm-svg-layer"
         :style="{
-          transform: `translate(${panZoom.offsetX.value}px, ${panZoom.offsetY.value}px) scale(${panZoom.scale.value})`,
+          transform: `translate(${panZoom.offsetX.value}px, ${panZoom.offsetY.value}px)`,
         }"
       >
         <svg
           class="zm-svg"
           :viewBox="viewBox"
           preserveAspectRatio="xMidYMid meet"
-          :width="layoutResult.vbW"
-          :height="layoutResult.vbH"
+          :width="layoutResult.vbW * panZoom.scale.value"
+          :height="layoutResult.vbH * panZoom.scale.value"
           :style="{
-            left: layoutResult.vbX + 'px',
-            top: layoutResult.vbY + 'px',
+            left: layoutResult.vbX * panZoom.scale.value + 'px',
+            top: layoutResult.vbY * panZoom.scale.value + 'px',
           }"
         >
           <g class="zm-edges">
-            <template v-for="e in edges" :key="e.key">
-              <path
-                v-for="(seg, i) in taperedSegments(lineAnchor(e.from, 'out', e.to.side, e.to), lineAnchor(e.to, 'in'), settings.lineWidthStart, settings.lineWidthEnd)"
-                :key="e.key + '-s' + i"
-                :d="seg.d"
-                fill="none"
-                :stroke="lineColorFor(e.from, e.to)"
-                :stroke-width="seg.w"
-              />
-            </template>
+            <path
+              v-for="e in edges"
+              :key="e.key"
+              :d="variableWidthPath(lineAnchor(e.from, 'out', e.to.side, e.to), lineAnchor(e.to, 'in'), settings.lineWidthStart, settings.lineWidthEnd)"
+              :fill="lineColorFor(e.from, e.to)"
+              stroke="none"
+            />
           </g>
         </svg>
+      </div>
 
+      <div
+        class="zm-world"
+        :style="{
+          transform: `translate(${panZoom.offsetX.value}px, ${panZoom.offsetY.value}px) scale(${panZoom.scale.value})`,
+        }"
+      >
         <div
           v-for="n in allNodes"
           :key="n.id"
@@ -995,7 +1025,13 @@ watch(
   left: 0;
   top: 0;
   transform-origin: 0 0;
-  will-change: transform;
+}
+.zm-svg-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
 }
 .zm-svg {
   position: absolute;
@@ -1003,6 +1039,7 @@ watch(
   top: 0;
   pointer-events: none;
   overflow: visible;
+  shape-rendering: geometricPrecision;
 }
 .zm-node {
   position: absolute;
