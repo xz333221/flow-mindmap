@@ -657,54 +657,88 @@ function variableWidthPath(
   // is a single line segment, the width is the only thing that
   // tapers from startW to endW. Cheaper to compute and reads as
   // an angular xmind branch style.
-  if (style === 'straight') {
+  // 'curve' = xmind-style arc. The parent-end control point sits
+  // at the *tangent* direction at the parent (perpendicular to
+  // the parent→child ray), so the line leaves the parent
+  // tangentially and bends around to reach the child — an
+  // actual arc, not a near-straight diagonal. The child-end
+  // control point is at the tangent at the child. Two
+  // perpendicular handles + a tapered width = the "fish gill"
+  // look xmind uses.
+  if (style === 'curve') {
     const dx = to.x - from.x
     const dy = to.y - from.y
     let len = Math.hypot(dx, dy)
     if (len < 1e-6) len = 1
-    // unit normal: rotate tangent 90° CCW
-    const nx = -dy / len
-    const ny = dx / len
-    const halfStart = startW / 2
-    const halfEnd = endW / 2
-    const a = { x: from.x + nx * halfStart, y: from.y + ny * halfStart }
-    const b = { x: from.x - nx * halfStart, y: from.y - ny * halfStart }
-    const c = { x: to.x - nx * halfEnd, y: to.y - ny * halfEnd }
-    const d = { x: to.x + nx * halfEnd, y: to.y + ny * halfEnd }
-    return `M ${a.x.toFixed(2)} ${a.y.toFixed(2)} L ${d.x.toFixed(2)} ${d.y.toFixed(2)} L ${c.x.toFixed(2)} ${c.y.toFixed(2)} L ${b.x.toFixed(2)} ${b.y.toFixed(2)} Z`
+    // unit tangent and unit normal (90° CCW)
+    const tx = dx / len
+    const ty = dy / len
+    const nx = -ty
+    const ny = tx
+    // offset each end perpendicular to the ray — this is the
+    // "tangent" handle. ~20-25% of the gap gives a visible
+    // arc without overshooting so much that the ribbon's root
+    // end no longer reads as attached to the parent edge.
+    const off = Math.min(28, len * 0.22)
+    // Pick a sign for the perpendicular offset that bows the
+    // arc OUTWARD, away from the segment's midpoint. We compute
+    // the midpoint, then take the normal direction that points
+    // away from it (i.e. dot of (midpoint → endpoint) with the
+    // normal > 0). Same sign for both ends → the arc bows
+    // outward in the same direction, no kink.
+    const mx = (from.x + to.x) / 2
+    const my = (from.y + to.y) / 2
+    const fromVec = { x: to.x - mx, y: to.y - my }
+    const toVec = { x: from.x - mx, y: from.y - my }
+    const signFrom = (fromVec.x * nx + fromVec.y * ny) >= 0 ? 1 : -1
+    const signTo = (toVec.x * nx + toVec.y * ny) >= 0 ? 1 : -1
+    const sx = from.x + nx * off * signFrom
+    const sy = from.y + ny * off * signFrom
+    const ex = to.x + nx * off * signTo
+    const ey = to.y + ny * off * signTo
+    // Build the ribbon around this curved centerline.
+    const c = { x1: sx, y1: sy, x2: ex, y2: ey }
+    const deriv = (t: number) => {
+      const u = 1 - t
+      const dx2 = -3 * u * u * from.x + 3 * (u * u - 2 * u * t) * c.x1 + 3 * (2 * u * t - t * t) * c.x2 + 3 * t * t * to.x
+      const dy2 = -3 * u * u * from.y + 3 * (u * u - 2 * u * t) * c.y1 + 3 * (2 * u * t - t * t) * c.y2 + 3 * t * t * to.y
+      return { dx: dx2, dy: dy2 }
+    }
+    const left: { x: number; y: number }[] = []
+    const right: { x: number; y: number }[] = []
+    for (let i = 0; i <= n; i++) {
+      const t = i / n
+      const p = i === 0 ? from : i === n ? to : cubicAt(t, from, c, to)
+      const d = deriv(t)
+      let dlen = Math.hypot(d.dx, d.dy)
+      if (dlen < 1e-6) dlen = 1
+      const nxn = -d.dy / dlen
+      const nyn = d.dx / dlen
+      const halfW = (startW + (endW - startW) * t) / 2
+      left.push({ x: p.x + nxn * halfW, y: p.y + nyn * halfW })
+      right.push({ x: p.x - nxn * halfW, y: p.y - nyn * halfW })
+    }
+    let d2 = `M ${left[0].x.toFixed(2)} ${left[0].y.toFixed(2)}`
+    for (let i = 1; i <= n; i++) d2 += ` L ${left[i].x.toFixed(2)} ${left[i].y.toFixed(2)}`
+    for (let i = n; i >= 0; i--) d2 += ` L ${right[i].x.toFixed(2)} ${right[i].y.toFixed(2)}`
+    d2 += ' Z'
+    return d2
   }
 
-  const c = bezierControls(from, to)
-  // First-derivative of cubic at t (for tangent direction).
-  const deriv = (t: number) => {
-    const u = 1 - t
-    const dx = -3 * u * u * from.x + 3 * (u * u - 2 * u * t) * c.x1 + 3 * (2 * u * t - t * t) * c.x2 + 3 * t * t * to.x
-    const dy = -3 * u * u * from.y + 3 * (u * u - 2 * u * t) * c.y1 + 3 * (2 * u * t - t * t) * c.y2 + 3 * t * t * to.y
-    return { dx, dy }
-  }
-  const left: { x: number; y: number }[] = []
-  const right: { x: number; y: number }[] = []
-  for (let i = 0; i <= n; i++) {
-    const t = i / n
-    const p = i === 0 ? from : i === n ? to : cubicAt(t, from, c, to)
-    const d = deriv(t)
-    let len = Math.hypot(d.dx, d.dy)
-    if (len < 1e-6) len = 1
-    // unit normal: rotate tangent 90deg CCW
-    const nx = -d.dy / len
-    const ny = d.dx / len
-    const halfW = (startW + (endW - startW) * t) / 2
-    left.push({ x: p.x + nx * halfW, y: p.y + ny * halfW })
-    right.push({ x: p.x - nx * halfW, y: p.y - ny * halfW })
-  }
-  // Walk forward along the left edge, then back along the right edge,
-  // and close. Browsers smooth the polygon at any zoom because the SVG
-  // is rendered as a vector.
-  let d = `M ${left[0].x.toFixed(2)} ${left[0].y.toFixed(2)}`
-  for (let i = 1; i <= n; i++) d += ` L ${left[i].x.toFixed(2)} ${left[i].y.toFixed(2)}`
-  for (let i = n; i >= 0; i--) d += ` L ${right[i].x.toFixed(2)} ${right[i].y.toFixed(2)}`
-  d += ' Z'
-  return d
+  // 'straight' fallback: a simple quad with no curve at all.
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  let len = Math.hypot(dx, dy)
+  if (len < 1e-6) len = 1
+  const nx = -dy / len
+  const ny = dx / len
+  const halfStart = startW / 2
+  const halfEnd = endW / 2
+  const a = { x: from.x + nx * halfStart, y: from.y + ny * halfStart }
+  const b = { x: from.x - nx * halfStart, y: from.y - ny * halfStart }
+  const c = { x: to.x - nx * halfEnd, y: to.y - ny * halfEnd }
+  const d = { x: to.x + nx * halfEnd, y: to.y + ny * halfEnd }
+  return `M ${a.x.toFixed(2)} ${a.y.toFixed(2)} L ${d.x.toFixed(2)} ${d.y.toFixed(2)} L ${c.x.toFixed(2)} ${c.y.toFixed(2)} L ${b.x.toFixed(2)} ${b.y.toFixed(2)} Z`
 }
 
 function lineAnchor(
