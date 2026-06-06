@@ -133,21 +133,21 @@ const settings = reactive<MindMapSettings>({
 const lrRootChildren = computed<LayoutNode[]>(() => layoutResult.value.root.children)
 
 // Per-side anchor positions on the root, computed as points along
-// the root's side edge. y-spread is at least 1.6x the root's
-// half-height and grows with how far the side's children stretch
-// vertically — so a side with 5+ scattered branches fans out
-// properly instead of bundling at the corners. x is the root's
-// side edge exactly (no outward offset) so the path's parent end
-// visually starts on the root surface, not floating outside it.
+// the root's side edge. y is strictly clamped to the root's box
+// (top..bottom) so the parent end of every path is visually
+// attached to the root rectangle — even when a child sits directly
+// below or above the root, the line still starts ON the side edge.
+// Distribution: clamp each child's y to the box, then place n
+// anchors evenly across the box so 4+ branches still fan out.
 const rootEdgeAnchor = computed<Map<string, { x: number; y: number }>>(() => {
   const m = new Map<string, { x: number; y: number }>()
   const root = layoutResult.value.root
   const pos = nodeDrag.nodePos(root)
   const halfW = root.width / 2
   const halfH = root.height / 2
-  // minimum vertical reach past root center: 1.6x half-height so 3+
-  // branches can't pile up at the corners
-  const minReach = halfH * 1.6
+  // Inset 1px so the anchor doesn't sit right on the rounded corner.
+  const top = pos.y - halfH + 1
+  const bot = pos.y + halfH - 1
   for (const side of [-1, 1] as const) {
     const sideKids = root.children
       .filter((c) => c.side === side)
@@ -157,19 +157,19 @@ const rootEdgeAnchor = computed<Map<string, { x: number; y: number }>>(() => {
     if (n === 0) continue
     const x = pos.x + side * halfW
     if (n === 1) {
-      m.set(sideKids[0].id, { x, y: pos.y })
+      // Single child: clamp its target y into the box so the line
+      // visibly starts ON the side edge, not above/below it.
+      const targetY = nodeDrag.nodePos(sideKids[0]).y
+      const y = Math.max(top, Math.min(bot, targetY))
+      m.set(sideKids[0].id, { x, y })
       continue
     }
-    // Take the children's y span: the farther apart they sit, the
-    // wider the fan. Scale by 0.55 (matches xmind visually) and
-    // enforce a min reach so few/squeezed children still spread.
-    const yMin = nodeDrag.nodePos(sideKids[0]).y
-    const yMax = nodeDrag.nodePos(sideKids[n - 1]).y
-    const childSpan = (yMax - yMin) * 0.55
-    const reach = Math.max(minReach, childSpan)
+    // Multiple children: spread anchors evenly across the box
+    // (top → bot). Order by child y to keep the topmost child near
+    // the top edge and the bottommost near the bottom edge.
     for (let i = 0; i < n; i++) {
       const t = i / (n - 1)
-      const y = pos.y - reach + t * (2 * reach)
+      const y = top + t * (bot - top)
       m.set(sideKids[i].id, { x, y })
     }
   }
