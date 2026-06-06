@@ -132,40 +132,73 @@ const settings = reactive<MindMapSettings>({
 
 const lrRootChildren = computed<LayoutNode[]>(() => layoutResult.value.root.children)
 
-// Per-side anchor positions on the root. y follows the child's own
-// y exactly (clamped into the root box only when the child sits
-// right above or below the root, so the line still starts on the
-// root surface). x sits 4px outside the side edge so the 3.5px
-// parent stroke lands ON the root's outer surface — visually it
-// reads as "grows out of" the root, with no gap.
+// Per-side anchor positions on the root. Anchors are placed on a
+// half-ellipse around the root, not on a vertical strip off the
+// side edge. The half-ellipse uses the root's half-width on the x
+// axis and a y axis that grows to match the spread of children on
+// the same side — so 5+ children at very different heights get 5
+// anchors that fan out across the ellipse instead of stacking on
+// a single vertical line.
 //
-// Why mirror the child's y: when a side has 5+ children at very
-// different heights, clamping the anchor y to the root's height
-// collapses them into a 40px band on the side edge. Mirroring
-// child y lets the anchors spread vertically along the side-edge
-// offset strip, the same trick xmind uses.
+// theta for each child is derived from its rank in sorted order, so
+// the topmost child gets theta=-PI/2 (anchor at the top of the
+// ellipse, just past the root's top corner) and the bottommost gets
+// theta=+PI/2. Single children snap to the side mid-edge (theta=0).
+//
+// Result: middle children exit from the side mid-edge, extremes
+// wrap toward the corners — and never look detached from the root
+// because each anchor is on the ellipse surface, not floating
+// outside it.
 const rootEdgeAnchor = computed<Map<string, { x: number; y: number }>>(() => {
   const m = new Map<string, { x: number; y: number }>()
   const root = layoutResult.value.root
   const pos = nodeDrag.nodePos(root)
   const halfW = root.width / 2
   const halfH = root.height / 2
-  const xOut = 4
-  const top = pos.y - halfH + 1
-  const bot = pos.y + halfH - 1
+  const xOut = 2
   for (const side of [-1, 1] as const) {
     const sideKids = root.children
       .filter((c) => c.side === side)
       .slice()
       .sort((a, b) => nodeDrag.nodePos(a).y - nodeDrag.nodePos(b).y)
-    if (sideKids.length === 0) continue
-    const x = pos.x + side * halfW + side * xOut
-    for (const c of sideKids) {
-      const cy = nodeDrag.nodePos(c).y
-      // Clamp y to the root box so a child directly above/below
-      // the root still gets a line that starts on the side edge.
-      const y = Math.max(top, Math.min(bot, cy))
-      m.set(c.id, { x, y })
+    const n = sideKids.length
+    if (n === 0) continue
+    // y reach: at least the root's half-height so a couple of
+    // branches still spread, but the bigger driver is the actual
+    // child y-span (so 5 branches at y 100..600 get 500px of fan).
+    const ys = sideKids.map((c) => nodeDrag.nodePos(c).y)
+    const childSpan = Math.max(...ys) - Math.min(...ys)
+    const b = Math.max(halfH, childSpan * 0.6)
+    // x reach: half-width plus a small outward offset so the
+    // 3.5px-thick parent stroke doesn't get hidden behind the root
+    // box at the side-edge mid-point.
+    const a = halfW + xOut
+    if (n === 1) {
+      // Single child: side mid-edge, clamped so a child directly
+      // above/below the root still gets a line starting on the
+      // side edge.
+      const top = pos.y - halfH + 1
+      const bot = pos.y + halfH - 1
+      const cy = Math.max(top, Math.min(bot, ys[0]))
+      // Place on the ellipse at the angle that produces y=cy.
+      const sin = (cy - pos.y) / b
+      const cos = Math.sqrt(Math.max(0, 1 - sin * sin))
+      m.set(sideKids[0].id, { x: pos.x + side * a * cos, y: cy })
+      continue
+    }
+    // theta spans (-thetaMax, +thetaMax) so extremes wrap toward
+    // the corners but don't land directly above/below the root
+    // (which would put the anchor on the root box itself).
+    const thetaMax = (Math.PI / 2) * 0.85
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1)
+      const theta = -thetaMax + t * (2 * thetaMax)
+      const cos = Math.cos(theta)
+      const sin = Math.sin(theta)
+      m.set(sideKids[i].id, {
+        x: pos.x + side * a * cos,
+        y: pos.y + b * sin,
+      })
     }
   }
   return m
