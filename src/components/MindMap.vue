@@ -148,10 +148,18 @@ const rootEdgeAnchor = computed<Map<string, { x: number; y: number }>>(() => {
   const pos = nodeDrag.nodePos(root)
   const halfW = root.width / 2
   const halfH = root.height / 2
+  // Inset the top / bottom edges by half the parent stroke width
+  // plus a small corner pad so the ribbon's center-line can sit AT
+  // the edge while the ribbon's two outer boundaries (offset by
+  // ±halfW along the normal) still clear the rectangle. The side
+  // edges don't need this — their normal is horizontal, so the
+  // ribbon extends left / right, not out of the box.
+  const cornerPad = 1
+  const strokePad = settings.lineWidthStart / 2
   const left = pos.x - halfW
   const right = pos.x + halfW
-  const top = pos.y - halfH
-  const bot = pos.y + halfH
+  const top = pos.y - halfH + cornerPad + strokePad
+  const bot = pos.y + halfH - cornerPad - strokePad
   for (const c of root.children) {
     const tx = nodeDrag.nodePos(c).x
     const ty = nodeDrag.nodePos(c).y
@@ -657,46 +665,22 @@ function variableWidthPath(
   // is a single line segment, the width is the only thing that
   // tapers from startW to endW. Cheaper to compute and reads as
   // an angular xmind branch style.
-  // 'curve' = xmind-style arc. The parent-end control point sits
-  // at the *tangent* direction at the parent (perpendicular to
-  // the parent→child ray), so the line leaves the parent
-  // tangentially and bends around to reach the child — an
-  // actual arc, not a near-straight diagonal. The child-end
-  // control point is at the tangent at the child. Two
-  // perpendicular handles + a tapered width = the "fish gill"
-  // look xmind uses.
+  // 'curve' = the classic mind-map bezier from the project's
+  // research doc: control points sit at the parent's y and the
+  // child's y respectively, only offset *horizontally* by 50% of
+  // the gap. This is the "horizontal" mode — parent leaves
+  // horizontally, child approaches horizontally, the curve
+  // bends naturally in between. For parents / children on the
+  // same side this gives the smooth S the rest of the industry
+  // uses; for a child directly above or below the parent, the
+  // horizontal control point sits at the parent and the curve
+  // collapses to a straight line (the degenerate case).
   if (style === 'curve') {
-    const dx = to.x - from.x
-    const dy = to.y - from.y
-    let len = Math.hypot(dx, dy)
-    if (len < 1e-6) len = 1
-    // unit tangent and unit normal (90° CCW)
-    const tx = dx / len
-    const ty = dy / len
-    const nx = -ty
-    const ny = tx
-    // offset each end perpendicular to the ray — this is the
-    // "tangent" handle. ~20-25% of the gap gives a visible
-    // arc without overshooting so much that the ribbon's root
-    // end no longer reads as attached to the parent edge.
-    const off = Math.min(28, len * 0.22)
-    // Pick a sign for the perpendicular offset that bows the
-    // arc OUTWARD, away from the segment's midpoint. We compute
-    // the midpoint, then take the normal direction that points
-    // away from it (i.e. dot of (midpoint → endpoint) with the
-    // normal > 0). Same sign for both ends → the arc bows
-    // outward in the same direction, no kink.
-    const mx = (from.x + to.x) / 2
-    const my = (from.y + to.y) / 2
-    const fromVec = { x: to.x - mx, y: to.y - my }
-    const toVec = { x: from.x - mx, y: from.y - my }
-    const signFrom = (fromVec.x * nx + fromVec.y * ny) >= 0 ? 1 : -1
-    const signTo = (toVec.x * nx + toVec.y * ny) >= 0 ? 1 : -1
-    const sx = from.x + nx * off * signFrom
-    const sy = from.y + ny * off * signFrom
-    const ex = to.x + nx * off * signTo
-    const ey = to.y + ny * off * signTo
-    // Build the ribbon around this curved centerline.
+    const gap = to.x - from.x
+    const sx = from.x + (gap > 0 ? gap * 0.5 : -gap * 0.5)
+    const sy = from.y
+    const ex = to.x - (gap > 0 ? gap * 0.5 : -gap * 0.5)
+    const ey = to.y
     const c = { x1: sx, y1: sy, x2: ex, y2: ey }
     const deriv = (t: number) => {
       const u = 1 - t
