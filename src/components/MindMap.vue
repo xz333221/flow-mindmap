@@ -125,31 +125,30 @@ const theme = computed<Required<MindMapTheme>>(() => ({
 // ---------------------------------------------------------------------------
 const settings = reactive<MindMapSettings>({
   autoBalanceOnChange: false,
-  lineWidthStart: 3.5,
-  lineWidthEnd: 0.8,
+  lineWidthStart: 2.0,
+  lineWidthEnd: 0.6,
   rainbowBranch: true,
 })
 
 const lrRootChildren = computed<LayoutNode[]>(() => layoutResult.value.root.children)
 
 // Per-side anchor positions on the root. Anchor x is the root's
-// side edge (or, for a non-root parent, the node's own side edge)
-// — no outward offset, no inward pull, no ellipse projection.
-// Anchor y mirrors the child's y, clamped to a small overshoot
-// past the root box so 5+ branches on a side still spread out a
-// bit, but the anchors never wrap to the top/bottom of the root
-// (which would put the path's parent end on top of the root
-// rectangle itself, hiding the connection).
+// side edge exactly (no outward offset, no inward pull, no ellipse
+// projection). Anchor y mirrors the child's y, strictly clamped
+// inside the root box so the line's parent end visibly starts ON
+// the root rectangle — not floating above/below it, not wrapped
+// to a corner. Even with 5+ children on a side, every anchor
+// stays on the side edge.
 const rootEdgeAnchor = computed<Map<string, { x: number; y: number }>>(() => {
   const m = new Map<string, { x: number; y: number }>()
   const root = layoutResult.value.root
   const pos = nodeDrag.nodePos(root)
   const halfW = root.width / 2
   const halfH = root.height / 2
-  // y reach: a small overshoot past the root half-height so 4+
-  // branches on a side have a little room to spread, but not so
-  // much that the topmost anchor lands on the root's top edge.
-  const yReach = halfH * 1.15
+  // Strict clamp: 1px inset from the top/bottom so anchors never
+  // land on the rounded corners.
+  const top = pos.y - halfH + 1
+  const bot = pos.y + halfH - 1
   for (const side of [-1, 1] as const) {
     const sideKids = root.children
       .filter((c) => c.side === side)
@@ -159,11 +158,7 @@ const rootEdgeAnchor = computed<Map<string, { x: number; y: number }>>(() => {
     const x = pos.x + side * halfW
     for (const c of sideKids) {
       const cy = nodeDrag.nodePos(c).y
-      // Map child y into [-yReach, +yReach] around root center,
-      // clamping at the ends so anchors stay attached to the side
-      // edge.
-      const y = Math.max(pos.y - yReach, Math.min(pos.y + yReach, cy))
-      m.set(c.id, { x, y })
+      m.set(c.id, { x, y: Math.max(top, Math.min(bot, cy)) })
     }
   }
   return m

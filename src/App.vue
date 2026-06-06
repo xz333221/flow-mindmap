@@ -44,6 +44,7 @@ const initialData: MindMapNode = {
 
 function pickDataByHash(): MindMapNode {
   if (typeof location !== 'undefined' && location.hash === '#fan') return fanData
+  if (typeof location !== 'undefined' && location.hash === '#stress') return stressData
   return initialData
 }
 
@@ -65,6 +66,33 @@ const fanData: MindMapNode = {
   ],
 }
 
+// Stress fixture: 7+7 root-level branches spread across a large
+// vertical span, so the root-edge anchors / fan geometry is
+// forced into its worst case. Used by the multi-branch stress
+// test in scripts/stress.mjs.
+const stressData: MindMapNode = (() => {
+  const mk = (id: string, text: string): MindMapNode => ({ id, text, children: [] })
+  const left = [
+    mk('s_l1', '左一'),
+    mk('s_l2', '左二'),
+    mk('s_l3', '左三'),
+    mk('s_l4', '左四'),
+    mk('s_l5', '左五'),
+    mk('s_l6', '左六'),
+    mk('s_l7', '左七'),
+  ]
+  const right = [
+    mk('s_r1', '右一'),
+    mk('s_r2', '右二'),
+    mk('s_r3', '右三'),
+    mk('s_r4', '右四'),
+    mk('s_r5', '右五'),
+    mk('s_r6', '右六'),
+    mk('s_r7', '右七'),
+  ]
+  return { id: 'root', text: 'z-mind 思维导图', children: [...left, ...right] }
+})()
+
 const data = ref<MindMapNode>(pickDataByHash())
 const selectedNode = ref<MindMapNode | null>(null)
 const collapsedIds = ref<Set<string>>(new Set())
@@ -84,8 +112,8 @@ function syncHashData() {
 // MindMap's own defaults so the UI is consistent.
 const settings = reactive<MindMapSettings>({
   autoBalanceOnChange: false,
-  lineWidthStart: 3.5,
-  lineWidthEnd: 0.8,
+  lineWidthStart: 2.0,
+  lineWidthEnd: 0.6,
   rainbowBranch: true,
 })
 
@@ -102,8 +130,8 @@ function onNodeStyleChange(style: { bg?: string; textColor?: string; borderColor
 function resetSettings() {
   const defaults: MindMapSettings = {
     autoBalanceOnChange: false,
-    lineWidthStart: 3.5,
-    lineWidthEnd: 0.8,
+    lineWidthStart: 2.0,
+    lineWidthEnd: 0.6,
     rainbowBranch: true,
   }
   Object.assign(settings, defaults)
