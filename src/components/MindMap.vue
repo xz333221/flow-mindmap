@@ -133,20 +133,18 @@ const settings = reactive<MindMapSettings>({
 const lrRootChildren = computed<LayoutNode[]>(() => layoutResult.value.root.children)
 
 // Per-side anchor positions on the root. Anchor x is the root's
-// side edge exactly (no outward offset, no inward pull, no ellipse
-// projection). Anchor y mirrors the child's y, strictly clamped
-// inside the root box so the line's parent end visibly starts ON
-// the root rectangle — not floating above/below it, not wrapped
-// to a corner. Even with 5+ children on a side, every anchor
-// stays on the side edge.
+// side edge exactly. Anchors distribute y evenly across the root
+// box (top..bottom) per side, ordered by the children's y. This
+// is the "fan" — even when children bunch at a single y, anchors
+// still spread across the full side edge instead of stacking at
+// a single point.
 const rootEdgeAnchor = computed<Map<string, { x: number; y: number }>>(() => {
   const m = new Map<string, { x: number; y: number }>()
   const root = layoutResult.value.root
   const pos = nodeDrag.nodePos(root)
   const halfW = root.width / 2
   const halfH = root.height / 2
-  // Strict clamp: 1px inset from the top/bottom so anchors never
-  // land on the rounded corners.
+  // 1px inset so anchors don't sit on the rounded corners.
   const top = pos.y - halfH + 1
   const bot = pos.y + halfH - 1
   for (const side of [-1, 1] as const) {
@@ -154,11 +152,18 @@ const rootEdgeAnchor = computed<Map<string, { x: number; y: number }>>(() => {
       .filter((c) => c.side === side)
       .slice()
       .sort((a, b) => nodeDrag.nodePos(a).y - nodeDrag.nodePos(b).y)
-    if (sideKids.length === 0) continue
+    const n = sideKids.length
+    if (n === 0) continue
     const x = pos.x + side * halfW
-    for (const c of sideKids) {
-      const cy = nodeDrag.nodePos(c).y
-      m.set(c.id, { x, y: Math.max(top, Math.min(bot, cy)) })
+    if (n === 1) {
+      m.set(sideKids[0].id, { x, y: pos.y })
+      continue
+    }
+    // n anchors evenly spread across the box. Order by child y
+    // keeps the topmost child near the top edge.
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1)
+      m.set(sideKids[i].id, { x, y: top + t * (bot - top) })
     }
   }
   return m
