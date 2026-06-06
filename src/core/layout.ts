@@ -314,6 +314,14 @@ function buildLayout(
   parent: LayoutNode | null,
   side: 1 | -1
 ): LayoutNode {
+  // Root height scales with how many direct children attach, so
+  // root-edge anchors have enough room to spread 4+ branches
+  // along the side instead of bunching at a single y. Width is
+  // fixed: changing it would push children into the root
+  // rectangle (children are positioned at root.x ± (root.width/2
+  // + H_GAP + child.width/2)).
+  const rootHeightBoost =
+    depth === 0 ? Math.min(100, Math.max(0, node.children.length - 2) * 8) : 0
   const ln: LayoutNode = {
     id: node.id,
     text: node.text,
@@ -321,7 +329,7 @@ function buildLayout(
     x: 0,
     y: 0,
     width: widthAt(depth),
-    height: heightAt(depth),
+    height: heightAt(depth) + rootHeightBoost,
     fontSize: fontAt(depth),
     isRoot: depth === 0,
     collapsed: node.collapsed,
