@@ -10,17 +10,12 @@ describe('layout', () => {
     expect(r.root.isRoot).toBe(true)
   })
 
-  it('splits root children by subtree height, greedily putting each on the lighter side', () => {
-    // All 3 leaves are the same height → greedy puts the 1st on the
-    // right (rightH=0 ≤ leftH=0), the 2nd on the left (rightH>H,
-    // rightH=38, leftH=38 → still goes left? no, rightH <= leftH so
-    // it goes right), so a/b go right, c goes left.  Wait, recompute:
-    //   round 1: rightH=0, leftH=0 → c=a goes right.  rightH=38.
-    //   round 2: rightH=38 > leftH=0 → c=b goes left.  leftH=38.
-    //   round 3: rightH=38 <= leftH=38 → c=c goes right.  rightH=76.
-    // Result: [right, left, right].  This is *deliberately* different
-    // from the old `slice(0, ceil(n/2))` split — the goal is to
-    // balance subtree HEIGHT, not child count.
+  it('splits root children by sibling index: first ceil(n/2) right, rest left', () => {
+    // 3 children of equal height.  ceil(3/2) = 2 → first two go
+    // right, last one goes left.  Result: [right, right, left].
+    // (Earlier we did greedy-by-height balancing here, but the user
+    // wants the *order* to be predictable: the canvas should read
+    // 1, 2, 3, … clockwise as the data tree is walked.)
     const data: MindMapNode = {
       id: 'r',
       text: 'R',
@@ -32,19 +27,17 @@ describe('layout', () => {
     }
     const r = layout(data)
     const sides = r.root.children.map((c) => c.side)
-    expect(sides).toEqual([1, -1, 1])
+    expect(sides).toEqual([1, 1, -1])
   })
 
-  it('redistributes a deep subtree to the lighter side and flips its descendants\' _dir', () => {
-    // 4 children: 3 short leaves (height = 1 tier) + 1 deep subtree
-    // (height ≈ 5 tiers).  Greedy: leaf1 → right (0≤0), leaf2 → left
-    // (38>0, rightH=38, leftH=38 wait 38>0 so left), but then
-    // leaf3 → right (38<=38), then the deep subtree → right (it
-    // would be the lighter side after two leaves).  Hmm — actually
-    // the order matters and depends on which leaves come first.
-    // What we ASSERT is what matters: the deep subtree must end up
-    // on whichever side has fewer tall things, and the leaves' _dir
-    // must follow.
+  it('redistributes a deep subtree to the opposite side and flips its descendants\' _dir', () => {
+    // 4 children: 1 deep subtree (a → a1 → a1a/a1b) + 3 leaves.
+    // ceil(4/2) = 2 → first 2 (a, b) go right; c, d go left.  So
+    // 'a' lands on the right (the *opposite* of what buildLayout
+    // would have assigned it, since buildLayout never gives the
+    // first child -1).  The whole subtree must be flipped with it.
+    // What we ASSERT is the parts that don't depend on which side
+    // 'a' ended up on: a1 / a1a are on the same side as a.
     const data: MindMapNode = {
       id: 'r',
       text: 'R',
@@ -159,12 +152,10 @@ describe('layout', () => {
   })
 
   it('lays out children clockwise around the root: right side top→bottom, left side bottom→top', () => {
-    // 4 children of equal height, greedy split puts 2 on each side.
-    // Right side: first sibling must be ABOVE the last (top→bottom).
-    // Left side:  first sibling must be BELOW the last (bottom→top).
-    // The "first" here is `root.children[2]` and `[3]` (the two
-    // left-side kids after greedy split) — but we test by id order
-    // from the input to be robust to balancer changes.
+    // 4 children, ceil(4/2)=2 → a, b go right (side=1), c, d go
+    // left (side=-1).  Right side stacks top→bottom; left side
+    // stacks bottom→top.  Together they read as a clockwise sweep
+    // around the root: 1 (right top) → 2 → 3 (root y) → 4 (left top).
     const data: MindMapNode = {
       id: 'r',
       text: 'R',

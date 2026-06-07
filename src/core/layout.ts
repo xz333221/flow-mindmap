@@ -187,29 +187,24 @@ export function layout(
 // =====================================================================
 function applyDoLayout(root: LayoutNode, mode: LayoutMode): void {
   if (mode === 'mindmap') {
-    // Split root's children by subtree HEIGHT, not by child count.  A
-    // 4-vs-4 split where one side has 4 short leaves and the other
-    // has 4 deep subtrees makes the canvas lopsided.  Greedy: walk
-    // children in order, put each on the lighter side (ties → right
-    // so a perfectly-symmetric input still looks balanced).  When
-    // the balancer moves a child across the center line, the whole
-    // subtree must follow — its descendants' `side` and `_dir` are
-    // still inherited from buildLayout, so the rendering / line
-    // layer would otherwise draw the children on the *old* side.
+    // Split root's children by SIBLING INDEX, not by subtree height.
+    // The first `ceil(n/2)` siblings go right, the rest go left.  This
+    // is 1.html's original `slice(0, ceil(n/2))` rule.  Why not
+    // balance by subtree height?  Two reasons:
+    //  - the user wants the *order* to be predictable: walking the
+    //    data tree 1, 2, 3, … should read the canvas 1, 2, 3, …
+    //    clockwise.  Balancing by height scrambles that.
+    //  - a 4-vs-4 split where one side has 4 short leaves and the
+    //    other has 4 deep subtrees looks lopsided visually, but
+    //    that's an acceptable cost for keeping the order honest.
+    // The side-by-side visual stack is centered on the parent's y
+    // by layoutHorizontal's applyClockwise sweep (right = top→bottom,
+    // left = bottom→top), so the layout still reads as a balanced
+    // fan around the root.
     const kids = root.children
-    const rightKids: LayoutNode[] = []
-    const leftKids: LayoutNode[] = []
-    let rightH = 0
-    let leftH = 0
-    for (const c of kids) {
-      if (rightH <= leftH) {
-        rightKids.push(c)
-        rightH += c._subtreeH
-      } else {
-        leftKids.push(c)
-        leftH += c._subtreeH
-      }
-    }
+    const rightCount = Math.ceil(kids.length / 2)
+    const rightKids = kids.slice(0, rightCount)
+    const leftKids = kids.slice(rightCount)
     for (const c of rightKids) {
       c._dir = 'right'
       c.side = 1
