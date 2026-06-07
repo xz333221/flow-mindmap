@@ -785,15 +785,24 @@ function lineAnchor(
   //   child is to the left  → edge leaves `n` from the LEFT  (d = -1)
   //   child is to the right → edge leaves `n` from the RIGHT (d = +1)
   // The child endpoint is the mirror of that.
+  //
+  // Important: when a root's children are stacked directly BELOW
+  // it (e.g. after a balance that put short leaves on the same side
+  // as deep subtrees), child.x can be near parent.x but the
+  // dominant offset is vertical.  Reading from the *layout's own*
+  // _dir / _dirRight — which the balancer just set — is more
+  // robust than guessing from coordinates.
   let d: 1 | -1
   if (child) {
-    const childOnLeft = child.x < p.x
-    if (side === 'in') {
-      // edge enters child from the side opposite the parent
-      d = childOnLeft ? (1 as const) : (-1 as const)
+    // If child carries a layout direction, trust it: it was set by
+    // applyDoLayout in the same pass that placed the child.  The
+    // build-time `n.side` of the parent can disagree, but the
+    // CHILD's `_dir` reflects the actual side it lives on.
+    if (child._dir === 'left') {
+      d = side === 'in' ? (1 as const) : (-1 as const)
     } else {
-      // side === 'out': edge leaves parent toward child
-      d = childOnLeft ? (-1 as const) : (1 as const)
+      // 'right' (or fallback for collapsed roots)
+      d = side === 'in' ? (-1 as const) : (1 as const)
     }
   } else if (side === 'in') {
     d = (-n._dirRight) as 1 | -1
