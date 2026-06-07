@@ -1822,6 +1822,12 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Allow flex to shrink the label so a long string doesn't push
+   * the rendered width past the layout's reserved width (which
+   * would pull the line anchor off the box edge).  `min-width: 0`
+   * is the standard flex-shrink escape hatch. */
+  min-width: 0;
+  flex-shrink: 1;
 }
 .zm-input {
   border: none;

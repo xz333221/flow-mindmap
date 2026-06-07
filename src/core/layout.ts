@@ -139,12 +139,27 @@ function measureText(text: string, fontSize: number, fontWeight: number): number
 // calcNodeSize — 1.html JS L341-348.  width = max(minW, text+2*padH).
 // For nodes that carry an image, the box grows to fit the image above
 // the text (image width forces a wider box, image+gap+text forces a
-// taller box).  `image` dimensions are clamped to a sensible range so
-// a bad import doesn't blow up the layout.
+// taller box).  For nodes with a link or note icon, the text row
+// gains a fixed-size "icon tray" (16px per icon + 4px gap) so the
+// layout's reserved width matches the rendered DOM.  Without this,
+// the node's actual on-screen width grows past the layout's
+// reserved width, and edge anchors (computed from the layout width)
+// end up piercing the box.
+//
+// `image` dimensions are clamped to a sensible range so a bad
+// import doesn't blow up the layout.
 // =====================================================================
 const IMG_MIN_W = 24
 const IMG_MAX_W = 400
 const IMG_GAP = 8
+
+/** Per-icon reserved slot in the text row.  MUST match the
+ *  `width` / `height` of `.zm-node-link` and `.zm-node-note-btn`
+ *  in MindMap.vue.  If you change the icon size, change this. */
+const ICON_SLOT = 16
+/** Gap between adjacent icons (and between the last icon and the
+ *  text label) in the text row.  MUST match `gap` on `.zm-text`. */
+const ICON_GAP = 4
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v))
@@ -156,14 +171,27 @@ function calcNodeSize(node: MindMapNode, level: number): { w: number; h: number 
   const pad = padPx(level)
   const textWWithPad = Math.ceil(textW + pad * 2)
   const textH = NODE_HEIGHTS[t]
+  // Reserve space for the inline icons: each link/note icon is
+  // 16px + 4px gap (only between adjacent icons; no trailing gap
+  // — the text label sits right after the last icon).
+  let iconTrayW = 0
+  if (node.link) iconTrayW += ICON_SLOT
+  if (node.note) iconTrayW += ICON_SLOT
+  if (iconTrayW > 0) {
+    // First icon sits to the right of the label with ICON_GAP
+    // between them; subsequent icons add another ICON_GAP each.
+    const iconCount = (node.link ? 1 : 0) + (node.note ? 1 : 0)
+    iconTrayW += ICON_GAP * iconCount
+  }
+  const textRowW = textWWithPad + iconTrayW
   if (!node.image) {
-    const w = Math.max(NODE_MIN_W[t], textWWithPad)
+    const w = Math.max(NODE_MIN_W[t], textRowW)
     return { w, h: textH }
   }
-  // Has an image: width accommodates the wider of the text or the
-  // image; height stacks the image + gap + text region.
+  // Has an image: width accommodates the wider of the text row or
+  // the image; height stacks the image + gap + text region.
   const imgW = clamp(node.image.width, IMG_MIN_W, IMG_MAX_W)
-  const w = Math.max(NODE_MIN_W[t], textWWithPad, Math.ceil(imgW + pad * 2))
+  const w = Math.max(NODE_MIN_W[t], textRowW, Math.ceil(imgW + pad * 2))
   const h = Math.ceil(node.image.height + IMG_GAP + textH)
   return { w, h }
 }
