@@ -1077,11 +1077,6 @@ watch(
           @dblclick="(e) => { e.stopPropagation(); if (!readonly) startEdit(n.id) }"
         >
           <span v-if="editingId !== n.id" class="zm-text">{{ n.text }}</span>
-          <span
-            v-if="showOrderBadge"
-            class="zm-order-badge"
-            :title="`数据顺序：第 ${siblingIndexOf(n.id) + 1} 个`"
-          >{{ siblingIndexOf(n.id) + 1 }}</span>
           <input
             v-else
             class="zm-input"
@@ -1096,6 +1091,12 @@ watch(
             @mousedown.stop
             @click.stop
           />
+
+          <span
+            v-if="showOrderBadge"
+            class="zm-order-badge"
+            :title="`数据顺序：第 ${siblingIndexOf(n.id) + 1} 个`"
+          >{{ siblingIndexOf(n.id) + 1 }}</span>
 
           <span
             v-if="isCollapsed(n.id) && !n.isRoot && collapsedChildCount(n.id) > 0"
