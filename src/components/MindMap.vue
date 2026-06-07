@@ -129,8 +129,8 @@ const theme = computed<Required<MindMapTheme>>(() => ({
 // User-controllable settings (settings panel / applySettings)
 // ---------------------------------------------------------------------------
 const settings = reactive<MindMapSettings>({
-  autoBalanceOnChange: false,
-  lineWidthStart: 4.0,
+  autoBalanceOnChange: true,
+  lineWidthStart: 12.0,
   lineWidthEnd: 0.6,
   rainbowBranch: true,
   lineStyle: 'curve',
@@ -878,7 +878,7 @@ defineExpose<MindMapExpose>({
   applySettings: (s: Partial<MindMapSettings>) => {
     if (s.autoBalanceOnChange !== undefined) settings.autoBalanceOnChange = s.autoBalanceOnChange
     if (s.lineWidthStart !== undefined)
-      settings.lineWidthStart = Math.max(0.5, Math.min(10, s.lineWidthStart))
+      settings.lineWidthStart = Math.max(0.5, Math.min(20, s.lineWidthStart))
     if (s.lineWidthEnd !== undefined)
       settings.lineWidthEnd = Math.max(0.3, Math.min(10, s.lineWidthEnd))
     if (s.rainbowBranch !== undefined) settings.rainbowBranch = s.rainbowBranch

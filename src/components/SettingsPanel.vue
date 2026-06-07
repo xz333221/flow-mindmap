@@ -136,7 +136,7 @@ const previewLines = computed(() => {
         <input
           type="range"
           min="0.4"
-          max="6"
+          max="20"
           step="0.2"
           :value="settings.lineWidthStart"
           @input="(e) => set('lineWidthStart', parseFloat((e.target as HTMLInputElement).value))"
