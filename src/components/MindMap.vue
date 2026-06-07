@@ -112,11 +112,18 @@ function triggerRef() {
   collapsedIds.value = new Set(collapsedIds.value)
   layoutVersion.value++
   // If the user opted in to "auto-balance on change", snap to balanced
-  // layout after every mutation.  We schedule it in nextTick so it
-  // runs after the current layoutResult computed settles.
+  // layout after every mutation.  Same recipe as runBalance() — clear
+  // manual drag offsets, re-run layout, and re-center the view so the
+  // user actually sees the new arrangement (otherwise the new layout
+  // sits off-screen until they pan/zoom to find it).
   if (settings.autoBalanceOnChange && !props.readonly) {
     nextTick(() => {
+      nodeDrag.resetOffsets()
       balanced.value = true
+      // Re-run the layout computed (the offsets are gone now and
+      // `balanced` is set, so the next tick of layoutResult is the
+      // fresh balanced layout).  Then re-center the view on it.
+      nextTick(() => resetView())
     })
   }
 }
