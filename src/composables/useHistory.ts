@@ -4,30 +4,12 @@ import type { MindMapNode } from '../types'
 /**
  * Linear undo/redo history for the mind map.
  *
- * Each entry stores the data tree AND the per-node drag offsets that
- * the user accumulated up to that point.  The combination is what
- * determines the visual state, so the history needs to track both.
- *
- * The model:
- *   - `record(snapshot)` appends a NEW state to the timeline.  Call it
- *     AFTER applying a mutation (so the snapshot reflects the new
- *     state).  The cursor advances to the new state.
- *   - `undo()` returns the previous state, moving the cursor one step
- *     back.  Returns null if the cursor is already at the start.
- *   - `redo()` returns the next state, moving the cursor forward.
- *     Returns null if the cursor is already at the end.
- *   - `record` invalidates any "future" history past the cursor —
- *     like a text editor after a new edit, you can't redo over a
- *     branch.
- *
+ * Each entry stores the data tree (full JSON snapshot).
  * Snapshots are deep-cloned JSON strings (one string per state).  The
  * timeline is bounded so a long session doesn't grow without limit.
  */
 export interface HistoryState {
   data: MindMapNode
-  /** Per-node drag offsets, parallel to nodeDrag.nodeOffsets.
-   *  Stored as a plain object so JSON round-trips cleanly. */
-  offsets: Record<string, { x: number; y: number }>
 }
 
 export function useHistory(maxSize = 100) {

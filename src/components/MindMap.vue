@@ -22,7 +22,6 @@ import {
 } from '../tree'
 import type { MindMapNode, MindMapTheme, MindMapExpose, MindMapSettings, NodeStyle } from '../types' 
 import { usePanZoom } from '../composables/usePanZoom'
-import { useNodeDrag } from '../composables/useNodeDrag'
 import { useKeyboard } from '../composables/useKeyboard'
 import { useHistory } from '../composables/useHistory'
 
@@ -90,32 +89,18 @@ function getNodeStyleOr(id: string, fallback: NodeStyle): NodeStyle {
 }
 const layoutVersion = ref(0)
 // Compact layout is the default. The user clicks "balance" to snap
-// everything into the balanced layout, undo any manual drag offsets,
-// and re-center the view — the layout reverts on the next data change
-// unless the caller opts in via setBalanced(true).
+// everything into the balanced layout and re-center the view — the
+// layout reverts on the next data change unless the caller opts in
+// via setBalanced(true).
 const balanced = ref(false)
-
-/** When true, the next layoutResult computed passes
- *  `preservePositions: true` to the layout algorithm, so doLayout
- *  keeps each LayoutNode's existing n.x / n.y instead of re-running
- *  the doLayout step.  Set by the drag-completion path right
- *  before triggering re-layout.  Reset to false by every other
- *  mutation (add child / edit text / etc.) so those code paths
- *  re-run the algorithm and place new / changed nodes. */
-const preserveOnNextLayout = ref(false)
 
 /** Undo/redo stack.  Every mutation calls `record()` AFTER applying the
  *  change; undo() / redo() then swap dataRef with a previous snapshot. */
 const history = useHistory(100)
 
-/** Snapshot the current tree + node-drag offsets so the next
- *  mutation can be undone.  Tracking offsets is necessary so that
- *  dragging a node is itself a recordable, undoable action. */
+/** Snapshot the current tree so the next mutation can be undone. */
 function record() {
-  history.record({
-    data: dataRef.value,
-    offsets: nodeDrag.getOffsets(),
-  })
+  history.record({ data: dataRef.value })
 }
 
 /** Apply a new tree, push to emit, refresh layout.  Used by mutations
@@ -134,11 +119,6 @@ function applyData(next: MindMapNode, opts: { resetCollapsed?: boolean; resetSel
 function triggerRef() {
   collapsedIds.value = new Set(collapsedIds.value)
   layoutVersion.value++
-  // layoutResult now decides for itself whether to preservePositions
-  // (see `preserveOnNextLayout`).  The drag-completion callback
-  // sets that flag before calling us, so we don't need to do
-  // anything special here — just bump the version.
-  //
   // NB: autoBalanceOnChange used to call resetView() here, but
   // that yanked the user's zoom/pan on every add / edit /
   // collapse-toggle — "I zoom in, then click any node and the
@@ -399,55 +379,6 @@ function darken(hex: string, amount: number): string {
 const panZoom = usePanZoom({ getContainer: () => wrapperRef.value })
 panZoom.setOnMarqueeEnd(onMarqueeEnd)
 
-// node drag — collectDescendants and getNodeById need access to allNodes
-const allNodesComputed = ref<LayoutNode[]>([])
-const nodesByIdComputed = ref<Map<string, LayoutNode>>(new Map())
-const allNodes = computed<LayoutNode[]>(() => {
-  // touch layoutVersion so updates propagate
-  void layoutVersion.value
-  return allNodesComputed.value
-})
-const nodesById = computed(() => {
-  void layoutVersion.value
-  return nodesByIdComputed.value
-})
-function collectDescendants(rootId: string): string[] {
-  const out: string[] = []
-  const walk = (n: LayoutNode) => {
-    for (const c of n.children) {
-      out.push(c.id)
-      walk(c)
-    }
-  }
-  const root = nodesById.value.get(rootId)
-  if (root) walk(root)
-  return out
-}
-const nodeDrag = useNodeDrag({
-  scale: panZoom.scale,
-  getNodeById: (id) => nodesById.value.get(id),
-  collectDescendants,
-  onChange: () => {
-    // Drag commits the offset permanently into the data tree's
-    // `_x` / `_y` and re-runs the layout with
-    // `preservePositions: true`, so the dragged subtree stays
-    // where the user put it.  The commit + layout pass runs in
-    // the next layoutResult computed tick (it reads
-    // `preserveOnNextLayout` and acts on it).
-    //
-    // record() is called BEFORE the commit so undo restores the
-    // pre-drag snapshot.
-    record()
-    preserveOnNextLayout.value = true
-    triggerRef()
-    // NB: we used to call resetView() here on autoBalance, but
-    // re-centering after every drag yanks the user's zoom and
-    // wipes out the position they just chose.  The dragged node
-    // already lives at the right spot via preserveOnNextLayout —
-    // there's nothing to re-center.
-  },
-})
-
 // keyboard
 useKeyboard({
   isEditing: () => editingId.value !== null,
@@ -479,68 +410,28 @@ useKeyboard({
 
 // layout
 const layoutResult = computed(() => {
-  // The drag-completion path sets `preserveOnNextLayout = true` to
-  // tell the layout algorithm to keep n.x / n.y instead of recomputing
-  // them.  We also need to commit the per-node drag offsets into
-  // the data tree BEFORE cloning, so the preserved n.x / n.y
-  // includes the dragged position.  Once committed, clear the
-  // offset map so subsequent moves don't double-count.
-  const preserve = preserveOnNextLayout.value
-  if (preserve) {
-    commitDragOffsetsToData()
-  } else {
-    // Always clear offsets on a non-preserved re-run: the data
-    // tree changed, so any leftover offsets are now misleading.
-    nodeDrag.resetOffsets()
-  }
-  preserveOnNextLayout.value = false
   const data = clone(dataRef.value)
   applyCollapse(data)
-  const r = layout(data, {
-    mode: settings.layoutMode,
-    preservePositions: preserve,
-  })
-  return r
+  return layout(data, { mode: settings.layoutMode })
 })
 
-/** Walk the per-node drag offsets and stamp them into the data
- *  tree as `_x` / `_y` so the next layout pass (with
- *  `preservePositions: true`) keeps the node at the dragged
- *  spot.  Also walks the descendants so an entire subtree moves
- *  together (preserves the "drag with me" relationship).  Clears
- *  the offset map afterwards. */
-function commitDragOffsetsToData() {
-  const root = dataRef.value
-  const offsets = nodeDrag.getOffsets()
-  const apply = (n: MindMapNode, dx: number, dy: number) => {
-    n._x = (n._x ?? 0) + dx
-    n._y = (n._y ?? 0) + dy
-    for (const c of n.children) apply(c, dx, dy)
-  }
-  for (const id in offsets) {
-    const o = offsets[id]
-    if (!o || (o.x === 0 && o.y === 0)) continue
-    const n = findNode(root, id)
-    if (!n) continue
-    apply(n, o.x, o.y)
-  }
-  nodeDrag.resetOffsets()
-}
-
 // Walk the layout in one pass, building both the flat node list and the lookup map
+const allNodesComputed = ref<LayoutNode[]>([])
+const allNodes = computed<LayoutNode[]>(() => {
+  // touch layoutVersion so updates propagate
+  void layoutVersion.value
+  return allNodesComputed.value
+})
 watch(
   layoutResult,
   (r) => {
     const list: LayoutNode[] = []
-    const map = new Map<string, LayoutNode>()
     const walk = (n: LayoutNode) => {
       list.push(n)
-      map.set(n.id, n)
       for (const c of n.children) walk(c)
     }
     walk(r.root)
     allNodesComputed.value = list
-    nodesByIdComputed.value = map
   },
   { immediate: true }
 )
@@ -679,7 +570,6 @@ function doUndo() {
   const restored = history.undo()
   if (restored) {
     dataRef.value = restored.data
-    nodeDrag.setOffsets(restored.offsets)
     selectedId.value = null
     emit('select', null)
     triggerRef()
@@ -691,7 +581,6 @@ function doRedo() {
   const restored = history.redo()
   if (restored) {
     dataRef.value = restored.data
-    nodeDrag.setOffsets(restored.offsets)
     selectedId.value = null
     emit('select', null)
     triggerRef()
@@ -909,19 +798,18 @@ function lineAnchor(
   dir?: 1 | -1,
   child?: LayoutNode
 ): { x: number; y: number } {
-  const p = nodeDrag.nodePos(n)
   const childDir = child?._dir ?? n._dir
   if (childDir === 'down') {
     // Vertical layout (org mode): line lands on top/bottom mid-edge
-    if (side === 'out') return { x: p.x, y: p.y + n.height / 2 }
-    return { x: p.x, y: p.y - n.height / 2 }
+    if (side === 'out') return { x: n.x, y: n.y + n.height / 2 }
+    return { x: n.x, y: n.y - n.height / 2 }
   }
   // Horizontal (mindmap / tree): line lands on left/right mid-edge
   let d: 1 | -1
   if (side === 'in') d = (-n.side) as 1 | -1
   else if (dir !== undefined) d = dir
   else d = n.side
-  return { x: p.x + d * (n.width / 2), y: p.y }
+  return { x: n.x + d * (n.width / 2), y: n.y }
 }
 
 function resetView() {
@@ -930,13 +818,10 @@ function resetView() {
 }
 
 function runBalance() {
-  // 1. clear all manual drag offsets so dragged nodes return to the
-  //    algorithm-defined position
-  nodeDrag.resetOffsets()
-  // 2. apply balanced layout (re-runs the layout computed with
+  // 1. apply balanced layout (re-runs the layout computed with
   //    { balanced: true })
   balanced.value = true
-  // 3. record this so Ctrl+Z can restore the pre-balance state
+  // 2. record this so Ctrl+Z can restore the pre-balance state
   record()
   // 3. force a layoutVersion bump so the computed re-runs immediately
   triggerRef()
@@ -966,7 +851,6 @@ function importData(json: string): boolean {
     dataRef.value = clone(parsed)
     selectedId.value = null
     collapsedIds.value = new Set()
-    nodeDrag.resetOffsets()
     triggerRef()
     nextTick(() => resetView())
     emit('change', dataRef.value)
@@ -1020,7 +904,6 @@ defineExpose<MindMapExpose>({
     dataRef.value = clone(d)
     selectedId.value = null
     collapsedIds.value = new Set()
-    nodeDrag.resetOffsets()
     triggerRef()
     nextTick(() => resetView())
   },
@@ -1173,8 +1056,8 @@ onMounted(() => {
             'is-editing': editingId === n.id,
           }"
           :style="{
-            left: nodeDrag.nodePos(n).x + 'px',
-            top: nodeDrag.nodePos(n).y + 'px',
+            left: n.x + 'px',
+            top: n.y + 'px',
             minWidth: n.width + 'px',
             height: n.height + 'px',
             fontSize: n.fontSize + 'px',
@@ -1182,15 +1065,9 @@ onMounted(() => {
             color: nodeFg(n),
             borderColor: nodeBorder(n),
             fontWeight: nodeFontWeight(n),
-            // 1.html centering trick: position the box by its center
-            // (x,y) and let the browser center it via transform.
-            // The in-flight drag delta is folded into `left`/`top` via
-            // nodePos so the SVG edges (which also read nodePos)
-            // track the node 1:1 while the user drags.  Adding it
-            // to the transform on top would shift the node by 2×.
+            // Center the box on (x, y) with translate(-50%, -50%)
             transform: `translate(-50%, -50%)`,
           }"
-          @mousedown="(e) => nodeDrag.startNodeDrag(e, n, readonly)"
           @click="(e) => onNodeClick(e, n)"
           @dblclick="(e) => { e.stopPropagation(); if (!readonly) startEdit(n.id) }"
         >
@@ -1369,8 +1246,8 @@ onMounted(() => {
   border-radius: 8px;
   border: 1px solid;
   line-height: 1.2;
-  cursor: move;
-  transition: box-shadow 0.15s, transform 0.05s;
+  cursor: default;
+  transition: box-shadow 0.15s;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   white-space: nowrap;
   z-index: 1;

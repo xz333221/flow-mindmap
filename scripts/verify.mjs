@@ -59,7 +59,10 @@ await page.locator('.zm-tb-btn[title="重置视图"]').click()
 await page.waitForTimeout(150)
 await page.screenshot({ path: `${outDir}/06-reset.png`, fullPage: true })
 
-// drag persistence: drag the "核心功能" node and check it stays moved
+// Drag is disabled: a mousedown + drag on a node should not move it
+// (this is the post-bug-fix contract — see MindMap.vue).  Assert
+// that the node stays put and that the gesture doesn't bleed into
+// the canvas (no pan, no marquee).
 const target = page.locator('.zm-node').nth(1)
 const before = await target.boundingBox()
 await target.hover()
@@ -71,8 +74,8 @@ const after = await target.boundingBox()
 const dx = after.x - before.x
 const dy = after.y - before.y
 console.log(`drag delta: dx=${dx.toFixed(1)} dy=${dy.toFixed(1)}`)
-if (Math.abs(dx) < 100 || Math.abs(dy) < 50) {
-  console.error('drag did not persist!')
+if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+  console.error(`node should NOT move on drag, but moved dx=${dx.toFixed(1)} dy=${dy.toFixed(1)}`)
   process.exit(1)
 }
 await page.screenshot({ path: `${outDir}/07-after-drag.png`, fullPage: true })
@@ -145,32 +148,10 @@ console.log(`Shift+Enter: ${beforeSiblingBefore} → ${afterSiblingBefore} ✓`)
 await page.keyboard.press('Escape')
 await page.waitForTimeout(150)
 
-// balance command: click the balance button, verify it (1) clears the
-// drag offsets we just set so the "核心功能" node returns to its
-// algorithm position, and (2) lays out all sub-branches in the balanced
-// mode (left-side children centered in the right-side band).
-const balanceBtn = page.locator('.zm-tb-btn[title*="平衡"]')
-await balanceBtn.click()
-await page.waitForTimeout(300)
-await page.screenshot({ path: `${outDir}/08-balanced.png`, fullPage: true })
-
-// after balance: the dragged "核心功能" should NOT be in the corner
-// anymore — it should sit on its algorithm-defined row on the right side
-const balancedPositions = await page.evaluate(() => {
-  return Array.from(document.querySelectorAll('.zm-node')).map((n) => {
-    const r = n.getBoundingClientRect()
-    return { text: n.textContent?.trim().slice(0, 12), x: Math.round(r.x), y: Math.round(r.y) }
-  })
-})
-console.log('positions when balanced:')
-for (const p of balancedPositions) console.log(' ', p)
-
-const coreNodeBalanced = balancedPositions.find((p) => p.text === '核心功能')
-if (!coreNodeBalanced || coreNodeBalanced.x > 900) {
-  console.error(`balance did not restore "核心功能" to its algorithm position (x=${coreNodeBalanced?.x})`)
-  process.exit(1)
-}
-console.log(`balance restored 核心功能 to x=${coreNodeBalanced.x}`)
+// NOTE: a "balance" toolbar button used to exist (and verify below
+// used to click it).  It was hidden in commit c06c0bc; the assertions
+// that follow it were never updated to match.  Removed from this
+// smoke test — re-add when/if balance UI returns to the toolbar.
 
 // App layout: drawers are closed by default — open them, then assert
 // their content renders.
@@ -270,9 +251,9 @@ await page.evaluate(() => {
 await page.waitForTimeout(700)
 await page.waitForSelector('.zm-node', { timeout: 8000 })
 await page.screenshot({ path: `${outDir}/10-fan-compact.png`, fullPage: true })
-// trigger balanced
-await page.locator('.zm-tb-btn[title*="平衡"]').click()
-await page.waitForTimeout(400)
+// trigger balanced (no-op now that the toolbar balance button is hidden;
+// kept the screenshot for visual diff with 11-fan-balanced.png)
+await page.waitForTimeout(200)
 await page.screenshot({ path: `${outDir}/11-fan-balanced.png`, fullPage: true })
 
 await browser.close()
