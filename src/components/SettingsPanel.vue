@@ -171,7 +171,7 @@ const previewLines = computed(() => {
         <input
           class="zm-settings-number"
           type="number"
-          step="0.1"
+          step="0.2"
           :value="settings.lineWidthEnd"
           @change="(e) => set('lineWidthEnd', parseFloat((e.target as HTMLInputElement).value) || 0)"
         />

@@ -20,6 +20,8 @@ const initialData: MindMapNode = {
         { id: 'n_f2', text: '拖拽布局', children: [] },
         { id: 'n_f3', text: '缩放与平移', children: [] },
         { id: 'n_f4', text: '键盘快捷键', children: [] },
+        { id: 'n_f5', text: '导入导出 JSON', children: [] },
+        { id: 'n_f6', text: '撤销与重做', children: [] },
       ],
     },
     {
@@ -29,14 +31,16 @@ const initialData: MindMapNode = {
         { id: 'n_t1', text: 'Vue 3 + Vite', children: [] },
         { id: 'n_t2', text: 'TypeScript', children: [] },
         { id: 'n_t3', text: '纯 SVG 渲染', children: [] },
+        { id: 'n_t4', text: '无第三方依赖', children: [] },
       ],
     },
     {
       id: 'n_open',
       text: '开源',
       children: [
-        { id: 'n_o1', text: 'MIT 协议', children: [] },
+        { id: 'n_o1', text: 'Apache-2.0 协议', children: [] },
         { id: 'n_o2', text: '可作为 npm 组件使用', children: [] },
+        { id: 'n_o3', text: '欢迎 Star', children: [] },
       ],
     },
   ],
@@ -112,8 +116,8 @@ function syncHashData() {
 // MindMap's own defaults so the UI is consistent.
 const settings = reactive<MindMapSettings>({
   autoBalanceOnChange: true,
-  lineWidthStart: 16.0,
-  lineWidthEnd: 3.0,
+  lineWidthStart: 12.0,
+  lineWidthEnd: 3.6,
   rainbowBranch: true,
   lineStyle: 'curve',
   layoutMode: 'mindmap',
