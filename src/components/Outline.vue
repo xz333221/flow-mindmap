@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, nextTick, onBeforeUnmount } from 'vue'
 import type { MindMapNode } from '../types'
+// Vite ?url gives a stable asset URL we can pass to <img src=…>.
+// The buttons stay styled by .zm-outline-row-action, the image
+// just replaces the inline <svg> we used to draw by hand.
+import addNodeIcon from '../assets/svg/add-node.svg?url'
+import addSubNodeIcon from '../assets/svg/add-sub-node.svg?url'
 
 const props = withDefaults(
   defineProps<{
@@ -301,16 +306,7 @@ async function copyOutline() {
           title="添加同级"
           @click.stop="emit('addSibling', row.id)"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <!-- Node box on the left, "+" on the right, arrow joining them.
-                 Reads as "insert a new sibling to the right of this node". -->
-            <rect x="3" y="8" width="7" height="8" rx="1.5" />
-            <line x1="13" y1="12" x2="18" y2="12" />
-            <polyline points="16 10 18 12 16 14" />
-            <line x1="18" y1="9" x2="18" y2="15" />
-            <line x1="15" y1="9.5" x2="21" y2="9.5" />
-            <line x1="15" y1="14.5" x2="21" y2="14.5" />
-          </svg>
+          <img :src="addNodeIcon" width="14" height="14" alt="添加同级" draggable="false" />
         </button>
         <button
           v-if="!props.readonly && row.hasChildren"
@@ -318,16 +314,7 @@ async function copyOutline() {
           title="添加子节点"
           @click.stop="emit('addChild', row.id)"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <!-- Node box on top, descending line + arrow + small "+" child.
-                 Reads as "insert a new child under this node". -->
-            <rect x="8" y="3" width="8" height="7" rx="1.5" />
-            <line x1="12" y1="13" x2="12" y2="18" />
-            <polyline points="10 16 12 18 14 16" />
-            <line x1="3" y1="20" x2="21" y2="20" />
-            <line x1="9" y1="20" x2="15" y2="20" />
-            <line x1="12" y1="17" x2="12" y2="23" />
-          </svg>
+          <img :src="addSubNodeIcon" width="14" height="14" alt="添加子节点" draggable="false" />
         </button>
         <button
           class="zm-outline-row-copy"
@@ -523,6 +510,12 @@ async function copyOutline() {
   background: #e0e7ff;
   color: #4338ca;
   border-color: #c7d2fe;
+}
+.zm-outline-row-action img {
+  /* The bundled SVGs use a hardcoded mid-grey fill.  Tint
+   * them toward the active color on hover so the icon
+   * actually responds to the parent button's hover state. */
+  filter: invert(38%) sepia(94%) saturate(2417%) hue-rotate(229deg) brightness(91%) contrast(91%);
 }
 .zm-outline-row-copy {
   width: 20px;

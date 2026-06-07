@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import Icon from './Icon.vue'
+// Reuse the add-node icons from the outline panel.  Vite ?url
+// gives a stable URL we can pass to <img src=…>; the buttons
+// stay styled by .zm-tb-btn.
+import addNodeIcon from '../assets/svg/add-node.svg?url'
+import addSubNodeIcon from '../assets/svg/add-sub-node.svg?url'
 import { layout, type LayoutNode } from '../core/layout'
 import {
   addChild,
@@ -1255,14 +1260,7 @@ watch(
         title="添加子节点 (Tab)"
         @click="selectedId && doAddChild(selectedId)"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="8" y="3" width="8" height="7" rx="1.5" />
-          <line x1="12" y1="13" x2="12" y2="18" />
-          <polyline points="10 16 12 18 14 16" />
-          <line x1="3" y1="20" x2="21" y2="20" />
-          <line x1="9" y1="20" x2="15" y2="20" />
-          <line x1="12" y1="17" x2="12" y2="23" />
-        </svg>
+        <img :src="addSubNodeIcon" width="14" height="14" alt="添加子节点" draggable="false" />
       </button>
       <button
         v-if="!readonly"
@@ -1270,14 +1268,7 @@ watch(
         title="添加同级 (Enter)"
         @click="selectedId && doAddSibling(selectedId)"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="3" y="8" width="7" height="8" rx="1.5" />
-          <line x1="13" y1="12" x2="18" y2="12" />
-          <polyline points="16 10 18 12 16 14" />
-          <line x1="18" y1="9" x2="18" y2="15" />
-          <line x1="15" y1="9.5" x2="21" y2="9.5" />
-          <line x1="15" y1="14.5" x2="21" y2="14.5" />
-        </svg>
+        <img :src="addNodeIcon" width="14" height="14" alt="添加同级" draggable="false" />
       </button>
       <span class="zm-tb-divider" />
       <!-- 1.html-style layout mode switcher.  Each button highlights
@@ -1533,6 +1524,16 @@ watch(
 .zm-tb-btn:hover {
   background: #f1f5f9;
   color: #1e293b;
+}
+.zm-tb-btn img {
+  /* The bundled SVGs use a hardcoded mid-grey fill.  Tint
+   * them toward the active text color so the icon visibly
+   * responds to the parent button's hover state. */
+  filter: invert(20%) sepia(15%) saturate(500%) hue-rotate(180deg);
+  transition: filter 0.1s;
+}
+.zm-tb-btn:hover img {
+  filter: invert(15%) sepia(30%) saturate(800%) hue-rotate(180deg);
 }
 .zm-tb-btn.active {
   background: var(--zm-tb-active, #fff7ed);

@@ -205,15 +205,15 @@ function onSelect(node: MindMapNode | null) {
 }
 
 function onOutlineSelect(node: MindMapNode) {
-  // tell the main canvas to select this node.  We use the imperative
-  // setData + resetView combo as a "scroll to" signal: the simplest way
-  // to surface the click is to flash the selected node — the MindMap
-  // already emits 'select' on its own node clicks.  Here we just need
-  // a way to *send* a selection into the canvas.  In the current API
-  // the canvas manages selection internally on click; for the outline
-  // we can scroll the node into view via the canvas's resetView().
-  mindMapRef.value?.resetView()
-  // also drive the `select` event by clicking the node programmatically
+  // Drive the canvas's selection by clicking the matching node
+  // programmatically.  The canvas emits its own `select` on node
+  // click, so App.onSelect (which only mirrors `selectedNode`
+  // for the data panel) updates from there.  Earlier this
+  // function also called mindMapRef.value?.resetView(), but
+  // that snapped the view back to fit on every outline
+  // interaction — way too aggressive when the user has
+  // zoomed in.  The MindMap manages its own selection
+  // internally now, so we just need to forward the click.
   const el = document.querySelector(`[data-node-id="${node.id}"]`) as HTMLElement | null
   if (el) el.click()
 }
