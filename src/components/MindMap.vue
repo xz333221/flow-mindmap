@@ -1054,14 +1054,6 @@ watch(
           @dblclick="(e) => { e.stopPropagation(); if (!readonly) startEdit(n.id) }"
         >
           <span v-if="editingId !== n.id" class="zm-text">{{ n.text }}</span>
-          <span
-            v-if="isCollapsed(n.id) && !n.isRoot && collapsedChildCount(n.id) > 0"
-            class="zm-collapse-badge"
-            :class="{ 'is-on-left': n.side === -1 }"
-            :title="`展开 ${collapsedChildCount(n.id)} 个子节点`"
-            @mousedown.stop
-            @click.stop="toggleCollapse(n.id)"
-          >{{ collapsedChildCount(n.id) }}</span>
           <input
             v-else
             class="zm-input"
@@ -1076,6 +1068,15 @@ watch(
             @mousedown.stop
             @click.stop
           />
+
+          <span
+            v-if="isCollapsed(n.id) && !n.isRoot && collapsedChildCount(n.id) > 0"
+            class="zm-collapse-badge"
+            :class="{ 'is-on-left': n.side === -1 }"
+            :title="`展开 ${collapsedChildCount(n.id)} 个子节点`"
+            @mousedown.stop
+            @click.stop="toggleCollapse(n.id)"
+          >{{ collapsedChildCount(n.id) }}</span>
 
           <button
             v-if="!readonly && !n.isRoot && nodeHasChildren(n)"
