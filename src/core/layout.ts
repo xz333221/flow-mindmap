@@ -170,6 +170,16 @@ const ICON_SLOT = 16
  *  text label) in the text row.  MUST match `gap` on `.zm-text`. */
 const ICON_GAP = 4
 
+/** Max text-label width in px.  MUST match `max-width` on `.zm-text`
+ *  in MindMap.vue.  The layout reserves this much room for the label
+ *  regardless of how long the actual text is — the DOM then truncates
+ *  with `text-overflow: ellipsis`.  Without this cap, a long string
+ *  pushes the rendered node box past the layout's reserved width and
+ *  the line anchor (computed from layout width) ends up inside the
+ *  box.  The 200px default is the same value `flow-mindmap` shipped
+ *  with before; keeping it keeps edge anchors stable. */
+export const TEXT_MAX_W = 200
+
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v))
 }
@@ -177,7 +187,7 @@ function clamp(v: number, lo: number, hi: number): number {
 function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number): { w: number; h: number } {
   const t = tierFor(level)
   const fontSize = fontAt(level, baseFontSize)
-  const textW = measureText(node.text || '', fontSize, NODE_FONT_WEIGHTS[t])
+  const textW = Math.min(measureText(node.text || '', fontSize, NODE_FONT_WEIGHTS[t]), TEXT_MAX_W)
   const pad = padPx(level, baseFontSize)
   const textWWithPad = Math.ceil(textW + pad * 2)
   const textH = heightAt(level, baseFontSize)
