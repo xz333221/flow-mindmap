@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "A modern, minimalist mind mapping tool — xmind-style, embeddable as a Vue component.",
   "type": "module",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": {
     "name": "xuze",
     "email": "569552263@qq.com"

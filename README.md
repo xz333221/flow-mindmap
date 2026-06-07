@@ -7,7 +7,7 @@ A modern, minimalist mind mapping tool — xmind-style, embeddable as a Vue 3 co
 - 键盘快捷键: `Tab` 添加子节点 / `Enter` 添加同级 / `F2` 编辑 / `Delete` 删除节点
 - 一键折叠/展开子树
 - 扁平化 SVG 线框图标,无任何 Emoji
-- MIT 开源协议,可在 npm 安装作为组件使用
+- Apache-2.0 开源协议,可在 npm 安装作为组件使用
 
 ## 安装
 
@@ -76,4 +76,4 @@ pnpm build    # 打包为 npm 库
 
 ## 协议
 
-[MIT](./LICENSE) © xuze
+[Apache-2.0](./LICENSE) © xuze
