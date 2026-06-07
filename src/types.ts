@@ -52,6 +52,15 @@ export interface MindMapSettings {
    *  fans; 'tree' = single column expanding to the right; 'org' =
    *  downward hierarchy.  Default 'mindmap'. */
   layoutMode: LayoutMode
+  /** When true (default), each edge tapers independently — its
+   *  parent-end width comes from the parent node's tier and its
+   *  child-end width comes from `lineWidthEnd`.  Visually you get
+   *  discrete ribbons where the parent side of a level-2 edge can
+   *  be thicker than the child side of a level-1 edge.
+   *  When false, the whole tree forms a single tapered band:
+   *  every edge's parent end = the previous edge's child end, so
+   *  widths interpolate continuously from root to leaves. */
+  taperedEdge: boolean
 }
 
 export interface NodeStyle {

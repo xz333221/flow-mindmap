@@ -76,11 +76,17 @@ function resetStyle() {
 // simple preset palette for the swatch buttons
 const PALETTE = ['#f87171', '#fb923c', '#fbbf24', '#a3e635', '#34d399', '#22d3ee', '#818cf8', '#c084fc', '#1e2937', '#f8fafc', '#94a3b8']
 
-/** Build a tiny 4-line preview that mirrors the canvas taper:
- *  line 0 (root → level-1) uses `lineWidthStart`; line 3 (level-3
- *  leaf) uses `lineWidthEnd`; intermediate levels interpolate.  The
- *  preview lives at the top of the popover so the user can see the
- *  effect of the two sliders before they commit. */
+/** Build a tiny 4-line preview that mirrors the canvas taper.
+ *  The shape depends on `taperedEdge`:
+ *  - taperedEdge = true (default): each line is a discrete ribbon
+ *    (parent-side width depends on tier, child side is `lineWidthEnd`).
+ *    The lines look independent, like the canvas.
+ *  - taperedEdge = false: widths interpolate continuously from
+ *    `lineWidthStart` (root) to `lineWidthEnd` (leaf), so all four
+ *    lines form a single tapered band.
+ *  In both modes, `lineWidthStart` is the absolute width of the
+ *  parent end of the first line so the user can see what they're
+ *  dialing.  The preview lives at the top of the popover. */
 const PREVIEW_DEPTHS = [0, 1, 2, 3] as const
 const PREVIEW_PALETTE = ['#f87171', '#fb923c', '#34d399', '#818cf8']
 function widthAt(depth: number, total: number, start: number, end: number): number {
@@ -88,13 +94,19 @@ function widthAt(depth: number, total: number, start: number, end: number): numb
   const t = depth / (total - 1)
   return start + (end - start) * t
 }
+function taperedParentW(depth: number, start: number, end: number): number {
+  if (depth <= 0) return start
+  if (depth === 1) return Math.max(1.5, start * 0.67)
+  if (depth === 2) return Math.max(0.8, start * 0.42)
+  return end
+}
 const previewLines = computed(() => {
   const start = props.settings.lineWidthStart
   const end = props.settings.lineWidthEnd
+  const tapered = props.settings.taperedEdge
   const total = PREVIEW_DEPTHS.length
   const left = 8
   const right = 192
-  const yMid = 35
   return PREVIEW_DEPTHS.map((d, i) => {
     const y = 10 + (i * 60) / (total - 1)
     return {
@@ -102,7 +114,9 @@ const previewLines = computed(() => {
       y1: y,
       x2: right,
       y2: y,
-      w: widthAt(d, total, start, end),
+      // Render the FULL width as a fat stroke so the user sees the
+      // band, not just a thin centerline.
+      w: tapered ? taperedParentW(d, start, end) : widthAt(d, total, start, end),
       color: PREVIEW_PALETTE[i % PREVIEW_PALETTE.length],
     }
   })
@@ -202,6 +216,21 @@ const previewLines = computed(() => {
         </button>
       </label>
       <p class="zm-settings-hint">关闭时所有线条使用统一的 lineColor。</p>
+
+      <label class="zm-settings-row">
+        <span class="zm-settings-label">每条连线独立渐变</span>
+        <button
+          class="zm-toggle"
+          :class="{ 'is-on': settings.taperedEdge }"
+          @click="set('taperedEdge', !settings.taperedEdge)"
+        >
+          <span class="zm-toggle-knob" />
+        </button>
+      </label>
+      <p class="zm-settings-hint">
+        开启时每条边都从根部粗端收回到细端子端,父子边之间可能形成粗细跳变;
+        关闭时整棵树从最粗平滑过渡到最细,所有边连成一条带子。
+      </p>
 
       <div class="zm-settings-preview">
         <svg viewBox="0 0 200 70" width="100%" height="70" preserveAspectRatio="none">

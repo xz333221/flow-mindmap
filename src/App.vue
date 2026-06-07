@@ -117,6 +117,7 @@ const settings = reactive<MindMapSettings>({
   rainbowBranch: true,
   lineStyle: 'curve',
   layoutMode: 'mindmap',
+  taperedEdge: true,
 })
 
 function onSettingsChange(s: Partial<MindMapSettings>) {
@@ -137,6 +138,7 @@ function resetSettings() {
     rainbowBranch: true,
     lineStyle: 'curve',
     layoutMode: 'mindmap',
+    taperedEdge: true,
   }
   Object.assign(settings, defaults)
   mindMapRef.value?.applySettings(defaults)

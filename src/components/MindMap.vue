@@ -135,28 +135,48 @@ const settings = reactive<MindMapSettings>({
   rainbowBranch: true,
   lineStyle: 'curve',
   layoutMode: 'mindmap',
+  taperedEdge: true,
 })
 
-// Stroke width by source-node depth.  Each ribbon takes its
-// parent-end width from the parent's depth and its child-end
-// width from the child's depth.  We linearly interpolate from
-// `lineWidthStart` at depth 0 to `lineWidthEnd` at the leaf tier
-// (depth 3+) so the two settings actually drive the visual — the
-// previous version baked per-tier ratios that ignored `lineWidthEnd`
-// for the first two tiers, making the "细端" slider look inert.
+// Two width strategies, selected by `settings.taperedEdge`:
+//
+// (a) tapered (default, true): each edge tapers INDEPENDENTLY.  Its
+//     parent-end width is a per-tier function of the parent's depth
+//     (root=start, level-1=0.67×start, level-2=0.42×start, leaf=end),
+//     and its child-end width is the global `lineWidthEnd`.  Visually
+//     you get discrete ribbons — a level-2 edge can be THICKER at the
+//     parent side than a level-1 edge is at the child side.
+//
+// (b) continuous (false): the whole tree forms a single tapered band
+//     from `lineWidthStart` at the root to `lineWidthEnd` at the
+//     leaves.  The parent-end of every edge is the same width as the
+//     child-end of the edge that landed on that node, so widths
+//     interpolate smoothly.
 function lineWidthForDepth(depth: number): number {
-  return widthAtDepth(depth, settings.lineWidthStart, settings.lineWidthEnd)
+  return settings.taperedEdge
+    ? taperedParentWidth(depth)
+    : continuousWidth(depth)
 }
 function endWidthForDepth(depth: number): number {
-  return widthAtDepth(depth, settings.lineWidthStart, settings.lineWidthEnd)
+  return settings.taperedEdge
+    ? settings.lineWidthEnd
+    : continuousWidth(depth)
 }
-function widthAtDepth(depth: number, start: number, end: number): number {
+function taperedParentWidth(depth: number): number {
+  // Per-tier parent-side width.  The child side is always
+  // `lineWidthEnd` (set by endWidthForDepth above).
+  if (depth <= 0) return settings.lineWidthStart
+  if (depth === 1) return Math.max(1.5, settings.lineWidthStart * 0.67)
+  if (depth === 2) return Math.max(0.8, settings.lineWidthStart * 0.42)
+  return settings.lineWidthEnd
+}
+function continuousWidth(depth: number): number {
   // depth 0 = root → start; depth >= 3 = leaf → end; in between
   // interpolate.  Mirror the preview math in SettingsPanel.vue.
-  if (depth <= 0) return start
-  if (depth >= 3) return end
+  if (depth <= 0) return settings.lineWidthStart
+  if (depth >= 3) return settings.lineWidthEnd
   const t = depth / 3
-  return start + (end - start) * t
+  return settings.lineWidthStart + (settings.lineWidthEnd - settings.lineWidthStart) * t
 }
 
 /** Cubic Bezier point at parameter t in [0,1].  P0=P(from),
@@ -887,6 +907,7 @@ defineExpose<MindMapExpose>({
       settings.lineWidthEnd = Math.max(0.3, Math.min(10, s.lineWidthEnd))
     if (s.rainbowBranch !== undefined) settings.rainbowBranch = s.rainbowBranch
     if (s.lineStyle !== undefined) settings.lineStyle = s.lineStyle
+    if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
   },
   getSettings: (): MindMapSettings => ({
     autoBalanceOnChange: settings.autoBalanceOnChange,
@@ -895,6 +916,7 @@ defineExpose<MindMapExpose>({
     rainbowBranch: settings.rainbowBranch,
     lineStyle: settings.lineStyle,
     layoutMode: settings.layoutMode,
+    taperedEdge: settings.taperedEdge,
   }),
 })
 
