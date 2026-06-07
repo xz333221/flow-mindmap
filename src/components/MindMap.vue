@@ -139,20 +139,24 @@ const settings = reactive<MindMapSettings>({
 
 // Stroke width by source-node depth.  Each ribbon takes its
 // parent-end width from the parent's depth and its child-end
-// width from the child's depth, so the taper is much stronger
-// than a single global value could express.  The default ratios
-// match the project demo (22, 6, 3, 1.5) but tuned down to a
-// less aggressive 6, 4, 2.5, 1.
+// width from the child's depth.  We linearly interpolate from
+// `lineWidthStart` at depth 0 to `lineWidthEnd` at the leaf tier
+// (depth 3+) so the two settings actually drive the visual — the
+// previous version baked per-tier ratios that ignored `lineWidthEnd`
+// for the first two tiers, making the "细端" slider look inert.
 function lineWidthForDepth(depth: number): number {
-  if (depth <= 0) return settings.lineWidthStart
-  if (depth === 1) return Math.max(1.5, settings.lineWidthStart * 0.67)
-  if (depth === 2) return Math.max(0.8, settings.lineWidthStart * 0.42)
-  return Math.max(settings.lineWidthEnd, settings.lineWidthStart * 0.17)
+  return widthAtDepth(depth, settings.lineWidthStart, settings.lineWidthEnd)
 }
 function endWidthForDepth(depth: number): number {
-  if (depth <= 1) return Math.max(0.8, settings.lineWidthStart * 0.42)
-  if (depth === 2) return Math.max(0.5, settings.lineWidthStart * 0.25)
-  return settings.lineWidthEnd
+  return widthAtDepth(depth, settings.lineWidthStart, settings.lineWidthEnd)
+}
+function widthAtDepth(depth: number, start: number, end: number): number {
+  // depth 0 = root → start; depth >= 3 = leaf → end; in between
+  // interpolate.  Mirror the preview math in SettingsPanel.vue.
+  if (depth <= 0) return start
+  if (depth >= 3) return end
+  const t = depth / 3
+  return start + (end - start) * t
 }
 
 /** Cubic Bezier point at parameter t in [0,1].  P0=P(from),
