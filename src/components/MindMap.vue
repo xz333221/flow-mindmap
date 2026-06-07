@@ -39,6 +39,11 @@ const editText = ref('')
 const selectedId = ref<string | null>(null)
 const collapsedIds = ref<Set<string>>(new Set())
 const dataRef = ref<MindMapNode>(clone(props.data))
+// Debug overlays.  Toggle via URL: `?debug=order` to draw a small
+// `1./2./3.` badge on every node showing its position in its
+// parent's children array.  Off by default — used to compare the
+// data-tree order with the visual order rendered by the layout.
+const showOrderBadge = ref(typeof location !== 'undefined' && new URLSearchParams(location.search).get('debug') === 'order')
 // Per-node style overrides.  Keyed by node id.  Stored in a reactive
 // Map (not Vue reactive Map) so .set/.delete work; the template re-
 // reads via the ref-of-Map we wrap it in.
@@ -763,6 +768,24 @@ function collapsedChildCount(id: string): number {
   return data.children.length
 }
 
+/** Zero-based index of the node in its parent's children array.
+ *  Returns 0 for the root (no parent).  Used by the order badge
+ *  to label each rendered node with its data-tree position. */
+function siblingIndexOf(id: string): number {
+  const data = findNode(dataRef.value, id)
+  if (!data) return 0
+  // findNode doesn't return the parent; walk again to find it.
+  const root = dataRef.value
+  const stack: MindMapNode[] = [root]
+  while (stack.length) {
+    const n = stack.pop()!
+    const idx = n.children.findIndex((c) => c.id === id)
+    if (idx >= 0) return idx
+    for (const c of n.children) stack.push(c)
+  }
+  return 0
+}
+
 // =====================================================================
 // Edge anchor — 1.html JS L608-626.  For horizontal children (right or
 // left), the line lands on the side mid-edge of the parent and child.
@@ -1054,6 +1077,11 @@ watch(
           @dblclick="(e) => { e.stopPropagation(); if (!readonly) startEdit(n.id) }"
         >
           <span v-if="editingId !== n.id" class="zm-text">{{ n.text }}</span>
+          <span
+            v-if="showOrderBadge"
+            class="zm-order-badge"
+            :title="`数据顺序：第 ${siblingIndexOf(n.id) + 1} 个`"
+          >{{ siblingIndexOf(n.id) + 1 }}</span>
           <input
             v-else
             class="zm-input"
@@ -1350,6 +1378,24 @@ watch(
 }
 .zm-collapse-badge:hover {
   background: #f97316;
+}
+/* Debug overlay: draws a small "1./2./3." label on every node
+ * showing its position in its parent's children array.  Hidden by
+ * default — enable with `?debug=order` in the URL. */
+.zm-order-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  color: #475569;
+  background: #e2e8f0;
+  border-radius: 3px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+  vertical-align: middle;
 }
 .zm-del {
   right: -8px;

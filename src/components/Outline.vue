@@ -26,6 +26,9 @@ interface FlatRow {
   id: string
   text: string
   depth: number
+  /** Zero-based position among the parent's children — used to label
+   *  rows with `1., 2., 3., …` for orientation.  Root is always 0. */
+  siblingIndex: number
   hasChildren: boolean
   collapsed: boolean
   node: MindMapNode
@@ -33,22 +36,23 @@ interface FlatRow {
 
 const rows = computed<FlatRow[]>(() => {
   const out: FlatRow[] = []
-  const walk = (n: MindMapNode, depth: number) => {
+  const walk = (n: MindMapNode, depth: number, siblingIndex: number) => {
     const hasChildren = n.children.length > 0
     const collapsed = props.collapsedIds.has(n.id)
     out.push({
       id: n.id,
       text: n.text || '(无标题)',
       depth,
+      siblingIndex,
       hasChildren,
       collapsed,
       node: n,
     })
     if (hasChildren && !collapsed) {
-      for (const c of n.children) walk(c, depth + 1)
+      n.children.forEach((c, i) => walk(c, depth + 1, i))
     }
   }
-  walk(props.data, 0)
+  walk(props.data, 0, 0)
   return out
 })
 
@@ -152,6 +156,7 @@ async function copyOutline() {
           </svg>
         </button>
         <span v-else class="zm-outline-dot" />
+        <span class="zm-outline-index">{{ row.siblingIndex + 1 }}.</span>
         <span class="zm-outline-text">{{ row.text }}</span>
         <button
           class="zm-outline-row-copy"
@@ -273,6 +278,14 @@ async function copyOutline() {
   background: #cbd5e1;
   flex-shrink: 0;
   margin: 0 6px;
+}
+.zm-outline-index {
+  font-size: 11px;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+  min-width: 22px;
+  flex-shrink: 0;
+  user-select: none;
 }
 .zm-outline-text {
   overflow: hidden;
