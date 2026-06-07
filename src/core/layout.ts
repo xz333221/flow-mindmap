@@ -199,8 +199,20 @@ function applyDoLayout(root: LayoutNode, mode: LayoutMode): void {
       layoutHorizontal(leftParent, 'left', H_GAP)
     }
   } else if (mode === 'tree') {
+    // Force every node in the tree to the right side.  The layout's
+    // mindmap-side assignment is still on `n.side` from buildLayout
+    // (first-half gets +1, rest gets -1), but in tree mode no branch
+    // should ever fan out to the left — both the _dir and the side
+    // are forced to +1 so the line anchor and ribbon orientation
+    // stay consistent.
+    const forceRight = (n: LayoutNode) => {
+      n.side = 1
+      n._dir = 'right'
+      for (const c of n.children) forceRight(c)
+    }
     for (const c of root.children) c._dir = 'right'
     layoutHorizontal(root, 'right', H_GAP)
+    forceRight(root)
   } else {
     // 'org' — all children fan downward
     for (const c of root.children) c._dir = 'down'
