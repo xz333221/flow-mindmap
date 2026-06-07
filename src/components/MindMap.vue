@@ -155,6 +155,97 @@ function endWidthForDepth(depth: number): number {
   return settings.lineWidthEnd
 }
 
+/** Cubic Bezier point at parameter t in [0,1].  P0=P(from),
+ *  P1=(x1,y1), P2=(x2,y2), P3=P(to). */
+function cubicAt(
+  t: number,
+  from: { x: number; y: number },
+  c: { x1: number; y1: number; x2: number; y2: number },
+  to: { x: number; y: number }
+) {
+  const u = 1 - t
+  const x = u * u * u * from.x + 3 * u * u * t * c.x1 + 3 * u * t * t * c.x2 + t * t * t * to.x
+  const y = u * u * u * from.y + 3 * u * u * t * c.y1 + 3 * u * t * t * c.y2 + t * t * t * to.y
+  return { x, y }
+}
+
+/** Build a single closed-fill SVG path that visually represents the
+ *  cubic Bezier from `from` to `to` with a stroke width that tapers
+ *  linearly from `startW` (parent end, thick) to `endW` (child end,
+ *  thin).  32 samples along the curve, offset along the normal, give
+ *  a smooth filled ribbon — restores the "粗端(根部) 细端(子端)"
+ *  taper that the simple-stroke bezier was missing.
+ *
+ *  For 'down' (org mode) the control points sit on the parent/child
+ *  x line, offset on y by 45% of the gap (1.html parity). */
+function variableWidthPath(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  startW: number,
+  endW: number,
+  n = 32,
+  style: 'curve' | 'straight' = 'curve',
+  dir: 'right' | 'left' | 'down' = 'right'
+): string {
+  if (style === 'curve') {
+    let c: { x1: number; y1: number; x2: number; y2: number }
+    if (dir === 'right' || dir === 'left') {
+      // 1.html: control points sit on the parent/child y line,
+      // offset on x by 45% of the gap.  This gives the long
+      // horizontal "fish gill" look.
+      const dx = Math.abs(to.x - from.x)
+      const cpx = dx * 0.45
+      const sign = dir === 'right' ? 1 : -1
+      c = { x1: from.x + sign * cpx, y1: from.y, x2: to.x - sign * cpx, y2: to.y }
+    } else {
+      // 'down' — vertical control points (45% of the y gap).
+      const dy = Math.abs(to.y - from.y)
+      const cpy = dy * 0.45
+      c = { x1: from.x, y1: from.y + cpy, x2: to.x, y2: to.y - cpy }
+    }
+    const deriv = (t: number) => {
+      const u = 1 - t
+      const dx2 = -3 * u * u * from.x + 3 * (u * u - 2 * u * t) * c.x1 + 3 * (2 * u * t - t * t) * c.x2 + 3 * t * t * to.x
+      const dy2 = -3 * u * u * from.y + 3 * (u * u - 2 * u * t) * c.y1 + 3 * (2 * u * t - t * t) * c.y2 + 3 * t * t * to.y
+      return { dx: dx2, dy: dy2 }
+    }
+    const left: { x: number; y: number }[] = []
+    const right: { x: number; y: number }[] = []
+    for (let i = 0; i <= n; i++) {
+      const t = i / n
+      const p = i === 0 ? from : i === n ? to : cubicAt(t, from, c, to)
+      const d = deriv(t)
+      let dlen = Math.hypot(d.dx, d.dy)
+      if (dlen < 1e-6) dlen = 1
+      const nxn = -d.dy / dlen
+      const nyn = d.dx / dlen
+      const halfW = (startW + (endW - startW) * t) / 2
+      left.push({ x: p.x + nxn * halfW, y: p.y + nyn * halfW })
+      right.push({ x: p.x - nxn * halfW, y: p.y - nyn * halfW })
+    }
+    let d2 = `M ${left[0].x.toFixed(2)} ${left[0].y.toFixed(2)}`
+    for (let i = 1; i <= n; i++) d2 += ` L ${left[i].x.toFixed(2)} ${left[i].y.toFixed(2)}`
+    for (let i = n; i >= 0; i--) d2 += ` L ${right[i].x.toFixed(2)} ${right[i].y.toFixed(2)}`
+    d2 += ' Z'
+    return d2
+  }
+
+  // 'straight' fallback: a simple quad with no curve at all.
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  let len = Math.hypot(dx, dy)
+  if (len < 1e-6) len = 1
+  const nx = -dy / len
+  const ny = dx / len
+  const halfStart = startW / 2
+  const halfEnd = endW / 2
+  const a = { x: from.x + nx * halfStart, y: from.y + ny * halfStart }
+  const b = { x: from.x - nx * halfStart, y: from.y - ny * halfStart }
+  const c = { x: to.x - nx * halfEnd, y: to.y - ny * halfEnd }
+  const d = { x: to.x + nx * halfEnd, y: to.y + ny * halfEnd }
+  return `M ${a.x.toFixed(2)} ${a.y.toFixed(2)} L ${d.x.toFixed(2)} ${d.y.toFixed(2)} L ${c.x.toFixed(2)} ${c.y.toFixed(2)} L ${b.x.toFixed(2)} ${b.y.toFixed(2)} Z`
+}
+
 const lrRootChildren = computed<LayoutNode[]>(() => layoutResult.value.root.children)
 // (intentionally no rootEdgeAnchor — 1.html uses simple rect-edge
 // midpoints.  The fan geometry is in the bezier control points.)
@@ -187,14 +278,6 @@ function lineColorFor(_parent: LayoutNode, child: LayoutNode): string {
     return branchColor.value.get(child.id) ?? theme.value.lineColor
   }
   return theme.value.lineColor
-}
-
-// Stroke width by source-node depth.  Each ribbon takes its
-// parent-end width from the parent's depth.  Tapers sharply with
-// depth: 4/3/2.5/2 (root → 1st → 2nd → 3rd+).
-const EDGE_STROKE_WIDTHS = [4, 3, 2.5, 2]
-function edgeStrokeWidth(depth: number): number {
-  return EDGE_STROKE_WIDTHS[Math.min(3, depth)] ?? 2
 }
 
 function nodeBg(n: LayoutNode): string {
@@ -646,32 +729,6 @@ function nodeHasChildren(n: LayoutNode) {
 }
 
 // =====================================================================
-// Bezier path — 1.html JS L629-644.  For horizontal children
-// (right/left), the control points sit on the parent/child y line,
-// offset on x by 45% of the gap.  For 'down' (org mode), the
-// control points sit on the parent/child x line, offset on y by
-// 45% of the gap.  This is a single stroked `<path>` (not a filled
-// tapered polygon), so the SVG layer can use stroke="..." and the
-// renderer's per-depth width scales with the world transform.
-// =====================================================================
-function bezierPath(
-  from: { x: number; y: number },
-  to: { x: number; y: number },
-  dir: 'right' | 'left' | 'down'
-): string {
-  if (dir === 'right' || dir === 'left') {
-    const dx = Math.abs(to.x - from.x)
-    const cpx = dx * 0.45
-    const sign = dir === 'right' ? 1 : -1
-    return `M ${from.x} ${from.y} C ${from.x + sign * cpx} ${from.y} ${to.x - sign * cpx} ${to.y} ${to.x} ${to.y}`
-  }
-  // 'down' — vertical control points
-  const dy = Math.abs(to.y - from.y)
-  const cpy = dy * 0.45
-  return `M ${from.x} ${from.y} C ${from.x} ${from.y + cpy} ${to.x} ${to.y - cpy} ${to.x} ${to.y}`
-}
-
-// =====================================================================
 // Edge anchor — 1.html JS L608-626.  For horizontal children (right or
 // left), the line lands on the side mid-edge of the parent and child.
 // For 'down' (org mode), it lands on the top/bottom mid-edge.  No fan
@@ -893,12 +950,9 @@ watch(
             <path
               v-for="e in edges"
               :key="e.key"
-              :d="bezierPath(lineAnchor(e.from, 'out', e.to.side, e.to), lineAnchor(e.to, 'in'), e.to._dir)"
-              :stroke="lineColorFor(e.from, e.to)"
-              :stroke-width="edgeStrokeWidth(e.from.depth)"
-              fill="none"
-              stroke-linecap="round"
-              opacity="0.85"
+              :d="variableWidthPath(lineAnchor(e.from, 'out', e.to.side, e.to), lineAnchor(e.to, 'in'), lineWidthForDepth(e.from.depth), endWidthForDepth(e.to.depth), 32, settings.lineStyle, e.to._dir)"
+              :fill="lineColorFor(e.from, e.to)"
+              stroke="none"
             />
           </g>
         </svg>
