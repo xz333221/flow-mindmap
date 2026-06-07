@@ -10,24 +10,51 @@ describe('layout', () => {
     expect(r.root.isRoot).toBe(true)
   })
 
-  it('splits root children by sibling index: first ceil(n/2) right, rest left', () => {
-    // 3 children of equal height.  ceil(3/2) = 2 → first two go
-    // right, last one goes left.  Result: [right, right, left].
-    // (Earlier we did greedy-by-height balancing here, but the user
-    // wants the *order* to be predictable: the canvas should read
-    // 1, 2, 3, … clockwise as the data tree is walked.)
+  it('splits root children by subtree height, picking the cut point closest to half the total', () => {
+    // 3 children with very different subtree heights so the answer
+    // isn't `ceil(n/2)`.  Compute expected _subtreeH for a single
+    // tier-2 leaf (heightAt(1) = 38px) and a tier-3 leaf
+    // (heightAt(2) = 30px), then use the gap rules.
+    //  a: 1 leaf  → 38
+    //  b: 3 leaves → 38 + 14 + 30 = 82
+    //  c: 6 leaves → 38 + 14·5 + 30·5 = 38+70+150 = 258
+    // Total = 378.  Half = 189.
+    //  cut 1: a→right (38 vs 340) diff=302
+    //  cut 2: a+b→right (120 vs 258) diff=138
+    //  cut 3: a+b+c→right (378 vs 0) diff=378  (degenerate, skip)
+    // Best cut: 2 → a, b go right; c goes left.
     const data: MindMapNode = {
       id: 'r',
       text: 'R',
       children: [
         { id: 'a', text: 'A', children: [] },
-        { id: 'b', text: 'B', children: [] },
-        { id: 'c', text: 'C', children: [] },
+        { id: 'b', text: 'B', children: [
+          { id: 'b1', text: 'B1', children: [] },
+          { id: 'b2', text: 'B2', children: [] },
+          { id: 'b3', text: 'B3', children: [] },
+        ] },
+        { id: 'c', text: 'C', children: [
+          { id: 'c1', text: 'C1', children: [] },
+          { id: 'c2', text: 'C2', children: [] },
+          { id: 'c3', text: 'C3', children: [] },
+          { id: 'c4', text: 'C4', children: [] },
+          { id: 'c5', text: 'C5', children: [] },
+          { id: 'c6', text: 'C6', children: [] },
+        ] },
       ],
     }
     const r = layout(data)
     const sides = r.root.children.map((c) => c.side)
+    // c is so much taller than a+b that the cut lands BEFORE it.
     expect(sides).toEqual([1, 1, -1])
+    // Left side stack (c alone) should be at the bottom of the
+    // left half, and the right side (a, b) should span the right
+    // half top→bottom.  We just sanity-check that c ends up
+    // visually mirrored against (a,b).
+    const c = r.root.children.find((x) => x.id === 'c')!
+    const a = r.root.children.find((x) => x.id === 'a')!
+    expect(c.side).toBe(-1)
+    expect(a.side).toBe(1)
   })
 
   it('redistributes a deep subtree to the opposite side and flips its descendants\' _dir', () => {

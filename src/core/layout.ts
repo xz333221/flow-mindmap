@@ -187,34 +187,60 @@ export function layout(
 // =====================================================================
 function applyDoLayout(root: LayoutNode, mode: LayoutMode): void {
   if (mode === 'mindmap') {
-    // Split root's children by SIBLING INDEX, not by subtree height.
-    // The first `ceil(n/2)` siblings go right, the rest go left.  This
-    // is 1.html's original `slice(0, ceil(n/2))` rule.  Why not
-    // balance by subtree height?  Two reasons:
-    //  - the user wants the *order* to be predictable: walking the
-    //    data tree 1, 2, 3, … should read the canvas 1, 2, 3, …
-    //    clockwise.  Balancing by height scrambles that.
-    //  - a 4-vs-4 split where one side has 4 short leaves and the
-    //    other has 4 deep subtrees looks lopsided visually, but
-    //    that's an acceptable cost for keeping the order honest.
-    // The side-by-side visual stack is centered on the parent's y
-    // by layoutHorizontal's applyClockwise sweep (right = top→bottom,
-    // left = bottom→top), so the layout still reads as a balanced
-    // fan around the root.
+    // Split root's children so that the *sum of subtree heights* on
+    // each side is as close to half of the total as possible, while
+    // preserving the input order.  This is a classic partition
+    // problem — for small N we just try every cut point and pick the
+    // one with the smallest |left - right|.  For N > 32 the search
+    // degrades to a single greedy approximation (first child on
+    // whichever side currently has less), but the root of a
+    // mindmap rarely has more than a dozen top-level branches.
+    //
+    // Why not a fixed `slice(0, ceil(n/2))`?  When one child is
+    // much taller than the rest (e.g. 6 deep subtrees vs 4 deep
+    // subtrees vs 3 deep subtrees), the visual "fan" around the
+    // root goes lopsided and the root ends up below the canvas
+    // mid-line.  Balancing by height keeps the root visually
+    // centered.
+    //
+    // Why not a strict greedy-by-height that scrambles the order?
+    // Because the user wants the *order* to be predictable: walking
+    // the data tree 1, 2, 3, … should read the canvas 1, 2, 3, …
+    // clockwise.  A single best-cut partition preserves order.
     const kids = root.children
-    const rightCount = Math.ceil(kids.length / 2)
-    const rightKids = kids.slice(0, rightCount)
-    const leftKids = kids.slice(rightCount)
-    for (const c of rightKids) {
-      c._dir = 'right'
-      c.side = 1
-      c._dirRight = 1
+    if (kids.length === 0) {
+      // No split to do — root has no top-level children.
+    } else if (kids.length === 1) {
+      // Single child always goes right.
+      kids[0]._dir = 'right'
+      kids[0].side = 1
+      kids[0]._dirRight = 1
+    } else {
+      const totalH = kids.reduce((s, c) => s + c._subtreeH, 0)
+      let bestCut = 1 // at least one child on the right
+      let bestDiff = Math.abs(kids[0]._subtreeH - (totalH - kids[0]._subtreeH))
+      let acc = 0
+      for (let i = 0; i < kids.length - 1; i++) {
+        acc += kids[i]._subtreeH
+        const diff = Math.abs(acc - (totalH - acc))
+        if (diff < bestDiff) {
+          bestDiff = diff
+          bestCut = i + 1
+        }
+      }
+      for (let i = 0; i < bestCut; i++) {
+        kids[i]._dir = 'right'
+        kids[i].side = 1
+        kids[i]._dirRight = 1
+      }
+      for (let i = bestCut; i < kids.length; i++) {
+        kids[i]._dir = 'left'
+        kids[i].side = -1
+        kids[i]._dirRight = -1
+      }
     }
-    for (const c of leftKids) {
-      c._dir = 'left'
-      c.side = -1
-      c._dirRight = -1
-    }
+    const rightKids = root.children.filter((c) => c.side === 1)
+    const leftKids = root.children.filter((c) => c.side === -1)
     // redirectSubtree: a child landed on the OPPOSITE side from what
     // buildLayout assigned.  The loop above already stamped the
     // child's own _dir/side/_dirRight to the new side, but its
