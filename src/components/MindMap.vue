@@ -130,8 +130,8 @@ const theme = computed<Required<MindMapTheme>>(() => ({
 // ---------------------------------------------------------------------------
 const settings = reactive<MindMapSettings>({
   autoBalanceOnChange: true,
-  lineWidthStart: 12.0,
-  lineWidthEnd: 0.6,
+  lineWidthStart: 16.0,
+  lineWidthEnd: 3.0,
   rainbowBranch: true,
   lineStyle: 'curve',
   layoutMode: 'mindmap',

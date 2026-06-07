@@ -34,6 +34,9 @@ function set<K extends keyof MindMapSettings>(key: K, value: MindMapSettings[K])
 }
 
 const startLabel = computed(() => {
+  // Kept for backward compat with anything still subscribing; the
+  // settings row no longer shows the qualitative label, it shows
+  // an editable number input.
   const w = props.settings.lineWidthStart
   if (w < 1.2) return '细'
   if (w < 2.5) return '中'
@@ -144,7 +147,13 @@ const previewLines = computed(() => {
 
       <div class="zm-settings-row">
         <span class="zm-settings-label">线条粗端(根部)</span>
-        <span class="zm-settings-value-tag">{{ startLabel }} ({{ settings.lineWidthStart.toFixed(1) }})</span>
+        <input
+          class="zm-settings-number"
+          type="number"
+          step="0.2"
+          :value="settings.lineWidthStart"
+          @change="(e) => set('lineWidthStart', parseFloat((e.target as HTMLInputElement).value) || 0)"
+        />
       </div>
       <div class="zm-slider">
         <input
@@ -159,7 +168,13 @@ const previewLines = computed(() => {
 
       <div class="zm-settings-row">
         <span class="zm-settings-label">线条细端(子端)</span>
-        <span class="zm-settings-value-tag">{{ endLabel }} ({{ settings.lineWidthEnd.toFixed(1) }})</span>
+        <input
+          class="zm-settings-number"
+          type="number"
+          step="0.1"
+          :value="settings.lineWidthEnd"
+          @change="(e) => set('lineWidthEnd', parseFloat((e.target as HTMLInputElement).value) || 0)"
+        />
       </div>
       <div class="zm-slider">
         <input
@@ -406,6 +421,26 @@ const previewLines = computed(() => {
   border-radius: 4px;
   padding: 2px 6px;
   white-space: nowrap;
+}
+.zm-settings-number {
+  font-size: 11px;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 2px 6px;
+  width: 56px;
+  text-align: right;
+  -moz-appearance: textfield;
+}
+.zm-settings-number::-webkit-outer-spin-button,
+.zm-settings-number::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.zm-settings-number:focus {
+  outline: none;
+  border-color: #818cf8;
 }
 .zm-settings-hint {
   margin: 4px 0 0;
