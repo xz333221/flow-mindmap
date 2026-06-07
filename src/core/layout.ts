@@ -55,8 +55,16 @@ const NODE_FONTS = [17, 14, 13, 12]
 const NODE_FONT_WEIGHTS = [700, 500, 400, 300]
 const NODE_HEIGHTS = [48, 38, 30, 26]
 const NODE_MIN_W = [100, 70, 50, 40]
-const NODE_PAD_H = [32, 20, 14, 12]
+/** Horizontal padding in `em`, matching `.zm-node { padding: 0 1.6em }`
+ *  in MindMap.vue.  Keep these in sync or the SVG edges will pierce
+ *  the node box (1.6em > the px value previously here for tiers 2/3,
+ *  which is why sub-branch ribbons visibly entered the node). */
+const NODE_PAD_EM = [1.6, 1.6, 1.6, 1.6]
 const MAX_TIER = NODE_FONTS.length - 1
+
+function padPx(depth: number): number {
+  return Math.round(NODE_FONTS[tierFor(depth)] * NODE_PAD_EM[tierFor(depth)])
+}
 
 function tierFor(depth: number) {
   return Math.min(MAX_TIER, Math.max(0, depth))
@@ -116,7 +124,7 @@ function measureText(text: string, fontSize: number, fontWeight: number): number
 function calcNodeSize(node: MindMapNode, level: number): { w: number; h: number } {
   const t = tierFor(level)
   const textW = measureText(node.text || '', NODE_FONTS[t], NODE_FONT_WEIGHTS[t])
-  const w = Math.max(NODE_MIN_W[t], Math.ceil(textW + NODE_PAD_H[t] * 2))
+  const w = Math.max(NODE_MIN_W[t], Math.ceil(textW + padPx(level) * 2))
   return { w, h: NODE_HEIGHTS[t] }
 }
 
@@ -391,7 +399,7 @@ export const LAYOUT = {
   NODE_FONTS,
   NODE_HEIGHTS,
   NODE_MIN_W,
-  NODE_PAD_H,
+  NODE_PAD_H: NODE_PAD_EM,
   NODE_FONT_WEIGHTS,
   H_GAP,
   V_GAP,
