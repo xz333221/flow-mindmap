@@ -1,0 +1,7 @@
+node_modules
+dist
+*.local
+.DS_Store
+
+# Claude debug log written to .claude/codediff.txt by PostToolUse hooks
+.claude/codediff.txt
