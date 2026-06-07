@@ -1220,21 +1220,22 @@ onMounted(() => {
             v-if="isCollapsed(n.id) && !n.isRoot && collapsedChildCount(n.id) > 0"
             class="zm-collapse-badge"
             :class="{ 'is-on-left': n.side === -1 }"
+            :style="{ background: branchColor.get(n.id) ?? '#64748b' }"
             :title="`展开 ${collapsedChildCount(n.id)} 个子节点`"
             @mousedown.stop
             @click.stop="toggleCollapse(n.id)"
           >{{ collapsedChildCount(n.id) }}</span>
 
           <button
-            v-if="!readonly && !n.isRoot && nodeHasChildren(n)"
+            v-if="!readonly && !n.isRoot && nodeHasChildren(n) && !isCollapsed(n.id)"
             class="zm-btn zm-collapse"
             :class="{ 'is-on-left': n.side === -1 }"
-            :style="{ background: branchColor.get(n.id) ?? '#64748b' }"
-            :title="isCollapsed(n.id) ? '展开' : '折叠'"
+            :style="{ color: branchColor.get(n.id) ?? '#64748b', borderColor: branchColor.get(n.id) ?? '#64748b' }"
+            title="折叠"
             @mousedown.stop
             @click.stop="toggleCollapse(n.id)"
           >
-            <Icon :name="isCollapsed(n.id) ? 'add' : 'minus'" :size="14" :stroke="2.4" />
+            <Icon name="minus" :size="10" :stroke="2.4" />
           </button>
         </div>
       </div>
@@ -1429,26 +1430,29 @@ onMounted(() => {
   /* Position the toggle on the "line-out" side of the node:
    *  - right-side node (n.side === 1) → button on the right edge
    *  - left-side node  (n.side === -1) → button on the left edge.
-   * The default is right-edge (right-side nodes); .is-on-left
-   * overrides.  Background colour is set inline from the node's
-   * rainbow branch hue (or grey when rainbow is off). */
-  right: -10px;
+   * Border + icon colour come inline from the node's rainbow branch
+   * hue (or grey when rainbow is off); the background stays
+   * transparent so the button reads as just an outlined icon. */
+  right: -8px;
   top: 50%;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
+  background: transparent;
+  border: 1.5px solid;
   transform: translateY(-50%);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  box-shadow: none;
 }
 .zm-collapse.is-on-left {
   right: auto;
-  left: -10px;
+  left: -8px;
 }
 .zm-collapse:hover {
   transform: translateY(-50%) scale(1.15);
 }
 /* xmind-style collapsed child-count badge.  Sits on the line-out
  * side of the node (right edge for right-side nodes, left edge for
- * left-side), vertically centered.  Click to expand. */
+ * left-side), vertically centered.  Click to expand.  Background
+ * colour is set inline from the node's rainbow branch hue. */
 .zm-collapse-badge {
   position: absolute;
   top: 50%;
@@ -1458,7 +1462,6 @@ onMounted(() => {
   height: 18px;
   padding: 0 5px;
   border-radius: 5px;
-  background: #fb923c;
   color: #ffffff;
   font-size: 11px;
   font-weight: 600;
@@ -1468,13 +1471,14 @@ onMounted(() => {
   cursor: pointer;
   user-select: none;
   z-index: 2;
+  transition: filter 0.1s;
 }
 .zm-collapse-badge.is-on-left {
   left: auto;
   right: calc(100% + 8px);
 }
 .zm-collapse-badge:hover {
-  background: #f97316;
+  filter: brightness(0.9);
 }
 /* Debug overlay: draws a small "1./2./3." label on every node
  * showing its position in its parent's children array.  Hidden by
