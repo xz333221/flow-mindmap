@@ -774,32 +774,13 @@ function lineAnchor(
     return { x: p.x, y: p.y - n.height / 2 }
   }
   // Horizontal (mindmap / tree): line lands on left/right mid-edge.
-  //
-  // For both 'out' (parent-end) and 'in' (child-end) we want the
-  // edge to land on the side that actually faces the other endpoint.
-  // The build-time `n.side` is unreliable after the height-based
-  // balancer has moved a child across the center line, so we derive
-  // the direction from the actual child position when we have it.
-  //
-  // The parent endpoint is on whichever side of `n` faces `child`:
-  //   child is to the left  → edge leaves `n` from the LEFT  (d = -1)
-  //   child is to the right → edge leaves `n` from the RIGHT (d = +1)
-  // The child endpoint is the mirror of that.
+  // Prefer `_dirRight` (the actual layout split, possibly different
+  // from the build-time `side` after the height-based balancer moves
+  // a child across the center line) over the build-time `side`.
   let d: 1 | -1
-  if (child) {
-    const childOnLeft = child.x < p.x
-    if (side === 'in') {
-      // edge enters child from the side opposite the parent
-      d = childOnLeft ? (1 as const) : (-1 as const)
-    } else {
-      // side === 'out': edge leaves parent toward child
-      d = childOnLeft ? (-1 as const) : (1 as const)
-    }
-  } else if (side === 'in') {
-    d = (-n._dirRight) as 1 | -1
-  } else {
-    d = dir ?? n._dirRight
-  }
+  if (side === 'in') d = (-n._dirRight) as 1 | -1
+  else if (dir !== undefined) d = dir
+  else d = n._dirRight
   return { x: p.x + d * (n.width / 2), y: p.y }
 }
 
