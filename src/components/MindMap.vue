@@ -1218,32 +1218,13 @@ watch(
           <button
             v-if="!readonly && !n.isRoot && nodeHasChildren(n)"
             class="zm-btn zm-collapse"
+            :class="{ 'is-on-left': n.side === -1 }"
             :title="isCollapsed(n.id) ? '展开' : '折叠'"
             @mousedown.stop
             @click.stop="toggleCollapse(n.id)"
           >
             <Icon :name="isCollapsed(n.id) ? 'expand' : 'collapse'" :size="12" />
           </button>
-
-          <template v-if="!readonly">
-            <button
-              class="zm-btn zm-add"
-              :title="'添加子节点 (Tab)'"
-              @mousedown.stop
-              @click.stop="doAddChild(n.id)"
-            >
-              <Icon name="add" :size="12" />
-            </button>
-            <button
-              v-if="!n.isRoot"
-              class="zm-btn zm-del"
-              :title="'删除 (Del)'"
-              @mousedown.stop
-              @click.stop="doRemove(n.id)"
-            >
-              <Icon name="delete" :size="12" />
-            </button>
-          </template>
         </div>
       </div>
     </div>
@@ -1441,19 +1422,20 @@ watch(
 .zm-btn:hover {
   transform: scale(1.15);
 }
-.zm-add {
+.zm-collapse {
+  /* Position the toggle on the "line-out" side of the node:
+   *  - right-side node (n.side === 1) → button on the right edge
+   *  - left-side node  (n.side === -1) → button on the left edge.
+   * The default is right-edge (right-side nodes); .is-on-left
+   * overrides. */
   right: -8px;
   top: 50%;
   transform: translateY(-50%);
-}
-.zm-add:hover {
-  transform: translateY(-50%) scale(1.15);
-}
-.zm-collapse {
-  left: -8px;
-  top: 50%;
-  transform: translateY(-50%);
   background: #64748b;
+}
+.zm-collapse.is-on-left {
+  right: auto;
+  left: -8px;
 }
 .zm-collapse:hover {
   transform: translateY(-50%) scale(1.15);
@@ -1505,14 +1487,6 @@ watch(
   pointer-events: none;
   user-select: none;
   vertical-align: middle;
-}
-.zm-del {
-  right: -8px;
-  top: -8px;
-  background: #ef4444;
-}
-.zm-del:hover {
-  transform: scale(1.15);
 }
 .zm-toolbar {
   position: absolute;
