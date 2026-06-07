@@ -12,6 +12,7 @@ import {
   addSiblingBefore,
   duplicateNode,
   countDescendants,
+  markdownToMindMap,
   DEFAULT_NEW_NODE_TEXT,
 } from './tree'
 import type { MindMapNode } from './types'
@@ -291,5 +292,33 @@ describe('moveNode', () => {
   })
   it('refuses to move a node onto itself', () => {
     expect(moveNode(sample, 'a1', 'a1', 'after')).toBe(false)
+  })
+})
+
+describe('markdownToMindMap', () => {
+  it('builds a tree from heading levels', () => {
+    const md = `# Root
+## Child A
+### Grandchild
+## Child B`
+    const r = markdownToMindMap(md)
+    console.log('final tree:', JSON.stringify(r, (k, v) => k === 'id' ? undefined : v, 2))
+    expect(r.text).toBe('Root')
+    expect(r.children.map((c) => c.text)).toEqual(['Child A', 'Child B'])
+    expect(r.children[0].children[0].text).toBe('Grandchild')
+    expect(r.children[1].children).toEqual([])
+  })
+  it('promotes a body line under a heading to its text', () => {
+    const md = `# Topic
+- bullet detail
+## Sub`
+    const r = markdownToMindMap(md)
+    expect(r.text).toBe('Topic')
+    expect(r.children[0].text).toBe('Sub')
+  })
+  it('falls back to rootText when no heading is present', () => {
+    const r = markdownToMindMap('just some plain text', 'Fallback')
+    expect(r.text).toBe('Fallback')
+    expect(r.children).toEqual([])
   })
 })

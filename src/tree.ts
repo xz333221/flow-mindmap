@@ -219,3 +219,106 @@ export function countDescendants(n: MindMapNode): number {
 }
 
 export const DEFAULT_NEW_NODE_TEXT = '新节点'
+
+/**
+ * Parse a Markdown string into a MindMapNode tree.  Each heading
+ * becomes a node; its level sets the depth.
+ *   - `# Title`     → root text (overrides `rootText`)
+ *   - `## Sub`      → child of the previous #/##/... heading
+ *   - bullet / paragraph text between headings → first child
+ *     of the preceding heading (so a `# Topic\n- detail` tree
+ *     gives one root node with one child).
+ *
+ * Empty input, or input with no `#` heading, returns a single
+ * root with the fallback text.
+ */
+export function markdownToMindMap(md: string, rootText: string = '导入的导图'): MindMapNode {
+  const lines = md.split(/\r?\n/)
+  // The stack holds the parent chain.  The bottom is always the
+  // synthetic root, so we seed it with a level=-infinity marker
+  // (so the first heading never pops it).  `levelStack` is a
+  // parallel array of heading levels so pop() can update the
+  // comparison value (avoids stale `lastLevel` after a deep-then-
+  // shallow sequence like 1→2→3→2).
+  const root: MindMapNode = { id: uid(), text: rootText, children: [] }
+  const stack: MindMapNode[] = [root]
+  const levelStack: number[] = [-Infinity]
+  // First pass: walk lines, decide the tree shape and capture
+  // each heading's body.  Body lines between two headings are
+  // attached to the most recent heading as its first child —
+  // a simple `Topic` then `- detail` becomes a one-level deep
+  // tree, which mirrors how users actually think about their notes.
+  interface Pending { level: number; text: string; body: string }
+  const pending: Pending[] = []
+  const HEADING_RE = /^(#{1,6})\s+(.+?)\s*#*\s*$/
+
+  for (const raw of lines) {
+    const m = raw.match(HEADING_RE)
+    if (m) {
+      const level = m[1].length
+      const text = m[2].trim()
+      pending.push({ level, text, body: '' })
+    } else if (raw.trim().length > 0 && pending.length > 0) {
+      const top = pending[pending.length - 1]
+      top.body = top.body ? top.body + ' ' + raw.trim() : raw.trim()
+    }
+  }
+
+  function pushNode(p: Pending) {
+    // Pop the stack until the top has a level strictly LESS than
+    // the new heading's level.  Same-level headings are siblings
+    // (the previous `# Heading` shouldn't be popped just because
+    // another `# Heading` arrived), and only strictly-deeper
+    // headings live under the previous one.  We track levels in
+    // a parallel array so pop() can update the comparison value
+    // — a deep-then-shallow tree (1→2→3→2) shouldn't flatten
+    // because the older `lastLevel=3` lingers.
+    while (stack.length > 1) {
+      const topIdx = stack.length - 1
+      const topLevel = levelStack[topIdx]
+      // Strictly less than: when the next heading has the same
+      // level as the current top, that heading is the *top's
+      // sibling*, not its child — so pop and walk up until we
+      // find a strictly shallower parent.
+      if (topLevel !== undefined && topLevel < p.level) break
+      stack.pop()
+      levelStack.pop()
+    }
+    const parent = stack[stack.length - 1]
+    const headingText = p.text
+    const node: MindMapNode = { id: uid(), text: headingText, children: [] }
+    if (p.body && pendingHasNoChildren(p, pending, pending.indexOf(p))) {
+      node.children.push({ id: uid(), text: p.body, children: [] })
+    }
+    parent.children.push(node)
+    stack.push(node)
+    levelStack.push(p.level)
+  }
+
+  // Whether `p` has a subsequent heading at a deeper level.  If
+  // yes, the body line gets absorbed as a child of that sub-heading
+  // instead, so we don't double-render it.
+  function pendingHasNoChildren(p: Pending, all: Pending[], idx: number): boolean {
+    for (let i = idx + 1; i < all.length; i++) {
+      if (all[i].level <= p.level) return true
+      if (all[i].level > p.level) return false
+    }
+    return true
+  }
+
+  for (const p of pending) pushNode(p)
+  // The synthetic root we seeded stack[0] with never gets a
+  // heading pushed into it — pushNode's while-loop protects it
+  // (stack.length > 1).  If the document started with a `#`
+  // heading, that heading was pushed as the first child.  Promote
+  // it to be the visible root: take its children (and id / text).
+  if (pending.length > 0 && pending[0].level === 1) {
+    const first = root.children[0]
+    if (first) {
+      root.text = first.text
+      root.id = first.id
+      root.children = first.children
+    }
+  }
+  return root
+}

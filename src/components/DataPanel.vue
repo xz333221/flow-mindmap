@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { MindMapNode } from '../types'
+import { markdownToMindMap } from '../tree'
 
 const props = defineProps<{
   data: MindMapNode
@@ -17,6 +18,10 @@ const json = computed(() => JSON.stringify(props.data, null, 2))
 const pasteText = ref('')
 const pasteError = ref<string | null>(null)
 const pasteOpen = ref(false)
+/** 'json' (default) or 'markdown'.  Drives the paste textarea
+ *  placeholder, the error text, and which parser applyPaste()
+ *  uses.  Pick from a small two-button tab in the paste panel. */
+const pasteMode = ref<'json' | 'markdown'>('json')
 const copyState = ref<'idle' | 'copied'>('idle')
 
 async function copyAll() {
@@ -52,8 +57,23 @@ function downloadJson() {
 
 function applyPaste() {
   pasteError.value = null
+  const text = pasteText.value.trim()
+  if (!text) return
+  if (pasteMode.value === 'markdown') {
+    // Markdown → MindMapNode tree.  Headings become nodes; a body
+    // line under a heading becomes a single child of that heading.
+    try {
+      const parsed = markdownToMindMap(text)
+      emit('import', parsed)
+      pasteText.value = ''
+      pasteOpen.value = false
+    } catch (e) {
+      pasteError.value = 'Markdown 解析失败:' + (e as Error).message
+    }
+    return
+  }
   try {
-    const parsed = JSON.parse(pasteText.value) as MindMapNode
+    const parsed = JSON.parse(text) as MindMapNode
     if (!parsed.id || !Array.isArray(parsed.children)) {
       pasteError.value = 'JSON 缺少 id 或 children 字段'
       return
@@ -119,9 +139,23 @@ function pickFile() {
     </div>
 
     <div v-if="pasteOpen" class="zm-data-paste">
+      <div class="zm-data-tabs">
+        <button
+          class="zm-data-tab"
+          :class="{ 'is-active': pasteMode === 'json' }"
+          @click="pasteMode = 'json'"
+        >JSON</button>
+        <button
+          class="zm-data-tab"
+          :class="{ 'is-active': pasteMode === 'markdown' }"
+          @click="pasteMode = 'markdown'"
+        >Markdown</button>
+      </div>
       <textarea
         v-model="pasteText"
-        placeholder='粘贴 JSON,例如 {"id":"r","text":"标题","children":[]}'
+        :placeholder="pasteMode === 'json'
+          ? '粘贴 JSON,例如 {&quot;id&quot;:&quot;r&quot;,&quot;text&quot;:&quot;标题&quot;,&quot;children&quot;:[]}'
+          : '粘贴 Markdown — # / ## / ### 标题自动转节点'"
         spellcheck="false"
       />
       <div v-if="pasteError" class="zm-data-error">{{ pasteError }}</div>
@@ -196,6 +230,30 @@ function pickFile() {
   padding: 10px 12px;
   border-bottom: 1px solid #f1f5f9;
   background: #f8fafc;
+}
+.zm-data-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.zm-data-tab {
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.zm-data-tab:hover {
+  background: #f1f5f9;
+}
+.zm-data-tab.is-active {
+  background: #1e293b;
+  border-color: #1e293b;
+  color: #ffffff;
 }
 .zm-data-paste textarea {
   width: 100%;
