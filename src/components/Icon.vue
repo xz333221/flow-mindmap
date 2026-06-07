@@ -148,5 +148,17 @@ defineProps<{
       <line x1="6" y1="6" x2="18" y2="18" />
       <line x1="18" y1="6" x2="6" y2="18" />
     </template>
+    <!-- link: chain link glyph -->
+    <template v-else-if="name === 'link'">
+      <path d="M10 13 a4 4 0 0 0 5.66 0 l3 -3 a4 4 0 1 0 -5.66 -5.66 l-1 1" />
+      <path d="M14 11 a4 4 0 0 0 -5.66 0 l-3 3 a4 4 0 1 0 5.66 5.66 l1 -1" />
+    </template>
+    <!-- note: lined note / page -->
+    <template v-else-if="name === 'note'">
+      <path d="M6 4 h9 l3 3 v13 a1 1 0 0 1 -1 1 h-11 a1 1 0 0 1 -1 -1 v-15 a1 1 0 0 1 1 -1 z" />
+      <line x1="8" y1="10" x2="16" y2="10" />
+      <line x1="8" y1="13" x2="16" y2="13" />
+      <line x1="8" y1="16" x2="13" y2="16" />
+    </template>
   </svg>
 </template>

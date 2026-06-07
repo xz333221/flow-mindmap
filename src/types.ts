@@ -23,6 +23,23 @@ export interface MindMapNode {
    * aspect ratio so a resize keeps the original proportions.
    */
   image?: MindMapImage
+  /**
+   * Optional external link.  When set, the node renders a
+   * small link icon next to its text; clicking the icon
+   * navigates to `url` in a new tab.  No validation is
+   * performed at write time — the rendering layer is
+   * responsible for rejecting dangerous schemes (javascript:,
+   * data:, …) before following the link.
+   */
+  link?: { url: string }
+  /**
+   * Optional free-form note.  When set, the node renders a
+   * small note icon next to its text; clicking the icon
+   * expands an inline textarea below the node for editing,
+   * hovering the icon shows a tooltip preview.  An empty
+   * `text` field is treated as "no note" by the UI.
+   */
+  note?: { text: string }
 }
 
 export interface MindMapImage {
@@ -135,6 +152,14 @@ export interface MindMapExpose {
   applyNodeStyle: (nodeId: string, style: NodeStyle) => void
   /** Read the current per-node style override. */
   getNodeStyle: (nodeId: string) => NodeStyle
+  /** Set a node's external link.  Pass an empty string to clear. */
+  applyNodeLink: (nodeId: string, url: string) => void
+  /** Remove a node's link (no-op if absent). */
+  removeNodeLink: (nodeId: string) => void
+  /** Set a node's note text.  Pass an empty string to clear. */
+  applyNodeNote: (nodeId: string, text: string) => void
+  /** Remove a node's note (no-op if absent). */
+  removeNodeNote: (nodeId: string) => void
   undo: () => void
   redo: () => void
   canUndo: () => boolean

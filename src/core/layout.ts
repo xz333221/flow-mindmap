@@ -50,6 +50,12 @@ export interface LayoutNode {
    *  The renderer uses src/width/height; naturalW/H lock the
    *  resize aspect ratio. */
   image?: MindMapImage
+  /** Mirrored from MindMapNode.link.  Read by the renderer to
+   *  show a link icon next to the text. */
+  link?: { url: string }
+  /** Mirrored from MindMapNode.note.  Read by the renderer to
+   *  show a note icon next to the text. */
+  note?: { text: string }
   children: LayoutNode[]
   parent: LayoutNode | null
 }
@@ -447,6 +453,8 @@ function buildLayout(
     _subtreeH: size.h,
     _subtreeW: size.w,
     image: node.image ? { ...node.image } : undefined,
+    link: node.link ? { url: node.link.url } : undefined,
+    note: node.note ? { text: node.note.text } : undefined,
     children: [],
     parent,
   }

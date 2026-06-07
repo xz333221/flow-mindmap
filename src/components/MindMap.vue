@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
 // Reuse the add-node icons from the outline panel.  Vite ?url
 // gives a stable URL we can pass to <img src=…>; the buttons
@@ -24,6 +24,7 @@ import type { MindMapNode, MindMapTheme, MindMapExpose, MindMapSettings, NodeSty
 import { usePanZoom } from '../composables/usePanZoom'
 import { useKeyboard } from '../composables/useKeyboard'
 import { useHistory } from '../composables/useHistory'
+import NodeContextMenu from './NodeContextMenu.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -170,6 +171,210 @@ function onPickImage(nodeId: string) {
   document.body.appendChild(input)
   input.click()
 }
+
+// ---------------------------------------------------------------------------
+// Per-node link / note — the data model lives on the MindMapNode itself
+// (`link?: { url }`, `note?: { text }`).  These helpers mirror the
+// applyNodeImage pattern: read the existing node, mutate, snapshot,
+// trigger re-layout.
+// ---------------------------------------------------------------------------
+function applyNodeLink(id: string, url: string) {
+  const trimmed = url.trim()
+  const n = findNode(dataRef.value, id)
+  if (!n) return
+  if (!trimmed) {
+    delete n.link
+  } else {
+    n.link = { url: trimmed }
+  }
+  record()
+  triggerRef()
+  emit('change', dataRef.value)
+}
+function removeNodeLink(id: string) {
+  applyNodeLink(id, '')
+}
+function applyNodeNote(id: string, text: string) {
+  const n = findNode(dataRef.value, id)
+  if (!n) return
+  if (!text) {
+    delete n.note
+  } else {
+    n.note = { text }
+  }
+  record()
+  triggerRef()
+  emit('change', dataRef.value)
+}
+function removeNodeNote(id: string) {
+  applyNodeNote(id, '')
+}
+
+// ---------------------------------------------------------------------------
+// Context menu — right-click a node to open a small popover with
+// "添加/替换图片", "添加/编辑链接", "添加/编辑笔记" actions.
+// Each action either triggers a file picker, a prompt(), or the
+// inline note editor.  The menu is unmounted on any of: outside
+// click, Esc, scroll, or right-click on another node.
+// ---------------------------------------------------------------------------
+interface MenuState {
+  nodeId: string
+  /** ClientX of the right-click. */
+  x: number
+  /** ClientY of the right-click. */
+  y: number
+}
+const contextMenu = ref<MenuState | null>(null)
+
+function onNodeContextMenu(e: MouseEvent, n: LayoutNode) {
+  if (props.readonly) return
+  e.preventDefault()
+  e.stopPropagation()
+  // Selecting the node is implicit — right-clicking a different
+  // node should move the selection to it so the menu actions
+  // operate on the right node.  If it's the same node, no-op.
+  selectedId.value = n.id
+  emit('select', findNode(dataRef.value, n.id))
+  contextMenu.value = { nodeId: n.id, x: e.clientX, y: e.clientY }
+}
+function closeContextMenu() {
+  contextMenu.value = null
+}
+
+function menuPickImage() {
+  const id = contextMenu.value?.nodeId
+  if (!id) return
+  onPickImage(id)
+}
+function menuSetLink() {
+  const id = contextMenu.value?.nodeId
+  if (!id) return
+  const existing = findNode(dataRef.value, id)?.link?.url ?? ''
+  const url = window.prompt('输入链接 URL（留空取消）', existing)
+  if (url === null) return // user pressed cancel
+  applyNodeLink(id, url)
+}
+function menuRemoveLink() {
+  const id = contextMenu.value?.nodeId
+  if (!id) return
+  removeNodeLink(id)
+}
+function menuEditNote() {
+  const id = contextMenu.value?.nodeId
+  if (!id) return
+  startNoteEdit(id)
+}
+function menuRemoveNote() {
+  const id = contextMenu.value?.nodeId
+  if (!id) return
+  removeNodeNote(id)
+}
+function menuRemoveImage() {
+  const id = contextMenu.value?.nodeId
+  if (!id) return
+  removeNodeImage(id)
+}
+
+// ---------------------------------------------------------------------------
+// Note editor — the inline textarea that appears below a node when
+// the user picks "添加笔记" / "编辑笔记".  We track only the id
+// of the node being edited (single-editor rule) plus the working
+// text.  On commit (blur / Esc / Ctrl+Enter), we apply or remove
+// the note.
+// ---------------------------------------------------------------------------
+const editingNoteId = ref<string | null>(null)
+const noteDraft = ref('')
+
+function startNoteEdit(id: string) {
+  if (props.readonly) return
+  const n = findNode(dataRef.value, id)
+  if (!n) return
+  editingNoteId.value = id
+  noteDraft.value = n.note?.text ?? ''
+  // Focus + select on next tick.  The editor mounts in the same
+  // pass; v-if makes the mount async, so we wait a tick.
+  nextTick(() => {
+    const ta = document.querySelector<HTMLTextAreaElement>(
+      `[data-node-id="${id}"] .zm-node-note-editor textarea`
+    )
+    if (ta) {
+      ta.focus()
+      ta.setSelectionRange(0, 0)
+    }
+  })
+}
+function commitNoteEdit(opts: { cancel?: boolean } = {}) {
+  const id = editingNoteId.value
+  if (!id) return
+  if (!opts.cancel) applyNodeNote(id, noteDraft.value)
+  editingNoteId.value = null
+  noteDraft.value = ''
+  // Re-arm the deselect-suppress flag: blur on the editor bubbles
+  // a click to the canvas that would otherwise clear the user's
+  // selection.  We want to keep the node selected so the user can
+  // immediately re-edit or close.
+  suppressNextCanvasClick = true
+}
+function onNoteEditorKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    commitNoteEdit({ cancel: true })
+  } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault()
+    commitNoteEdit()
+  }
+}
+
+/** Truncate the note text to a single-line preview for the icon
+ *  tooltip.  Collapses internal whitespace. */
+function notePreview(text: string, max = 60): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  if (flat.length <= max) return flat || '点击编辑笔记'
+  return flat.slice(0, max) + '…'
+}
+
+// ---------------------------------------------------------------------------
+// Ctrl+V paste — when a node is selected and the clipboard carries
+// an image, route it through readImageFile / applyNodeImage.  We
+// also intercept text pastes? No: paste-as-text into a selected
+// node should NOT replace the node text (that's confusing); the
+// user can double-click to enter edit mode and paste there.  This
+// handler is image-only.
+// ---------------------------------------------------------------------------
+function onPaste(e: ClipboardEvent) {
+  if (props.readonly) return
+  // Don't hijack paste inside any text-editing surface.
+  if (editingId.value) return
+  if (editingNoteId.value) return
+  const tgt = e.target as HTMLElement | null
+  if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable)) {
+    return
+  }
+  const sel = selectedId.value
+  if (!sel) return
+  const items = e.clipboardData?.items
+  if (!items) return
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i]
+    if (it.kind === 'file' && it.type.startsWith('image/')) {
+      const file = it.getAsFile()
+      if (!file) continue
+      e.preventDefault()
+      const n = findNode(dataRef.value, sel)
+      if (n?.image) {
+        if (!window.confirm('该节点已有图片,要用剪贴板里的图片替换吗?')) return
+      }
+      readImageFile(file, (img) => applyNodeImage(sel, img))
+      return
+    }
+  }
+}
+onMounted(() => {
+  window.addEventListener('paste', onPaste)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('paste', onPaste)
+})
 
 // ---------------------------------------------------------------------------
 // Resize handle — tracks the in-flight drag (live width/height before
@@ -1146,6 +1351,10 @@ defineExpose<MindMapExpose>({
   balance: () => runBalance(),
   applyNodeStyle: (id: string, style: NodeStyle) => applyNodeStyle(id, style),
   getNodeStyle: (id: string): NodeStyle => getNodeStyle(id),
+  applyNodeLink: (id: string, url: string) => applyNodeLink(id, url),
+  removeNodeLink: (id: string) => removeNodeLink(id),
+  applyNodeNote: (id: string, text: string) => applyNodeNote(id, text),
+  removeNodeNote: (id: string) => removeNodeNote(id),
   undo: () => doUndo(),
   redo: () => doRedo(),
   canUndo: () => history.canUndo(),
@@ -1295,6 +1504,7 @@ onMounted(() => {
           }"
           @click="(e) => onNodeClick(e, n)"
           @dblclick="(e) => { e.stopPropagation(); if (!readonly) startEdit(n.id) }"
+          @contextmenu="(e) => onNodeContextMenu(e, n)"
           @mouseenter="onNodeMouseEnter(n.id)"
           @mouseleave="onNodeMouseLeave(n.id)"
         >
@@ -1307,7 +1517,27 @@ onMounted(() => {
             :alt="n.text"
             draggable="false"
           />
-          <span v-if="editingId !== n.id" class="zm-text">{{ n.text }}</span>
+          <span v-if="editingId !== n.id" class="zm-text">
+            <span class="zm-text-label">{{ n.text }}</span>
+            <a
+              v-if="n.link && !editingId"
+              class="zm-node-link"
+              :href="n.link.url"
+              target="_blank"
+              rel="noopener noreferrer"
+              :title="`打开链接：${n.link.url}`"
+              @click.stop
+              @mousedown.stop
+            ><Icon name="link" :size="11" :stroke="2" /></a>
+            <button
+              v-if="n.note && !editingId"
+              class="zm-node-note-btn"
+              type="button"
+              :title="notePreview(n.note.text)"
+              @click.stop="startNoteEdit(n.id)"
+              @mousedown.stop
+            ><Icon name="note" :size="11" :stroke="2" /></button>
+          </span>
           <input
             v-else
             class="zm-input"
@@ -1351,26 +1581,6 @@ onMounted(() => {
             <Icon name="minus" :size="10" :stroke="2.4" />
           </button>
 
-          <!-- "Add image" hover button.  Mirrors the collapse
-               button's appearance: small outlined circle that
-               reveals on hover / selection.  Position: on the
-               "line-in" side of the node (the side where the
-               edge from the parent lands), so the line-out
-               collapse button keeps its own corner.  Sits a
-               little above the vertical center to clear the
-               collapse button on opposite corners. -->
-          <button
-            v-if="!readonly && !n.image && isNodeInteractive(n.id)"
-            class="zm-btn zm-image-btn"
-            :class="{ 'is-on-left': n.side === -1 }"
-            :style="{ color: branchColor.get(n.id) ?? '#64748b', borderColor: branchColor.get(n.id) ?? '#64748b' }"
-            title="添加图片"
-            @mousedown.stop
-            @click.stop="onPickImage(n.id)"
-          >
-            <Icon name="image" :size="10" :stroke="1.8" />
-          </button>
-
           <!-- Resize handle — bottom-right corner of the node,
                only on selected image-bearing nodes.  Drag to
                scale the image.  Inline handlers update the DOM
@@ -1395,8 +1605,56 @@ onMounted(() => {
           >
             <Icon name="x" :size="9" :stroke="2.2" />
           </button>
+
+          <!-- Inline note editor — shown only on the node whose
+               id matches editingNoteId.  Sits in screen space
+               (NOT world space) so it doesn't shrink/grow with
+               the canvas zoom — typing a multi-line note in a
+               tiny zoom level would be unusable otherwise.  The
+               position is computed from the node's world bbox
+               and the current panZoom transform. -->
+          <div
+            v-if="editingNoteId === n.id"
+            class="zm-node-note-editor"
+            :style="{
+              left: (n.x * panZoom.scale.value + panZoom.offsetX.value) + 'px',
+              top: (n.y * panZoom.scale.value + panZoom.offsetY.value + (n.height / 2 + 6) * panZoom.scale.value) + 'px',
+              minWidth: Math.max(n.width, 220) + 'px',
+            }"
+            @mousedown.stop
+            @click.stop
+          >
+            <textarea
+              v-model="noteDraft"
+              rows="4"
+              :placeholder="'在此输入笔记内容 (Ctrl+Enter 提交, Esc 取消)'"
+              @blur="commitNoteEdit()"
+              @keydown="onNoteEditorKeydown"
+            />
+          </div>
         </div>
       </div>
+
+      <!-- Floating context menu — mounted only while the user is
+           interacting with it.  Container is the canvas so the
+           menu can clamp itself inside the visible area. -->
+      <NodeContextMenu
+        v-if="contextMenu"
+        :x="contextMenu.x"
+        :y="contextMenu.y"
+        :container="wrapperRef"
+        :has-image="!!findNode(dataRef, contextMenu.nodeId)?.image"
+        :has-link="!!findNode(dataRef, contextMenu.nodeId)?.link"
+        :has-note="!!findNode(dataRef, contextMenu.nodeId)?.note"
+        :readonly="props.readonly"
+        @pick-image="menuPickImage"
+        @remove-image="menuRemoveImage"
+        @set-link="menuSetLink"
+        @remove-link="menuRemoveLink"
+        @edit-note="menuEditNote"
+        @remove-note="menuRemoveNote"
+        @close="closeContextMenu"
+      />
     </div>
 
     <div v-if="!props.previewMode" class="zm-toolbar">
@@ -1546,10 +1804,24 @@ onMounted(() => {
   z-index: 3;
 }
 .zm-text {
-  pointer-events: none;
+  /* The text span now hosts the text label + inline link/note
+   * icons.  `pointer-events: none` is kept on the *label* so a
+   * click on text still falls through to the node (lets the
+   * user dblclick-to-edit the text).  The icon buttons inside
+   * re-enable pointer events explicitly. */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zm-text-label {
+  pointer-events: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .zm-input {
   border: none;
@@ -1662,28 +1934,39 @@ onMounted(() => {
   border-radius: 4px;
 }
 
-/* "Add image" hover button — mirrors the collapse button
- * appearance (outlined ring, branch-coloured), but lives on the
- * line-in side of the node (opposite the collapse button) and
- * sits a bit above the vertical mid so the two don't overlap. */
-.zm-image-btn {
-  right: auto;
-  left: -8px;
-  top: 50%;
-  width: 14px;
-  height: 14px;
-  background: #ffffff;
-  border: 1.5px solid;
-  transform: translateY(calc(-50% - 18px));
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18);
+/* Inline link / note icons that sit next to the node's text.
+ * They inherit the node's text color and sit at 14×14 so they
+ * match the text's optical weight.  pointer-events is re-enabled
+ * on the icons because the parent .zm-text disables it. */
+.zm-node-link,
+.zm-node-note-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: currentColor;
+  border-radius: 3px;
+  cursor: pointer;
+  flex-shrink: 0;
+  text-decoration: none;
+  opacity: 0.75;
+  transition: opacity 0.1s, background 0.1s;
+  /* Inherit pointer-events from the node (the parent .zm-text has
+   * pointer-events: none; the icons need clicks). */
+  pointer-events: auto;
 }
-.zm-image-btn.is-on-left {
-  right: -8px;
-  left: auto;
+.zm-node-link:hover,
+.zm-node-note-btn:hover {
+  opacity: 1;
+  background: rgba(15, 23, 42, 0.08);
 }
-.zm-image-btn:hover {
-  transform: translateY(calc(-50% - 18px)) scale(1.15);
-  background: #ffffff;
+.zm-node-link svg,
+.zm-node-note-btn svg {
+  display: block;
 }
 
 /* Resize handle — small square in the bottom-right of the
@@ -1730,6 +2013,40 @@ onMounted(() => {
   background: #fee2e2;
   color: #b91c1c;
   border-color: #fca5a5;
+}
+
+/* Inline note editor — sits in screen space below the node,
+ * not in the world (scaled) layer, so the textarea stays a
+ * usable size at any zoom level.  Sibling of .zm-node in the
+ * DOM, but visually anchored to the node via the inline
+ * `left`/`top` styles set in the template. */
+.zm-node-note-editor {
+  position: absolute;
+  z-index: 6;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  padding: 8px;
+  transform: translateX(-50%);
+}
+.zm-node-note-editor textarea {
+  display: block;
+  width: 100%;
+  min-width: 220px;
+  min-height: 80px;
+  border: none;
+  outline: none;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #1e293b;
+  background: transparent;
+  font-family: inherit;
+}
+.zm-node-note-editor textarea::placeholder {
+  color: #94a3b8;
 }
 /* Debug overlay: draws a small "1./2./3." label on every node
  * showing its position in its parent's children array.  Hidden by
