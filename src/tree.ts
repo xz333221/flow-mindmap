@@ -44,14 +44,47 @@ export function removeNode(root: MindMapNode, id: string): boolean {
   return false
 }
 
+function defaultSiblingText(parent: MindMapNode): string {
+  // Smart numbering: if the parent's existing children include plain
+  // "新节点" or "新节点 N", the next new sibling is "新节点 (N+1)".
+  // Renamed children are ignored, so this won't fight with custom
+  // text the user has typed.
+  //
+  // The "next free number" is:
+  //   - max(N) + 1  if any "新节点 N" peers exist, OR
+  //   - 2            if only a bare "新节点" peer exists (bare is "1"),
+  //   - 1            if no "新节点*" peers exist at all.
+  // We don't auto-renumber the existing bare node — adding more just
+  // gets "1", "2", "3" from then on.  Keeping the first one bare is
+  // intentional: it's what the user sees and renaming is one click.
+  const re = /^新节点(?:\s+(\d+))?$/
+  let max = 0
+  let hasUnnumbered = false
+  for (const c of parent.children) {
+    const m = c.text.match(re)
+    if (!m) continue
+    if (m[1]) {
+      const n = parseInt(m[1], 10)
+      if (n > max) max = n
+    } else {
+      hasUnnumbered = true
+    }
+  }
+  if (max === 0 && !hasUnnumbered) return DEFAULT_NEW_NODE_TEXT
+  // If we have at least one numbered peer, the next is max+1.
+  if (max > 0) return `新节点 ${max + 1}`
+  // Only a bare "新节点" peer.  It's slot 1; next slot is 2.
+  return '新节点 2'
+}
+
 export function addChild(
   root: MindMapNode,
   parentId: string,
-  text: string = DEFAULT_NEW_NODE_TEXT
+  text?: string
 ): MindMapNode | null {
   const p = findNode(root, parentId)
   if (!p) return null
-  const node: MindMapNode = { id: uid(), text, children: [] }
+  const node: MindMapNode = { id: uid(), text: text ?? defaultSiblingText(p), children: [] }
   p.children.push(node)
   return node
 }
@@ -59,12 +92,18 @@ export function addChild(
 export function addSibling(
   root: MindMapNode,
   nodeId: string,
-  text: string = DEFAULT_NEW_NODE_TEXT
+  text?: string
 ): MindMapNode | null {
   const parent = findParent(root, nodeId)
   if (!parent) return null
-  const node: MindMapNode = { id: uid(), text, children: [] }
-  parent.children.push(node)
+  const idx = parent.children.findIndex((c) => c.id === nodeId)
+  if (idx < 0) return null
+  const node: MindMapNode = { id: uid(), text: text ?? defaultSiblingText(parent), children: [] }
+  // Insert *after* the current node, not at the end of the parent's
+  // children list.  Push-to-end would scramble order when adding
+  // siblings to nodes that aren't the last child, and would confuse
+  // the layout's clockwise sweep.
+  parent.children.splice(idx + 1, 0, node)
   return node
 }
 
@@ -75,13 +114,13 @@ export function addSibling(
 export function addSiblingBefore(
   root: MindMapNode,
   nodeId: string,
-  text: string = DEFAULT_NEW_NODE_TEXT
+  text?: string
 ): MindMapNode | null {
   const parent = findParent(root, nodeId)
   if (!parent) return null
   const idx = parent.children.findIndex((c) => c.id === nodeId)
   if (idx < 0) return null
-  const node: MindMapNode = { id: uid(), text, children: [] }
+  const node: MindMapNode = { id: uid(), text: text ?? defaultSiblingText(parent), children: [] }
   parent.children.splice(idx, 0, node)
   return node
 }

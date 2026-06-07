@@ -133,6 +133,50 @@ describe('addSibling', () => {
   it('returns null for root (no parent)', () => {
     expect(addSibling(sample, 'root')).toBeNull()
   })
+  it('regression: inserts the new sibling immediately AFTER the target, not at end of children', () => {
+    // sample structure (from the file's top): root → a → [a1, a2], b → [b1].
+    // a1 has siblings a2.  addSibling(a1) used to push to the END of
+    // a.children (after a2), scrambling order.  After the fix it
+    // must slot in at index 1 (between a1 and a2).
+    const n = addSibling(sample, 'a1')!
+    expect(n).not.toBeNull()
+    const ids = sample.children[0].children.map((c) => c.id)
+    const idxA1 = ids.indexOf('a1')
+    expect(ids[idxA1 + 1]).toBe(n.id)
+  })
+  it('regression: consecutive addSibling calls each insert after the target, so the most recent lands closest to the target', () => {
+    // Start: a.children = [a1, a2].  Add sibling after a1 three
+    // times.  addSibling always uses a1 as the anchor and splices at
+    // a1's idx+1, so the most recently added node ends up nearest
+    // a1.  Result: [a1, s3, s2, s1, a2].  (Smart numbering gives
+    // s1=new "新节点", s2="新节点 1", s3="新节点 2" — also tested
+    // below.)
+    const s1 = addSibling(sample, 'a1')!.id
+    const s2 = addSibling(sample, 'a1')!.id
+    const s3 = addSibling(sample, 'a1')!.id
+    const ids = sample.children[0].children.map((c) => c.id)
+    expect(ids).toEqual(['a1', s3, s2, s1, 'a2'])
+  })
+  it('smart numbers new siblings: 新节点, 新节点 2, 新节点 3, …', () => {
+    // Reset a.children to a known shape with no existing "新节点" peers.
+    sample.children[0].children = [
+      { id: 'a1', text: 'A1', children: [] },
+    ]
+    // First add: no peers, so plain "新节点".
+    expect(addSibling(sample, 'a1')?.text).toBe('新节点')
+    // Now a bare "新节点" exists; it occupies slot 1, so the next is "2".
+    expect(addSibling(sample, 'a1')?.text).toBe('新节点 2')
+    expect(addSibling(sample, 'a1')?.text).toBe('新节点 3')
+  })
+  it('smart numbers ignore renamed siblings when picking the next number', () => {
+    sample.children[0].children = [
+      { id: 'a1', text: 'A1', children: [] },
+      { id: 'a2', text: 'A2', children: [] }, // renamed, not "新节点"
+    ]
+    // Renamed siblings don't count.  Same shape as the previous test.
+    expect(addSibling(sample, 'a1')?.text).toBe('新节点')
+    expect(addSibling(sample, 'a1')?.text).toBe('新节点 2')
+  })
 })
 
 describe('countDescendants', () => {

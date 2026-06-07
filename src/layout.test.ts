@@ -158,6 +158,36 @@ describe('layout', () => {
     expect(a.children.length).toBe(0)
   })
 
+  it('lays out children clockwise around the root: right side top→bottom, left side bottom→top', () => {
+    // 4 children of equal height, greedy split puts 2 on each side.
+    // Right side: first sibling must be ABOVE the last (top→bottom).
+    // Left side:  first sibling must be BELOW the last (bottom→top).
+    // The "first" here is `root.children[2]` and `[3]` (the two
+    // left-side kids after greedy split) — but we test by id order
+    // from the input to be robust to balancer changes.
+    const data: MindMapNode = {
+      id: 'r',
+      text: 'R',
+      children: [
+        { id: 'a', text: 'A', children: [] },
+        { id: 'b', text: 'B', children: [] },
+        { id: 'c', text: 'C', children: [] },
+        { id: 'd', text: 'D', children: [] },
+      ],
+    }
+    const r = layout(data)
+    const right = r.root.children.filter((c) => c.side === 1)
+    const left = r.root.children.filter((c) => c.side === -1)
+    // Right side: input order matches top-to-bottom y order.
+    for (let i = 1; i < right.length; i++) {
+      expect(right[i].y).toBeGreaterThan(right[i - 1].y)
+    }
+    // Left side: input order matches bottom-to-top y order.
+    for (let i = 1; i < left.length; i++) {
+      expect(left[i].y).toBeLessThan(left[i - 1].y)
+    }
+  })
+
   it('keeps all child y values inside the subtree height', () => {
     const data: MindMapNode = {
       id: 'r',

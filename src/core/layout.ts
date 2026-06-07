@@ -246,11 +246,11 @@ function applyDoLayout(root: LayoutNode, mode: LayoutMode): void {
     // implicitly via its doLayout arms.
     if (rightKids.length > 0) {
       const rightParent: LayoutNode = { ...root, children: rightKids }
-      layoutHorizontal(rightParent, 'right', H_GAP)
+      layoutHorizontal(rightParent, 'right', H_GAP, true)
     }
     if (leftKids.length > 0) {
       const leftParent: LayoutNode = { ...root, children: leftKids }
-      layoutHorizontal(leftParent, 'left', H_GAP)
+      layoutHorizontal(leftParent, 'left', H_GAP, true)
     }
   } else if (mode === 'tree') {
     // Force every node in the tree to the right side.  The layout's
@@ -265,7 +265,7 @@ function applyDoLayout(root: LayoutNode, mode: LayoutMode): void {
       for (const c of n.children) forceRight(c)
     }
     for (const c of root.children) c._dir = 'right'
-    layoutHorizontal(root, 'right', H_GAP)
+    layoutHorizontal(root, 'right', H_GAP, true)
     forceRight(root)
   } else {
     // 'org' — all children fan downward
@@ -276,28 +276,49 @@ function applyDoLayout(root: LayoutNode, mode: LayoutMode): void {
 
 // =====================================================================
 // layoutHorizontal — 1.html JS L399-410.  Children are stacked
-// vertically; the stack is centered on the parent's y (cy starts at
-// node.y - totalH/2).  Each child sits at:
-//   x = node.x + (right?+1:-1) * (node.w/2 + hGap + child.w/2)
-//   y = cy + child._subtreeH / 2
-// (cy is the top y of the child's subtree, so y is the child's center).
-// Then recurse with the same dir, so the child's children fan in the
-// same direction.
+// vertically.  At the *root* level the starting y and iteration
+// direction depend on `dir` so the visual order matches a
+// *clockwise sweep around the root*:
+//   - dir='right' (right-side children): first child at the top, last
+//     at the bottom.  cy starts at node.y - totalH/2 and grows
+//     downward.
+//   - dir='left'  (left-side children): first child at the bottom,
+//     last at the top.  cy starts at node.y + totalH/2 and shrinks
+//     upward.
+// Deeper subtrees (level 2+) always stack top→bottom regardless of
+// which side of the root they live on — that's the xmind convention:
+// only the root sweep is clockwise; below that, children follow their
+// parent's data order from top to bottom.
+//
+// x placement: x = node.x + sign * (node.w/2 + hGap + child.w/2)
+// y placement: y = cy + sign * child._subtreeH / 2 (root) | y = cy +
+//   child._subtreeH/2 (subtree, top→bottom)
+// Then recurse with `applyClockwise=false` so children of children
+// stack normally.
 // =====================================================================
-function layoutHorizontal(node: LayoutNode, dir: 'right' | 'left', hGap: number): void {
+function layoutHorizontal(
+  node: LayoutNode,
+  dir: 'right' | 'left',
+  hGap: number,
+  applyClockwise: boolean
+): void {
   if (node.children.length === 0) return
   const totalH = node.children.reduce(
     (s, c, i) => s + c._subtreeH + (i > 0 ? V_GAP : 0),
     0
   )
-  let cy = node.y - totalH / 2
   const sign = dir === 'right' ? 1 : -1
+  // Root sweep uses sign to flip the start and step.  Subtrees
+  // always use sign=+1 (top→bottom) so the per-level ordering is
+  // independent of the side they happen to be on.
+  const step = applyClockwise ? sign : 1
+  let cy = node.y - step * totalH / 2
   node.children.forEach((child) => {
     child.x = node.x + sign * (node.width / 2 + hGap + child.width / 2)
-    child.y = cy + child._subtreeH / 2
+    child.y = cy + step * child._subtreeH / 2
     child._dir = dir
-    cy += child._subtreeH + V_GAP
-    layoutHorizontal(child, dir, hGap)
+    cy += step * (child._subtreeH + V_GAP)
+    layoutHorizontal(child, dir, hGap, false)
   })
 }
 
