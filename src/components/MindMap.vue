@@ -764,7 +764,12 @@ function lineAnchor(
   n: LayoutNode,
   side: 'in' | 'out',
   dir?: 1 | -1,
-  child?: LayoutNode
+  child?: LayoutNode,
+  /** The OTHER endpoint's anchor Y (or center Y).  Used so the
+   *  child end can mirror the parent end's Y offset and the
+   *  ribbon enters the child horizontally instead of grazing
+   *  its corner.  Pass 0 to fall back to the node's mid-edge. */
+  otherY?: number
 ): { x: number; y: number } {
   const p = nodeDrag.nodePos(n)
   const childDir = child?._dir ?? n._dir
@@ -773,43 +778,36 @@ function lineAnchor(
     if (side === 'out') return { x: p.x, y: p.y + n.height / 2 }
     return { x: p.x, y: p.y - n.height / 2 }
   }
-  // Horizontal (mindmap / tree): line lands on left/right mid-edge.
-  //
-  // For both 'out' (parent-end) and 'in' (child-end) we want the
-  // edge to land on the side that actually faces the other endpoint.
-  // The build-time `n.side` is unreliable after the height-based
-  // balancer has moved a child across the center line, so we derive
-  // the direction from the actual child position when we have it.
-  //
-  // The parent endpoint is on whichever side of `n` faces `child`:
-  //   child is to the left  → edge leaves `n` from the LEFT  (d = -1)
-  //   child is to the right → edge leaves `n` from the RIGHT (d = +1)
-  // The child endpoint is the mirror of that.
-  //
-  // Important: when a root's children are stacked directly BELOW
-  // it (e.g. after a balance that put short leaves on the same side
-  // as deep subtrees), child.x can be near parent.x but the
-  // dominant offset is vertical.  Reading from the *layout's own*
-  // _dir / _dirRight — which the balancer just set — is more
-  // robust than guessing from coordinates.
+  // Horizontal (mindmap / tree).  Direction is read from the
+  // child._dir (set by the layout pass that placed the child) —
+  // build-time `n.side` can disagree after the height-based
+  // balancer.
   let d: 1 | -1
   if (child) {
-    // If child carries a layout direction, trust it: it was set by
-    // applyDoLayout in the same pass that placed the child.  The
-    // build-time `n.side` of the parent can disagree, but the
-    // CHILD's `_dir` reflects the actual side it lives on.
-    if (child._dir === 'left') {
-      d = side === 'in' ? (1 as const) : (-1 as const)
-    } else {
-      // 'right' (or fallback for collapsed roots)
-      d = side === 'in' ? (-1 as const) : (1 as const)
-    }
+    d = child._dir === 'left' ? (-1 as const) : (1 as const)
   } else if (side === 'in') {
     d = (-n._dirRight) as 1 | -1
   } else {
     d = dir ?? n._dirRight
   }
-  return { x: p.x + d * (n.width / 2), y: p.y }
+  if (!child) {
+    return { x: p.x + d * (n.width / 2), y: p.y }
+  }
+  // Y offset: bring this anchor toward the OTHER endpoint's Y so
+  // the ribbon runs horizontally between them.  parent end slides
+  // toward child.y; child end slides toward the parent anchor y.
+  const halfH = n.height / 2
+  let yOffset: number
+  if (side === 'out') {
+    yOffset = Math.max(-halfH, Math.min(halfH, child.y - p.y))
+  } else {
+    // child end — match the parent anchor's Y if the caller passed
+    // it, otherwise just use the child's mid-edge (will look like
+    // a slight diagonal, but the lineWidth taper hides it).
+    const targetY = otherY ?? p.y
+    yOffset = Math.max(-halfH, Math.min(halfH, targetY - p.y))
+  }
+  return { x: p.x + d * (n.width / 2), y: p.y + yOffset }
 }
 
 function resetView() {
@@ -1012,7 +1010,7 @@ watch(
             <path
               v-for="e in edges"
               :key="e.key"
-              :d="variableWidthPath(lineAnchor(e.from, 'out', e.to.side, e.to), lineAnchor(e.to, 'in'), lineWidthForDepth(e.from.depth), endWidthForDepth(e.to.depth), 32, settings.lineStyle, e.to._dir)"
+              :d="variableWidthPath(lineAnchor(e.from, 'out', e.to.side, e.to), lineAnchor(e.to, 'in', undefined, e.to, lineAnchor(e.from, 'out', e.to.side, e.to).y), lineWidthForDepth(e.from.depth), endWidthForDepth(e.to.depth), 32, settings.lineStyle, e.to._dir)"
               :fill="lineColorFor(e.from, e.to)"
               stroke="none"
             />
