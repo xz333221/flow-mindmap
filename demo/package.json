@@ -9,7 +9,7 @@
     "preview": "vite preview --port 7861"
   },
   "dependencies": {
-    "flow-mindmap": "0.1.1-beta.1",
+    "flow-mindmap": "0.1.1-beta.2",
     "vue": "^3.5.0"
   },
   "devDependencies": {

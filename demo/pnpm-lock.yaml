@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       flow-mindmap:
-        specifier: 0.1.1-beta.1
-        version: 0.1.1-beta.1(vue@3.5.35(typescript@5.9.3))
+        specifier: 0.1.1-beta.2
+        version: 0.1.1-beta.2(vue@3.5.35(typescript@5.9.3))
       vue:
         specifier: ^3.5.0
         version: 3.5.35(typescript@5.9.3)
@@ -399,8 +399,8 @@ packages:
   estree-walker@2.0.2:
     resolution: {integrity: sha512-Rfkk/Mp/DL7JVje3u18FxFujQlTNR2q6QfMSMB7AvCBx91NGj/ba3kCfza0f6dVDbw7YlRf/nDrn7pQrCCyQ/w==}
 
-  flow-mindmap@0.1.1-beta.1:
-    resolution: {integrity: sha512-d0U0T0amn/Sb1BF/IF5tLIVOa0CfpZbx07liNXAdcsfHpMWT2sPaMOOSw3h6X9YMAjCbzMp8K7C9sz1201ZBNQ==}
+  flow-mindmap@0.1.1-beta.2:
+    resolution: {integrity: sha512-GN/KGd01LdgUEqwrP7pAV7UY+ko6tF9gW7056MxiK9k8+9ijjp0/UArFU9dd9VWIRGaAWTQrEaXI4T0HtjiEMQ==}
     peerDependencies:
       vue: ^3.4.0
 
@@ -794,7 +794,7 @@ snapshots:
 
   estree-walker@2.0.2: {}
 
-  flow-mindmap@0.1.1-beta.1(vue@3.5.35(typescript@5.9.3)):
+  flow-mindmap@0.1.1-beta.2(vue@3.5.35(typescript@5.9.3)):
     dependencies:
       vue: 3.5.35(typescript@5.9.3)
 
