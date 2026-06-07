@@ -61,6 +61,11 @@ export interface MindMapSettings {
    *  every edge's parent end = the previous edge's child end, so
    *  widths interpolate continuously from root to leaves. */
   taperedEdge: boolean
+  /** When true, every node shows a small badge with its zero-based
+   *  position in its parent's children array ("1.", "2.", "3.").
+   *  Default false — useful when verifying the data-tree order
+   *  against the visual layout. */
+  showOrderBadge: boolean
 }
 
 export interface NodeStyle {
@@ -75,6 +80,16 @@ export interface MindMapExpose {
   addSibling: (nodeId: string) => void
   removeNode: (nodeId: string) => void
   duplicateNode: (nodeId: string) => void
+  /** Set a node's text (no-op if unchanged).  Used by the outline
+   *  panel's inline edit; the canvas has its own dblclick → input
+   *  flow. */
+  setNodeText: (nodeId: string, text: string) => void
+  /** Move a node to a new location.  `position` is relative to
+   *  `targetId`: 'before' / 'after' insert as siblings, 'child'
+   *  makes it the last child of target.  Used by the outline panel's
+   *  drag-and-drop.  Returns true on success, false (no-op) if the
+   *  move would create a cycle or hit another invalid case. */
+  moveNode: (srcId: string, targetId: string, position: 'before' | 'after' | 'child') => boolean
   getData: () => MindMapNode
   setData: (data: MindMapNode) => void
   resetView: () => void

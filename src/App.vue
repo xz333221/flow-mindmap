@@ -122,6 +122,7 @@ const settings = reactive<MindMapSettings>({
   lineStyle: 'curve',
   layoutMode: 'mindmap',
   taperedEdge: true,
+  showOrderBadge: false,
 })
 
 function onSettingsChange(s: Partial<MindMapSettings>) {
@@ -143,6 +144,7 @@ function resetSettings() {
     lineStyle: 'curve',
     layoutMode: 'mindmap',
     taperedEdge: true,
+    showOrderBadge: false,
   }
   Object.assign(settings, defaults)
   mindMapRef.value?.applySettings(defaults)
@@ -216,6 +218,19 @@ function toggleCollapse(id: string) {
   // keeps its own internal collapse state.
 }
 
+function onOutlineEdit(payload: { id: string; text: string }) {
+  mindMapRef.value?.setNodeText(payload.id, payload.text)
+}
+function onOutlineAddChild(id: string) {
+  mindMapRef.value?.addChild(id)
+}
+function onOutlineAddSibling(id: string) {
+  mindMapRef.value?.addSibling(id)
+}
+function onOutlineMove(payload: { srcId: string; targetId: string; position: 'before' | 'after' | 'child' }) {
+  mindMapRef.value?.moveNode(payload.srcId, payload.targetId, payload.position)
+}
+
 // highlight on the main canvas: watch selectedNode and find the matching
 // element to add a brief "flash" class.  For now we just keep the
 // reference in state.
@@ -242,6 +257,10 @@ const totalNodes = computed(() => countNodes(data.value))
         :collapsed-ids="collapsedIds"
         @select="onOutlineSelect"
         @toggle-collapse="toggleCollapse"
+        @edit="onOutlineEdit"
+        @add-child="onOutlineAddChild"
+        @add-sibling="onOutlineAddSibling"
+        @move="onOutlineMove"
       />
     </Drawer>
 

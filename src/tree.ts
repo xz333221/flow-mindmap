@@ -44,6 +44,72 @@ export function removeNode(root: MindMapNode, id: string): boolean {
   return false
 }
 
+/** Replace the text of a node by id.  Returns true on success, false
+ *  if the node was not found.  No-op on an empty / same string. */
+export function setNodeText(root: MindMapNode, id: string, text: string): boolean {
+  const n = findNode(root, id)
+  if (!n) return false
+  if (n.text === text) return false
+  n.text = text
+  return true
+}
+
+/** Position relative to a target node when moving a sibling. */
+export type MovePosition = 'before' | 'after' | 'child'
+
+/** Move a node to a new location in the tree.
+ *  - 'before' / 'after': insert as a sibling of the target at that slot
+ *    (target's parent's children array).
+ *  - 'child': insert as the last child of the target.
+ *  No-op (returns false) if src === root, or if the move would
+ *  create a cycle (i.e. the target lives inside the src subtree, or
+ *  src is already in the target's desired position). */
+export function moveNode(
+  root: MindMapNode,
+  srcId: string,
+  targetId: string,
+  position: MovePosition
+): boolean {
+  // Refuse root move.  findParent returns null for root.
+  if (!findParent(root, srcId)) return false
+  if (srcId === targetId) return false
+  // Detect cycles: target is inside the src subtree.
+  if (findNode(findNode(root, srcId)!, targetId)) return false
+
+  // Detach src from its current parent.
+  const srcParent = findParent(root, srcId)!
+  const srcIdx = srcParent.children.findIndex((c) => c.id === srcId)
+  if (srcIdx < 0) return false
+  const [src] = srcParent.children.splice(srcIdx, 1)
+
+  if (position === 'child') {
+    const target = findNode(root, targetId)
+    if (!target) {
+      // Target disappeared — put src back where it was.
+      srcParent.children.splice(srcIdx, 0, src)
+      return false
+    }
+    target.children.push(src)
+    return true
+  }
+
+  // before / after — need a sibling context.
+  const targetParent = findParent(root, targetId)
+  if (!targetParent) {
+    // Target is root?  Root can't have siblings.  Bail and put back.
+    srcParent.children.splice(srcIdx, 0, src)
+    return false
+  }
+  let tgtIdx = targetParent.children.findIndex((c) => c.id === targetId)
+  if (tgtIdx < 0) {
+    srcParent.children.splice(srcIdx, 0, src)
+    return false
+  }
+  if (position === 'after') tgtIdx += 1
+  targetParent.children.splice(tgtIdx, 0, src)
+  return true
+}
+
 function defaultSiblingText(parent: MindMapNode): string {
   // Smart numbering: if the parent's existing children include plain
   // "新节点" or "新节点 N", the next new sibling is "新节点 (N+1)".

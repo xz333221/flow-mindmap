@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, nextTick, onBeforeUnmount } from 'vue'
 import type { MindMapNode } from '../types'
 
 const props = withDefaults(
@@ -8,18 +8,25 @@ const props = withDefaults(
     data: MindMapNode
     /** Highlight the node with this id (the one selected on the main canvas). */
     selectedId?: string | null
-    /** When true, hide a node's children in the outline. (Future use — currently all children render.) */
+    /** When true, hide a node's children in the outline. */
     collapsedIds?: Set<string>
+    /** Read-only — disables editing / add / drag.  Default false. */
+    readonly?: boolean
   }>(),
-  { selectedId: null, collapsedIds: () => new Set<string>() }
+  { selectedId: null, collapsedIds: () => new Set<string>(), readonly: false }
 )
 
 const emit = defineEmits<{
-  /** Emitted when the user clicks a node in the outline. The parent can
-   *  use this to drive the main canvas (e.g. select + scroll to it). */
   (e: 'select', node: MindMapNode): void
-  /** Toggle a node's collapsed state on the main canvas. */
   (e: 'toggleCollapse', id: string): void
+  /** Inline edit finished (Enter / blur).  text may equal the old value. */
+  (e: 'edit', payload: { id: string; text: string }): void
+  /** Add a new child under the given node. */
+  (e: 'addChild', id: string): void
+  /** Add a new sibling after the given node. */
+  (e: 'addSibling', id: string): void
+  /** Drag-and-drop a node to a new location. */
+  (e: 'move', payload: { srcId: string; targetId: string; position: 'before' | 'after' | 'child' }): void
 }>()
 
 interface FlatRow {
@@ -56,7 +63,121 @@ const rows = computed<FlatRow[]>(() => {
   return out
 })
 
-// "copied" feedback for the per-row copy button — keyed by node id.
+// --------------------------------------------------------------------
+// Inline edit state
+// --------------------------------------------------------------------
+const editingId = ref<string | null>(null)
+const editingText = ref('')
+let editInputEl: HTMLInputElement | null = null
+
+function startEdit(row: FlatRow) {
+  if (props.readonly) return
+  editingId.value = row.id
+  editingText.value = row.text
+  nextTick(() => {
+    editInputEl = document.querySelector('.zm-outline-input') as HTMLInputElement | null
+    editInputEl?.focus()
+    editInputEl?.select()
+  })
+}
+
+function commitEdit() {
+  if (editingId.value == null) return
+  emit('edit', { id: editingId.value, text: editingText.value.trim() || '(无标题)' })
+  cancelEdit()
+}
+
+function cancelEdit() {
+  editingId.value = null
+  editingText.value = ''
+  editInputEl = null
+}
+
+function onEditKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    commitEdit()
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    cancelEdit()
+  }
+}
+
+onBeforeUnmount(cancelEdit)
+
+// --------------------------------------------------------------------
+// Drag-and-drop — drag a row, drop on another row's top half (before),
+// bottom half (after), or right (child).  Visual hint: row highlights
+// blue when a drag is hovering.
+// --------------------------------------------------------------------
+type DragPayload = { id: string; text: string }
+const dragData = ref<DragPayload | null>(null)
+const dragOverId = ref<string | null>(null)
+const dragOverPos = ref<'before' | 'after' | 'child' | null>(null)
+
+function onDragStart(e: DragEvent, row: FlatRow) {
+  if (props.readonly) {
+    e.preventDefault()
+    return
+  }
+  dragData.value = { id: row.id, text: row.text }
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    // text/plain is the only type that's reliably set across browsers;
+    // the actual id is in dragData.
+    e.dataTransfer.setData('text/plain', row.id)
+  }
+}
+
+function onDragEnd() {
+  dragData.value = null
+  dragOverId.value = null
+  dragOverPos.value = null
+}
+
+function onDragOver(e: DragEvent, row: FlatRow) {
+  if (!dragData.value) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  const pos = dropPositionFor(e, row)
+  dragOverId.value = row.id
+  dragOverPos.value = pos
+}
+
+function onDragLeave(row: FlatRow) {
+  if (dragOverId.value === row.id) {
+    dragOverId.value = null
+    dragOverPos.value = null
+  }
+}
+
+function onDrop(e: DragEvent, row: FlatRow) {
+  e.preventDefault()
+  const src = dragData.value
+  if (!src) return
+  const pos = dropPositionFor(e, row)
+  if (src.id !== row.id) {
+    emit('move', { srcId: src.id, targetId: row.id, position: pos })
+  }
+  onDragEnd()
+}
+
+/** Decide if a drop is 'before' / 'after' / 'child' based on cursor
+ *  position within the row.  Top 30% → before, bottom 30% → after,
+ *  middle 40% + an indent shift to the right → child. */
+function dropPositionFor(e: DragEvent, row: FlatRow): 'before' | 'after' | 'child' {
+  const target = e.currentTarget as HTMLElement
+  const rect = target.getBoundingClientRect()
+  const y = e.clientY - rect.top
+  const h = rect.height
+  if (y < h * 0.3) return 'before'
+  if (y > h * 0.7) return 'after'
+  return 'child'
+}
+
+// --------------------------------------------------------------------
+// Outline copy / paste from before, kept for compat
+// --------------------------------------------------------------------
 const copiedId = ref<string | null>(null)
 let copyTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -65,7 +186,6 @@ async function copyText(text: string) {
     await navigator.clipboard.writeText(text)
     return true
   } catch {
-    // Fallback for environments without clipboard API
     const ta = document.createElement('textarea')
     ta.value = text
     document.body.appendChild(ta)
@@ -89,8 +209,6 @@ async function copyNodeText(e: MouseEvent, text: string, id: string) {
   copyTimer = setTimeout(() => (copiedId.value = null), 1200)
 }
 
-/** Build a plain-text outline of the whole tree (regardless of
- *  collapsedIds) using indentation. */
 const plainText = computed(() => {
   const lines: string[] = []
   const walk = (n: MindMapNode, depth: number) => {
@@ -140,9 +258,20 @@ async function copyOutline() {
         :class="{
           'is-selected': row.id === selectedId,
           'is-root': row.depth === 0,
+          'is-editing': editingId === row.id,
+          'is-drag-over-before': dragOverId === row.id && dragOverPos === 'before',
+          'is-drag-over-after': dragOverId === row.id && dragOverPos === 'after',
+          'is-drag-over-child': dragOverId === row.id && dragOverPos === 'child',
         }"
         :style="{ paddingLeft: 12 + row.depth * 16 + 'px' }"
+        draggable="true"
         @click="emit('select', row.node)"
+        @dblclick="startEdit(row)"
+        @dragstart="(e) => onDragStart(e, row)"
+        @dragend="onDragEnd"
+        @dragover="(e) => onDragOver(e, row)"
+        @dragleave="() => onDragLeave(row)"
+        @drop="(e) => onDrop(e, row)"
       >
         <button
           v-if="row.hasChildren"
@@ -157,7 +286,27 @@ async function copyOutline() {
         </button>
         <span v-else class="zm-outline-dot" />
         <span class="zm-outline-index">{{ row.siblingIndex + 1 }}.</span>
-        <span class="zm-outline-text">{{ row.text }}</span>
+        <input
+          v-if="editingId === row.id"
+          v-model="editingText"
+          class="zm-outline-input"
+          @blur="commitEdit"
+          @keydown="onEditKeydown"
+          @click.stop
+        />
+        <span v-else class="zm-outline-text">{{ row.text }}</span>
+        <button
+          v-if="!props.readonly"
+          class="zm-outline-row-action"
+          title="添加同级"
+          @click.stop="emit('addSibling', row.id)"
+        >+·</button>
+        <button
+          v-if="!props.readonly && row.hasChildren"
+          class="zm-outline-row-action"
+          title="添加子节点"
+          @click.stop="emit('addChild', row.id)"
+        >+›</button>
         <button
           class="zm-outline-row-copy"
           :class="{ 'is-success': copiedId === row.id }"
@@ -227,7 +376,7 @@ async function copyOutline() {
   padding-right: 6px;
   padding-top: 4px;
   padding-bottom: 4px;
-  cursor: pointer;
+  cursor: grab;
   color: #334155;
   border-radius: 4px;
   margin: 0 6px;
@@ -236,6 +385,10 @@ async function copyOutline() {
   overflow: hidden;
   text-overflow: ellipsis;
   transition: background 0.1s;
+  position: relative;
+}
+.zm-outline-row:active {
+  cursor: grabbing;
 }
 .zm-outline-row:hover {
   background: #f1f5f9;
@@ -250,8 +403,27 @@ async function copyOutline() {
 }
 .zm-outline-row.is-selected .zm-outline-toggle,
 .zm-outline-row.is-selected .zm-outline-dot,
-.zm-outline-row.is-selected .zm-outline-row-copy {
+.zm-outline-row.is-selected .zm-outline-row-copy,
+.zm-outline-row.is-selected .zm-outline-row-action {
   color: #1d4ed8;
+}
+.zm-outline-row.is-drag-over-before::before,
+.zm-outline-row.is-drag-over-after::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  background: #3b82f6;
+  border-radius: 1px;
+  pointer-events: none;
+}
+.zm-outline-row.is-drag-over-before::before { top: 0; }
+.zm-outline-row.is-drag-over-after::after { bottom: 0; }
+.zm-outline-row.is-drag-over-child {
+  background: #dbeafe !important;
+  outline: 2px solid #3b82f6;
+  outline-offset: -2px;
 }
 .zm-outline-toggle {
   width: 16px;
@@ -292,6 +464,41 @@ async function copyOutline() {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+}
+.zm-outline-input {
+  flex: 1;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  background: #ffffff;
+  border: 1px solid #3b82f6;
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin: -2px 0;
+  outline: none;
+}
+.zm-outline-row-action {
+  width: 22px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 3px;
+  flex-shrink: 0;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.1s, background 0.1s, color 0.1s;
+}
+.zm-outline-row:hover .zm-outline-row-action,
+.zm-outline-row.is-selected .zm-outline-row-action {
+  opacity: 1;
+}
+.zm-outline-row-action:hover {
+  background: #e2e8f0;
+  color: #1e293b;
 }
 .zm-outline-row-copy {
   width: 20px;

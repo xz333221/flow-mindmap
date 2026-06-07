@@ -247,6 +247,21 @@ const previewLines = computed(() => {
         关闭时整棵树从最粗平滑过渡到最细,所有边连成一条带子。
       </p>
 
+      <label class="zm-settings-row">
+        <span class="zm-settings-label">显示节点序号</span>
+        <button
+          class="zm-toggle"
+          :class="{ 'is-on': settings.showOrderBadge }"
+          @click="set('showOrderBadge', !settings.showOrderBadge)"
+        >
+          <span class="zm-toggle-knob" />
+        </button>
+      </label>
+      <p class="zm-settings-hint">
+        在每个节点右上角标注它是同级中的第几个 (1, 2, 3, ...),
+        方便对比画布位置与数据顺序。
+      </p>
+
       <div class="zm-settings-preview">
         <svg viewBox="0 0 200 70" width="100%" height="70" preserveAspectRatio="none">
           <line

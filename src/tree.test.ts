@@ -5,6 +5,8 @@ import {
   findNode,
   findParent,
   removeNode,
+  setNodeText,
+  moveNode,
   addChild,
   addSibling,
   addSiblingBefore,
@@ -242,5 +244,52 @@ describe('duplicateNode', () => {
   })
   it('returns null for missing node', () => {
     expect(duplicateNode(sample, 'zzz')).toBeNull()
+  })
+})
+
+describe('setNodeText', () => {
+  it('updates the text of an existing node', () => {
+    expect(setNodeText(sample, 'a1', 'A1-renamed')).toBe(true)
+    expect(findNode(sample, 'a1')?.text).toBe('A1-renamed')
+  })
+  it('returns false for missing id and leaves the tree alone', () => {
+    expect(setNodeText(sample, 'zzz', 'nope')).toBe(false)
+  })
+  it('returns false and does nothing for empty / unchanged text', () => {
+    expect(setNodeText(sample, 'a1', 'A1')).toBe(false)
+  })
+})
+
+describe('moveNode', () => {
+  it('moves a sibling after a target', () => {
+    // a.children = [a1, a2]; b.children = [b1].  Move a1 after b1.
+    expect(moveNode(sample, 'a1', 'b1', 'after')).toBe(true)
+    expect(sample.children[0].children.map((c) => c.id)).toEqual(['a2'])
+    expect(sample.children[1].children.map((c) => c.id)).toEqual(['b1', 'a1'])
+  })
+  it('moves a sibling before a target', () => {
+    // Move a2 before a1.
+    expect(moveNode(sample, 'a2', 'a1', 'before')).toBe(true)
+    expect(sample.children[0].children.map((c) => c.id)).toEqual(['a2', 'a1'])
+  })
+  it('moves a node to become a child of the target', () => {
+    // Move b1 to be a child of a1.  a1 starts with no children, so
+    // a1.children should become ['b1'].
+    expect(moveNode(sample, 'b1', 'a1', 'child')).toBe(true)
+    expect(sample.children[0].children[0].children.map((c) => c.id)).toEqual(['b1'])
+  })
+  it('refuses to move the root', () => {
+    expect(moveNode(sample, 'root', 'a1', 'child')).toBe(false)
+  })
+  it('refuses to move a node into its own subtree (cycle)', () => {
+    // 'a' is the parent of a1/a2; moving 'a' under a1 would form a
+    // cycle.  'a2' is a sibling of a1, NOT a descendant, so this
+    // isn't a cycle — only test the actual cycle case.
+    expect(moveNode(sample, 'a', 'a1', 'child')).toBe(false)
+    // Move 'a' under a2 (also a child of 'a') is also a cycle.
+    expect(moveNode(sample, 'a', 'a2', 'child')).toBe(false)
+  })
+  it('refuses to move a node onto itself', () => {
+    expect(moveNode(sample, 'a1', 'a1', 'after')).toBe(false)
   })
 })

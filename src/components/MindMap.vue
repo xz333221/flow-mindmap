@@ -7,6 +7,8 @@ import {
   addSibling,
   addSiblingBefore,
   removeNode,
+  setNodeText,
+  moveNode,
   findNode,
   findParent,
   duplicateNode,
@@ -39,11 +41,13 @@ const editText = ref('')
 const selectedId = ref<string | null>(null)
 const collapsedIds = ref<Set<string>>(new Set())
 const dataRef = ref<MindMapNode>(clone(props.data))
-// Debug overlays.  Toggle via URL: `?debug=order` to draw a small
-// `1./2./3.` badge on every node showing its position in its
-// parent's children array.  Off by default — used to compare the
-// data-tree order with the visual order rendered by the layout.
-const showOrderBadge = ref(typeof location !== 'undefined' && new URLSearchParams(location.search).get('debug') === 'order')
+// Debug overlay: sibling-order badge on every node, gated behind
+// the showOrderBadge setting (default off — toggled in the
+// settings panel).  When on, each rendered node shows a small
+// "1./2./3." with its zero-based position in its parent's
+// children array, so you can see whether the layout's left/right
+// split matches the data-tree order.
+const showOrderBadge = computed(() => settings.showOrderBadge === true)
 // Per-node style overrides.  Keyed by node id.  Stored in a reactive
 // Map (not Vue reactive Map) so .set/.delete work; the template re-
 // reads via the ref-of-Map we wrap it in.
@@ -141,6 +145,7 @@ const settings = reactive<MindMapSettings>({
   lineStyle: 'curve',
   layoutMode: 'mindmap',
   taperedEdge: true,
+  showOrderBadge: false,
 })
 
 // Two width strategies, selected by `settings.taperedEdge`:
@@ -662,6 +667,28 @@ function toggleCollapse(id: string) {
   triggerRef()
 }
 
+/** External edit hook (used by the outline panel's inline edit).
+ *  No-op if the text is unchanged or the id doesn't exist. */
+function doSetText(id: string, text: string) {
+  if (setNodeText(dataRef.value, id, text)) {
+    record()
+    triggerRef()
+    emit('change', dataRef.value)
+  }
+}
+
+/** External move hook (used by the outline panel's drag-and-drop).
+ *  position: 'before' / 'after' / 'child'.  Returns true on success. */
+function doMove(srcId: string, targetId: string, position: 'before' | 'after' | 'child'): boolean {
+  if (moveNode(dataRef.value, srcId, targetId, position)) {
+    record()
+    triggerRef()
+    emit('change', dataRef.value)
+    return true
+  }
+  return false
+}
+
 function onNodeClick(e: MouseEvent, n: LayoutNode) {
   e.stopPropagation()
   selectedId.value = n.id
@@ -900,6 +927,9 @@ defineExpose<MindMapExpose>({
   addSibling: (nodeId: string) => doAddSibling(nodeId),
   removeNode: (nodeId: string) => doRemove(nodeId),
   duplicateNode: (nodeId: string) => doDuplicate(nodeId),
+  setNodeText: (nodeId: string, text: string) => doSetText(nodeId, text),
+  moveNode: (srcId: string, targetId: string, position: 'before' | 'after' | 'child') =>
+    doMove(srcId, targetId, position),
   lineWidthForDepth,
   endWidthForDepth,
   getData: () => dataRef.value,
@@ -942,6 +972,7 @@ defineExpose<MindMapExpose>({
     if (s.rainbowBranch !== undefined) settings.rainbowBranch = s.rainbowBranch
     if (s.lineStyle !== undefined) settings.lineStyle = s.lineStyle
     if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
+    if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
   },
   getSettings: (): MindMapSettings => ({
     autoBalanceOnChange: settings.autoBalanceOnChange,
@@ -951,6 +982,7 @@ defineExpose<MindMapExpose>({
     lineStyle: settings.lineStyle,
     layoutMode: settings.layoutMode,
     taperedEdge: settings.taperedEdge,
+    showOrderBadge: settings.showOrderBadge,
   }),
 })
 
