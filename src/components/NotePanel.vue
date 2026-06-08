@@ -17,6 +17,7 @@
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import type { MindMapNode } from '../types'
+import { useAutosize } from '../composables/useAutosize'
 import {
   codeLang,
   highlightCode,
@@ -61,6 +62,8 @@ const emit = defineEmits<{
 // Note (the only always-editable field)
 // ---------------------------------------------------------------------------
 const draft = ref('')
+const noteRef = ref<HTMLTextAreaElement | null>(null)
+useAutosize(noteRef, { minRows: 5, maxRows: 16 })
 const isEmpty = computed(() => !draft.value || draft.value.trim() === '')
 
 watch(
@@ -120,6 +123,24 @@ const richKind = computed(() => props.selectedNode?.richContent?.kind)
 const hasCode = computed(() => richKind.value === 'code')
 const hasTable = computed(() => richKind.value === 'table')
 
+// Per-section "expanded" toggles.  Optional sections (link / image
+// / code / table) hide their input by default; the user clicks the
+// "add" chip to reveal it.  Reset whenever a different node is
+// selected.
+const showLink = ref(false)
+const showImage = ref(false)
+const showCode = ref(false)
+const showTable = ref(false)
+watch(
+  () => props.selectedNode?.id,
+  () => {
+    showLink.value = false
+    showImage.value = false
+    showCode.value = false
+    showTable.value = false
+  }
+)
+
 // ---------------------------------------------------------------------------
 // Link edit
 // ---------------------------------------------------------------------------
@@ -173,6 +194,8 @@ function onImageLoad(e: Event) {
 // emit a new richContent payload.
 // ---------------------------------------------------------------------------
 const codeDraft = ref('')
+const codeRef = ref<HTMLTextAreaElement | null>(null)
+useAutosize(codeRef, { minRows: 4, maxRows: 18 })
 watch(
   () => [props.selectedNode?.id, props.selectedNode?.richContent?.raw],
   () => {
@@ -197,6 +220,8 @@ function commitCode() {
 // sortable but only in-memory (raw stays untouched).
 // ---------------------------------------------------------------------------
 const tableDraft = ref('')
+const tableRef = ref<HTMLTextAreaElement | null>(null)
+useAutosize(tableRef, { minRows: 4, maxRows: 14 })
 const sortCol = ref(-1)
 const sortDir = ref<SortDir>('asc')
 watch(
@@ -276,6 +301,7 @@ const summary = computed(() => {
             <span class="zm-note-section-hint">Ctrl+Enter 提交, Esc 取消</span>
           </header>
           <textarea
+            ref="noteRef"
             v-model="draft"
             class="zm-note-textarea"
             :placeholder="'写点什么吧…'"
@@ -289,8 +315,32 @@ const summary = computed(() => {
           </div>
         </section>
 
+        <!-- Add-row: chips for sections that are not yet populated. -->
+        <div v-if="!readonly" class="zm-note-add-row">
+          <button
+            v-if="!hasLink && !showLink"
+            class="zm-note-add-chip"
+            @click="showLink = true"
+          >+ 链接</button>
+          <button
+            v-if="!hasImage && !showImage"
+            class="zm-note-add-chip"
+            @click="showImage = true"
+          >+ 图片</button>
+          <button
+            v-if="!hasCode && !showCode"
+            class="zm-note-add-chip"
+            @click="showCode = true"
+          >+ 代码块</button>
+          <button
+            v-if="!hasTable && !showTable"
+            class="zm-note-add-chip"
+            @click="showTable = true"
+          >+ 表格</button>
+        </div>
+
         <!-- Link -->
-        <section v-if="hasLink || !readonly" class="zm-note-section">
+        <section v-if="hasLink || showLink" class="zm-note-section">
           <header class="zm-note-section-head">
             <span class="zm-note-section-title">链接</span>
           </header>
@@ -314,7 +364,7 @@ const summary = computed(() => {
         </section>
 
         <!-- Image -->
-        <section v-if="hasImage || !readonly" class="zm-note-section">
+        <section v-if="hasImage || showImage" class="zm-note-section">
           <header class="zm-note-section-head">
             <span class="zm-note-section-title">图片</span>
           </header>
@@ -338,12 +388,13 @@ const summary = computed(() => {
         </section>
 
         <!-- Code -->
-        <section v-if="hasCode || !readonly" class="zm-note-section">
+        <section v-if="hasCode || showCode" class="zm-note-section">
           <header class="zm-note-section-head">
             <span class="zm-note-section-title">代码块</span>
             <span v-if="codeLang(codeDraft)" class="zm-note-section-tag">{{ codeLang(codeDraft) }}</span>
           </header>
           <textarea
+            ref="codeRef"
             v-model="codeDraft"
             class="zm-note-input zm-note-input-code"
             :placeholder="'```ts\nconsole.log(123)\n```'"
@@ -355,12 +406,13 @@ const summary = computed(() => {
         </section>
 
         <!-- Table -->
-        <section v-if="hasTable || !readonly" class="zm-note-section">
+        <section v-if="hasTable || showTable" class="zm-note-section">
           <header class="zm-note-section-head">
             <span class="zm-note-section-title">表格</span>
             <span class="zm-note-section-hint">点击表头排序</span>
           </header>
           <textarea
+            ref="tableRef"
             v-model="tableDraft"
             class="zm-note-input zm-note-input-code"
             :placeholder="'| 列1 | 列2 |\n| --- | --- |\n| a | b |'"
@@ -518,19 +570,22 @@ const summary = computed(() => {
 
 .zm-note-textarea {
   width: 100%;
+  /* Height is set by the autosize composable; keep a sane
+     default for the first paint before mount. */
   min-height: 120px;
   padding: 10px 12px;
   font: inherit;
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 20px;
   color: #1e293b;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
-  resize: vertical;
+  resize: none;
   outline: none;
   box-sizing: border-box;
   font-family: inherit;
+  overflow: hidden;
 }
 .zm-note-textarea:focus {
   border-color: #3b82f6;
@@ -574,9 +629,36 @@ const summary = computed(() => {
 .zm-note-input-code {
   font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
   font-size: 11px;
-  min-height: 90px;
-  resize: vertical;
+  /* min-height + resize are now driven by the autosize composable;
+     keep a sane default for the first paint before mount. */
+  min-height: 80px;
+  resize: none;
   white-space: pre;
+  line-height: 20px;
+  overflow: hidden;
+}
+
+.zm-note-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 2px 0;
+}
+.zm-note-add-chip {
+  font: inherit;
+  font-size: 11px;
+  color: #64748b;
+  background: #ffffff;
+  border: 1px dashed #cbd5e1;
+  border-radius: 999px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.zm-note-add-chip:hover {
+  color: #1d4ed8;
+  border-color: #93c5fd;
+  background: #eff6ff;
 }
 
 .zm-note-link-chip {
@@ -613,10 +695,10 @@ const summary = computed(() => {
 .zm-note-code {
   margin: 0;
   padding: 10px 12px;
-  background: #f6f8fa;
+  background: #f1f5f9;
   color: #24292e;
   border: 1px solid #e2e8f0;
-  border-radius: 6px;
+  border-radius: 8px;
   font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
   font-size: 12px;
   line-height: 1.55;
@@ -624,6 +706,7 @@ const summary = computed(() => {
   word-break: break-word;
   max-height: 320px;
   overflow: auto;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
 }
 .zm-note-code code {
   font: inherit;
@@ -634,34 +717,52 @@ const summary = computed(() => {
 
 .zm-note-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 12px;
   color: #1e293b;
   table-layout: auto;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(146, 64, 14, 0.08);
 }
 .zm-note-table td {
-  border: 1px solid #e2e8f0;
-  padding: 5px 8px;
+  border-top: 1px solid #fde68a;
+  border-right: 1px solid #fde68a;
+  padding: 6px 10px;
   text-align: left;
   vertical-align: top;
   word-break: break-word;
+  background: #fffbeb;
+}
+.zm-note-table tr:last-child td {
+  border-bottom: none;
+}
+.zm-note-table td:last-child {
+  border-right: none;
 }
 .zm-note-table-sort {
-  background: #f1f5f9;
+  background: #fef3c7;
   font-weight: 600;
-  padding: 5px 8px;
-  border: 1px solid #e2e8f0;
+  padding: 6px 10px;
+  border-bottom: 1px solid #fcd34d;
+  border-right: 1px solid #fde68a;
   text-align: left;
   cursor: pointer;
   user-select: none;
   position: relative;
 }
+.zm-note-table-sort:last-child {
+  border-right: none;
+}
 .zm-note-table-sort:hover {
-  background: #e2e8f0;
+  background: #fde68a;
 }
 .zm-note-table-sort.is-sorted {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: #fde68a;
+  color: #92400e;
 }
 .zm-note-table-sort-mark {
   position: absolute;

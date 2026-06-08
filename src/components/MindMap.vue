@@ -2272,10 +2272,18 @@ onMounted(() => {
 }
 .zm-rich-code {
   margin: 0;
+  padding: 6px 8px;
   font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
   font-size: 0.92em;
   white-space: pre-wrap;
   word-break: break-word;
+  /* Lifts the code off the node's coloured surface so it
+   * stays legible regardless of branch palette.  The
+   * translucent white mixes with the node background. */
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 .zm-rich-list {
   margin: 0;
@@ -2292,33 +2300,52 @@ onMounted(() => {
  * just be its natural height. */
 .zm-rich-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 0.92em;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 .zm-rich-table td {
-  border: 1px solid currentColor;
-  opacity: 0.7;
-  padding: 2px 5px;
+  border-top: 1px solid currentColor;
+  border-right: 1px solid currentColor;
+  padding: 3px 6px;
+  /* Higher than the old 0.7 so cell text reads cleanly against
+   * the translucent white fill, but still tinted to the branch
+   * palette via currentColor. */
+  opacity: 0.9;
+}
+.zm-rich-table tr:last-child td {
+  border-bottom: none;
+}
+.zm-rich-table td:last-child {
+  border-right: none;
 }
 .zm-rich-table-sort {
   position: relative;
-  background: rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.4);
   font-weight: 600;
   text-align: left;
   cursor: pointer;
   user-select: none;
-  padding: 2px 5px;
-  border: 1px solid currentColor;
+  padding: 3px 6px;
+  border-bottom: 1px solid currentColor;
+  border-right: 1px solid currentColor;
   /* The parent .zm-rich has pointer-events: none so clicks fall
    * through to the node; re-enable here so sort actually works. */
   pointer-events: auto;
 }
+.zm-rich-table-sort:last-child {
+  border-right: none;
+}
 .zm-rich-table-sort:hover {
-  background: rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.65);
 }
 .zm-rich-table-sort.is-sorted {
-  background: rgba(59, 130, 246, 0.18);
-  color: #1d4ed8;
+  background: rgba(255, 255, 255, 0.7);
 }
 .zm-rich-sort-mark {
   position: absolute;
