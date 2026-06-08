@@ -1,16 +1,19 @@
 <script setup lang="ts">
 /**
- * Note panel — body of the right-side "笔记" drawer.  When a node
- * is selected on the canvas, the parent (App.vue) opens this
- * drawer, mounts a NotePanel scoped to that node, and forwards
- * the user's edits to MindMap.applyNodeNote / removeNodeNote.
+ * Node panel — body of the right-side drawer.  Renamed in spirit
+ * from "笔记" to "节点内容" because it now shows ALL of a node's
+ * payload, not just the note:
  *
- * The drawer is intentionally always pinned to whatever node the
- * user last selected; clicking a different node on the canvas
- * swaps the bound `data` prop, the local draft re-seeds from
- * the new node's note, and (if the drawer was open) the parent
- * keeps it open.  This mirrors how the Outline panel binds to
- * the same data tree.
+ *   1. note  — editable textarea (the only field the user can
+ *              edit from this panel; right-click on the canvas
+ *              node handles the rest)
+ *   2. link  — read-only URL chip; clicking opens in a new tab
+ *   3. image — read-only preview thumbnail
+ *   4. code  — read-only fenced code block
+ *   5. table — read-only mini grid
+ *
+ * Sections that aren't set on the selected node are hidden, so
+ * the panel collapses to just the note when nothing else exists.
  */
 import { computed, ref, watch, nextTick } from 'vue'
 import type { MindMapNode } from '../types'
@@ -98,6 +101,40 @@ function onRemove() {
   draft.value = ''
   emit('remove')
 }
+
+// Which previews have content?  The template skips any section
+// whose flag is false, so an empty node shows only the textarea.
+const hasLink = computed(() => !!props.selectedNode?.link?.url)
+const hasImage = computed(() => !!props.selectedNode?.image?.src)
+const richKind = computed(() => props.selectedNode?.richContent?.kind)
+const hasCode = computed(() => richKind.value === 'code')
+const hasTable = computed(() => richKind.value === 'table')
+
+// Pull a table's pipe rows out of the raw markdown.  Same logic
+// as MindMap.vue's tableRows() — duplicated here rather than
+// exported so the panel can be used without pulling layout code.
+function splitTableRows(raw: string): string[][] {
+  return raw
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => /^\|/.test(l) && !/^\|\s*[-:]+\s*\|/.test(l))
+    .map(l =>
+      l
+        .replace(/^\|/, '')
+        .replace(/\|$/, '')
+        .split('|')
+        .map(c => c.trim())
+    )
+}
+
+// Strip the opening/closing ``` fences from a code block so the
+// preview shows the body, not the fence markers.
+function stripCodeFence(raw: string): string {
+  const lines = raw.split('\n')
+  if (/^(`{3,}|~{3,})/.test(lines[0] ?? '')) lines.shift()
+  if (/^(`{3,}|~{3,})\s*$/.test(lines[lines.length - 1] ?? '')) lines.pop()
+  return lines.join('\n').replace(/\n+$/, '')
+}
 </script>
 
 <template>
@@ -105,7 +142,7 @@ function onRemove() {
     <div v-if="!selectedNode" class="zm-note-empty">
       <p>请先在画布上选中一个节点。</p>
       <p class="zm-note-hint">
-        选中节点后，会在这里展示并允许编辑节点的笔记。
+        选中节点后，会在这里展示节点的笔记、链接、图片、代码块、表格。
       </p>
     </div>
     <template v-else>
@@ -115,27 +152,87 @@ function onRemove() {
           <span class="zm-note-name">{{ selectedNode.text || '(无标题)' }}</span>
         </div>
         <div class="zm-note-meta">
-          {{ isEmpty ? '没有笔记' : `共 ${draft.length} 字` }}
+          {{ isEmpty && !hasLink && !hasImage && !hasCode && !hasTable
+              ? '节点没有额外内容'
+              : `${isEmpty ? '' : draft.length + ' 字'}${hasLink ? ' · 1 链接' : ''}${hasImage ? ' · 1 图片' : ''}${hasCode ? ' · 代码块' : ''}${hasTable ? ' · 表格' : ''}` }}
         </div>
       </div>
-      <textarea
-        v-model="draft"
-        class="zm-note-textarea"
-        :placeholder="'写点什么吧…\n(Ctrl+Enter 提交, Esc 取消, blur 自动提交)'"
-        spellcheck="false"
-        :disabled="readonly"
-        @blur="commit"
-        @keydown="onKeydown"
-      />
-      <div class="zm-note-actions">
-        <button
-          v-if="!readonly && !isEmpty"
-          class="zm-note-action-btn is-danger"
-          title="移除笔记"
-          @click="onRemove"
-        >移除笔记</button>
-        <span class="zm-note-spacer" />
-        <span class="zm-note-hint-inline">支持多行文本</span>
+
+      <div class="zm-note-scroll">
+        <!-- Note: the only editable field. -->
+        <section class="zm-note-section">
+          <header class="zm-note-section-head">
+            <span class="zm-note-section-title">笔记</span>
+            <span class="zm-note-section-hint">Ctrl+Enter 提交, Esc 取消</span>
+          </header>
+          <textarea
+            v-model="draft"
+            class="zm-note-textarea"
+            :placeholder="'写点什么吧…'"
+            spellcheck="false"
+            :disabled="readonly"
+            @blur="commit"
+            @keydown="onKeydown"
+          />
+          <div v-if="!readonly && !isEmpty" class="zm-note-section-actions">
+            <button
+              class="zm-note-action-btn is-danger"
+              title="移除笔记"
+              @click="onRemove"
+            >移除笔记</button>
+          </div>
+        </section>
+
+        <!-- Link: read-only chip; click to follow. -->
+        <section v-if="hasLink" class="zm-note-section">
+          <header class="zm-note-section-head">
+            <span class="zm-note-section-title">链接</span>
+          </header>
+          <a
+            class="zm-note-link-chip"
+            :href="selectedNode.link?.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            :title="selectedNode.link?.url"
+          >{{ selectedNode.link?.url }}</a>
+        </section>
+
+        <!-- Image: read-only preview at natural width, capped. -->
+        <section v-if="hasImage" class="zm-note-section">
+          <header class="zm-note-section-head">
+            <span class="zm-note-section-title">图片</span>
+          </header>
+          <img
+            class="zm-note-image"
+            :src="selectedNode.image?.src"
+            :alt="selectedNode.text"
+          />
+        </section>
+
+        <!-- Code: read-only fenced block, monospace. -->
+        <section v-if="hasCode" class="zm-note-section">
+          <header class="zm-note-section-head">
+            <span class="zm-note-section-title">代码块</span>
+            <span v-if="selectedNode.richContent?.lang" class="zm-note-section-tag">
+              {{ selectedNode.richContent?.lang }}
+            </span>
+          </header>
+          <pre class="zm-note-code"><code>{{ stripCodeFence(selectedNode.richContent?.raw || '') }}</code></pre>
+        </section>
+
+        <!-- Table: read-only mini grid. -->
+        <section v-if="hasTable" class="zm-note-section">
+          <header class="zm-note-section-head">
+            <span class="zm-note-section-title">表格</span>
+          </header>
+          <table class="zm-note-table">
+            <tbody>
+              <tr v-for="(row, ri) in splitTableRows(selectedNode.richContent?.raw || '')" :key="ri">
+                <td v-for="(cell, ci) in row" :key="ci">{{ cell }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
       </div>
     </template>
   </div>
@@ -201,25 +298,82 @@ function onRemove() {
   font-size: 11px;
   color: #94a3b8;
 }
-.zm-note-textarea {
+
+/* Scroll container for the previews so the textarea + cards
+ * can grow beyond the drawer height.  The header stays pinned
+ * outside this container. */
+.zm-note-scroll {
   flex: 1;
-  min-height: 200px;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 2px;
+  /* Pull the scrollbar a bit inside the panel gutter. */
+}
+.zm-note-section {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.zm-note-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.zm-note-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  flex: 1;
+  min-width: 0;
+}
+.zm-note-section-hint {
+  font-size: 10px;
+  color: #94a3b8;
+}
+.zm-note-section-tag {
+  font-size: 10px;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  color: #475569;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 1px 6px;
+  line-height: 1.4;
+}
+.zm-note-section-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.zm-note-textarea {
   width: 100%;
+  min-height: 120px;
   padding: 10px 12px;
   font: inherit;
   font-size: 13px;
   line-height: 1.6;
   color: #1e293b;
-  background: #ffffff;
+  background: #f8fafc;
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  resize: none;
+  border-radius: 6px;
+  resize: vertical;
   outline: none;
   box-sizing: border-box;
   font-family: inherit;
 }
 .zm-note-textarea:focus {
   border-color: #3b82f6;
+  background: #ffffff;
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
 }
 .zm-note-textarea:disabled {
@@ -231,19 +385,78 @@ function onRemove() {
   color: #94a3b8;
   white-space: pre-line;
 }
-.zm-note-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+
+.zm-note-link-chip {
+  display: inline-block;
+  max-width: 100%;
+  padding: 6px 10px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  color: #1d4ed8;
+  font-size: 12px;
+  text-decoration: none;
+  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.1s;
 }
-.zm-note-spacer {
-  flex: 1;
+.zm-note-link-chip:hover {
+  background: #dbeafe;
 }
-.zm-note-hint-inline {
-  font-size: 11px;
-  color: #94a3b8;
+
+.zm-note-image {
+  display: block;
+  max-width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: #f1f5f9;
+  margin: 0 auto;
 }
+
+.zm-note-code {
+  margin: 0;
+  padding: 10px 12px;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 6px;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow: auto;
+}
+.zm-note-code code {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  padding: 0;
+}
+
+.zm-note-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: #1e293b;
+  table-layout: auto;
+}
+.zm-note-table td {
+  border: 1px solid #e2e8f0;
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+.zm-note-table tr:first-child td {
+  background: #f1f5f9;
+  font-weight: 600;
+}
+
 .zm-note-action-btn {
   padding: 4px 10px;
   font-size: 12px;

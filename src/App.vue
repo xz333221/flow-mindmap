@@ -620,7 +620,7 @@ const totalNodes = computed(() => countNodes(data.value))
       side="right"
       :width="360"
       :open="showNote && !previewMode"
-      title="笔记"
+      title="节点内容"
       @update:open="(v) => (showNote = v)"
     >
       <NotePanel
