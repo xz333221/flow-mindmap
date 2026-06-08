@@ -48,9 +48,109 @@ const initialData: MindMapNode = {
   ],
 }
 
+// Demo fixture for hash #rich: a hand-built tree that
+// exercises every node-level field — image, code/table
+// (rendered above the title via richContent), link, note —
+// so reviewers can see the rendering at a glance without
+// writing any markdown.
+const richData: MindMapNode = {
+  id: 'r_root',
+  text: 'flow-mindmap 节点能力一览',
+  // 根节点带外部链接
+  link: { url: 'https://github.com/xz333221/flow-mindmap' },
+  // 根节点带笔记(右上角图标)
+  note: { text: '本导图用于演示节点的全部可渲染字段。\n所有代码块 / 表格在节点标题上方显示,不会撑大节点框。' },
+  children: [
+    {
+      id: 'r_image',
+      text: '嵌入图片',
+      // 远程 SVG,作为节点的图片
+      image: {
+        src: 'data:image/svg+xml;utf8,' + encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 40" width="80" height="40">' +
+          '<rect width="80" height="40" rx="6" fill="#6366f1"/>' +
+          '<text x="40" y="24" text-anchor="middle" fill="#fff" font-family="sans-serif" font-size="12" font-weight="600">LOGO</text>' +
+          '</svg>'
+        ),
+        naturalW: 80,
+        naturalH: 40,
+        width: 80,
+        height: 40,
+      },
+      children: [
+        { id: 'r_image_a', text: '节点上方的图标 / logo', children: [] },
+        { id: 'r_image_b', text: 'remote URL 或 data: URL', children: [] },
+        { id: 'r_image_c', text: '可拖拽改尺寸', children: [] },
+      ],
+    },
+    {
+      id: 'r_code',
+      text: '代码块',
+      // 代码块 richContent.kind='code' — 渲染在节点标题上方
+      richContent: {
+        kind: 'code',
+        lang: 'ts',
+        raw: '```ts\nimport { MindMap } from "flow-mindmap"\nconst tree = MindMap.parse(md)\n```',
+      },
+      note: { text: '代码块以 richContent 形式携带,\n渲染在节点标题上方,自动支持语言 tag。' },
+      link: { url: 'https://flow-mindmap.example/docs/api' },
+      children: [
+        { id: 'r_code_a', text: '等宽字体,自动换行', children: [] },
+        { id: 'r_code_b', text: '保留原始 ```lang 标签', children: [] },
+        { id: 'r_code_c', text: 'max-height 截断,框内可滚', children: [] },
+      ],
+    },
+    {
+      id: 'r_table',
+      text: '表格',
+      // 表格 richContent.kind='table' — 渲染在节点标题上方
+      richContent: {
+        kind: 'table',
+        raw: '| 字段 | 类型 | 说明 |\n| --- | --- | --- |\n| id | string | 节点唯一 id |\n| text | string | 节点标题 |\n| children | MindMapNode[] | 子节点数组 |',
+      },
+      children: [
+        { id: 'r_table_a', text: '自动识别 markdown 表格', children: [] },
+        { id: 'r_table_b', text: '忽略对齐分隔行', children: [] },
+        { id: 'r_table_c', text: '保留所有行 / 所有列', children: [] },
+      ],
+    },
+    {
+      id: 'r_note',
+      text: '笔记 (note)',
+      note: { text: '节点右上角的便签图标。\n鼠标悬浮预览前 60 字,点击打开完整笔记编辑器。' },
+      children: [
+        { id: 'r_note_a', text: '悬浮预览', children: [] },
+        { id: 'r_note_b', text: '点击展开编辑', children: [] },
+        { id: 'r_note_c', text: 'export → ```note 围栏', children: [] },
+      ],
+    },
+    {
+      id: 'r_link',
+      text: '链接 (link)',
+      link: { url: 'https://github.com/xz333221/flow-mindmap' },
+      children: [
+        { id: 'r_link_a', text: '节点右侧的小图标', children: [] },
+        { id: 'r_link_b', text: '点击在新 tab 打开', children: [] },
+        { id: 'r_link_c', text: 'export → [label](url)', children: [] },
+      ],
+    },
+    {
+      id: 'r_para',
+      text: '段落 / 列表 (子节点)',
+      // 这条路径在整篇 md 模式下自动启用 — 这里演示"块作为子节点"的视觉。
+      children: [
+        { id: 'r_para_a', text: '段落不再是父节点框内文字', children: [] },
+        { id: 'r_para_b', text: '列表每项一个子节点', children: [] },
+        { id: 'r_para_c', text: '节点框大小保持一致,边线对齐', children: [] },
+      ],
+    },
+  ],
+}
+
 function pickDataByHash(): MindMapNode {
   if (typeof location !== 'undefined' && location.hash === '#fan') return fanData
   if (typeof location !== 'undefined' && location.hash === '#stress') return stressData
+  if (typeof location !== 'undefined' && location.hash === '#rich') return richData
   return initialData
 }
 
@@ -124,6 +224,23 @@ const mindMapRef = ref<InstanceType<typeof MindMap> | null>(null)
 // reload) can switch to the multi-branch fan fixture.
 function syncHashData() {
   data.value = pickDataByHash()
+  richMode.value = typeof location !== 'undefined' && location.hash === '#rich'
+}
+
+// "Rich sample" loader: replaces the current data with the
+// hand-built tree that exercises every node-level field
+// (image / code / table / note / link).  The button toggles
+// back to the default sample on second click so reviewers can
+// A/B compare.
+const richMode = ref(typeof location !== 'undefined' && location.hash === '#rich')
+function loadRichSample() {
+  if (richMode.value) {
+    data.value = initialData
+    richMode.value = false
+  } else {
+    data.value = richData
+    richMode.value = true
+  }
 }
 
 // Local mirror of the MindMap settings; we apply changes by calling
@@ -418,6 +535,19 @@ const totalNodes = computed(() => countNodes(data.value))
         </button>
         <span class="zm-app-spacer" />
         <span class="zm-app-tip">{{ data.text || '未命名' }} · {{ totalNodes }} 节点</span>
+        <button
+          class="zm-app-icon-btn"
+          :class="{ 'is-on': richMode }"
+          title="加载节点能力一览(图片 / 代码 / 表格 / 笔记 / 链接)"
+          @click="loadRichSample"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1" />
+            <rect x="14" y="3" width="7" height="7" rx="1" />
+            <rect x="3" y="14" width="7" height="7" rx="1" />
+            <rect x="14" y="14" width="7" height="7" rx="1" />
+          </svg>
+        </button>
         <button
           class="zm-app-icon-btn"
           :class="{ 'is-on': previewMode }"
