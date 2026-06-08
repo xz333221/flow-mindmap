@@ -102,6 +102,13 @@ const richEditingId = ref<string | null>(null)
 const richEditDraft = ref('')
 const sortState = ref<Map<string, { col: number; dir: SortDir }>>(new Map())
 const dataRef = ref<MindMapNode>(clone(props.data))
+// Post-render measurements of each node's rich body
+// (<div class="zm-rich">).  Populated by `measureRichBodies()`
+// after every layout-affecting mutation, consumed by `layout()`
+// via the `richHeights` option.  Re-rendering after the height
+// changes re-lays out the tree so neighbouring nodes don't
+// collide with the new box.
+const richHeights = ref<Record<string, number>>({})
 // `usingMarkdown` is true when the current dataRef was derived from
 // the `markdown` prop.  Used by the change-watcher below to decide
 // whether to emit `markdownChange` after a user edit.
@@ -707,6 +714,13 @@ function applyData(next: MindMapNode, opts: { resetCollapsed?: boolean; resetSel
 function triggerRef() {
   collapsedIds.value = new Set(collapsedIds.value)
   layoutVersion.value++
+  // Re-measure rich body heights once the DOM has settled, then
+  // bump layoutVersion again so a height change forces another
+  // re-layout (the loop terminates because the heights are
+  // stable on the second pass).
+  void nextTick().then(() => {
+    measureRichBodies()
+  })
   // NB: autoBalanceOnChange used to call resetView() here, but
   // that yanked the user's zoom/pan on every add / edit /
   // collapse-toggle — "I zoom in, then click any node and the
@@ -715,6 +729,46 @@ function triggerRef() {
   // explicit "balance" button — is the only place that
   // re-centres, since it's the user explicitly asking for a
   // fresh view.
+}
+
+// Walk every rendered `.zm-rich` element, read its current
+// pixel height, and write it into `richHeights` so the next
+// layout pass reserves the right amount of vertical space.
+// Runs in the post-render tick (after Vue has flushed the DOM
+// for the latest dataRef change).  The function is idempotent
+// — only writes when the value actually changed — so it doesn't
+// cause a layout feedback loop.
+function measureRichBodies() {
+  const els = document.querySelectorAll<HTMLElement>('.zm-rich')
+  const next: Record<string, number> = {}
+  let anyChanged = false
+  els.forEach((el) => {
+    // The node id is stamped on the parent `.zm-node` div as
+    // `data-node-id` by the renderer below.  We walk up to
+    // find it.
+    let cur: HTMLElement | null = el
+    let id: string | null = null
+    while (cur && !id) {
+      id = cur.getAttribute('data-node-id')
+      cur = cur.parentElement
+    }
+    if (!id) return
+    // Use `offsetHeight` (the un-transformed box size), not
+    // `getBoundingClientRect().height` — the canvas's pan/zoom
+    // wrapper applies `transform: scale()` so the bounding rect
+    // reports the visually-scaled size and would over-reserve
+    // when the user is zoomed in.
+    const h = el.offsetHeight
+    // Round to a half-pixel to keep the map stable — sub-pixel
+    // jitter from antialiasing would otherwise force a layout
+    // recompute on every render.
+    const rounded = Math.round(h * 2) / 2
+    next[id] = rounded
+    if (richHeights.value[id] !== rounded) anyChanged = true
+  })
+  if (!anyChanged) return
+  // Replace the map so Vue's reactivity picks it up.
+  richHeights.value = next
 }
 
 const theme = computed<Required<MindMapTheme>>(() => ({
@@ -1017,7 +1071,11 @@ useKeyboard({
 const layoutResult = computed(() => {
   const data = clone(dataRef.value)
   applyCollapse(data)
-  return layout(data, { mode: settings.layoutMode, baseFontSize: theme.value.fontSize })
+  return layout(data, {
+    mode: settings.layoutMode,
+    baseFontSize: theme.value.fontSize,
+    richHeights: richHeights.value,
+  })
 })
 
 // Walk the layout in one pass, building both the flat node list and the lookup map
@@ -1869,7 +1927,7 @@ onMounted(() => {
           <div
             v-if="n.richContent && (n.richContent.kind === 'code' || n.richContent.kind === 'table') && editingId !== n.id"
             class="zm-rich zm-rich-above"
-            :class="{ 'zm-rich-no-overflow': n.richContent.kind === 'table' }"
+            :class="{ 'zm-rich-no-overflow': n.richContent.kind === 'table' || n.richContent.kind === 'code' }"
             @click.stop
             @dblclick.stop="startRichEdit(n.id)"
             @mousedown.stop
@@ -2262,10 +2320,11 @@ onMounted(() => {
 .zm-rich-above {
   margin: 0 0 6px 0;
 }
-/* Tables should grow with their content and never show a
- * scrollbar — the layout's reserved height cap was meant
- * to keep long code fences from dominating the tree; for
- * tables we just let the box take its natural height. */
+/* Both code and table rich bodies grow with their content and
+ * never show a scrollbar — the layout's reserved height cap
+ * (`richHeights` cap in core/layout.ts) is the only upper bound.
+ * Letting the body take its natural height keeps the rendered
+ * box in sync with the layout's reservation. */
 .zm-rich-no-overflow {
   max-height: none;
   overflow: visible;
