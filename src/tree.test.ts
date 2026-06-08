@@ -532,4 +532,59 @@ describe('markdownToRichMindMap', () => {
     expect(para.richContent?.kind).toBe('paragraph')
     expect(para.richContent?.raw).toContain('正文')
   })
+
+  it('every body block (paragraph / list / code / table) becomes its own child node', () => {
+    // Mirrors the user-facing test-mindmap.md: a heading is
+    // followed by prose, a list, code, then another heading
+    // with more prose + a table.  Each block must land as a
+    // child of the previous heading, NOT be embedded in the
+    // heading's node box.
+    const md = [
+      '# Doc',
+      '',
+      'Intro paragraph.',
+      '',
+      '## Phase 1',
+      '',
+      'Phase prose.',
+      '',
+      '- task a',
+      '- task b',
+      '',
+      '```ts',
+      'const x = 1',
+      '```',
+      '',
+      '## Phase 2',
+      '',
+      '| col1 | col2 |',
+      '| --- | --- |',
+      '| a | b |',
+      '',
+    ].join('\n')
+    const r = markdownToRichMindMap(md)
+    // Root is the promoted H1.
+    expect(r.text).toBe('Doc')
+    // Root should have Phase 1 and Phase 2 as children, NOT a
+    // body paragraph directly (the "Intro paragraph." goes
+    // under root as a body block).
+    const rootChildKinds = r.children.map(c => c.richContent?.kind ?? 'heading')
+    expect(rootChildKinds).toContain('heading') // at least Phase 1
+    const phase1 = r.children.find(c => c.text === 'Phase 1')!
+    // Phase 1's children: prose paragraph, two list items, one code block.
+    expect(phase1.children.length).toBe(4)
+    const kinds = phase1.children.map(c => c.richContent?.kind)
+    expect(kinds).toEqual(['paragraph', 'list', 'list', 'code'])
+    // Every child has its own text + its own richContent (none
+    // was swallowed into the parent).
+    for (const c of phase1.children) {
+      expect(c.text.length).toBeGreaterThan(0)
+      expect(c.richContent).toBeDefined()
+      expect(c.richContent!.raw.length).toBeGreaterThan(0)
+    }
+    const phase2 = r.children.find(c => c.text === 'Phase 2')!
+    // Phase 2's children: table only (no body block follows).
+    expect(phase2.children.length).toBe(1)
+    expect(phase2.children[0].richContent?.kind).toBe('table')
+  })
 })

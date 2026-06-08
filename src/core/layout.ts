@@ -211,14 +211,14 @@ function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number): {
   }
   const textRowW = textWWithPad + iconTrayW
   const minW = Math.round((NODE_MIN_W[t] * baseFontSize) / 14)
-  // Reserve vertical room for a rich body (code / list / table /
-  // paragraph) when one is present.  The CSS clamps the body to
-  // 160px so a very long code fence doesn't blow up the layout —
-  // we mirror that here so the box height matches what the
-  // renderer actually paints.  The title fontSize is reused for
-  // the body so the visual ratio stays consistent.
-  const richH = node.richContent ? Math.min(160, Math.ceil(fontSize * 6.5)) : 0
-  const richGap = richH > 0 ? 6 : 0
+  // Rich-body height reservation is currently disabled —
+  // markdownToRichMindMap produces one child node per block, so
+  // no rich body is rendered inside the box, and the box should
+  // stay the same size as a regular text node.  Keep the hook
+  // (richH, richGap) so re-enabling rich render later is a
+  // one-line change here.
+  const richH = 0
+  const richGap = 0
   if (!node.image) {
     const w = Math.max(minW, textRowW)
     return { w, h: textH + richGap + richH }

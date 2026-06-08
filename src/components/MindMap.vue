@@ -1667,6 +1667,34 @@ onMounted(() => {
             :alt="n.text"
             draggable="false"
           />
+          <!--
+            Rich body rendering is currently DISABLED so the
+            mindmap shows a pure tree — every paragraph / list
+            item / code / table becomes its own child node and
+            nothing is embedded in the parent box.  The parser
+            still produces `n.richContent` (so we can re-enable
+            a non-embedded rendering later) but the renderer
+            ignores it for now.
+          -->
+          <!--
+          <div
+            v-if="n.richContent && (n.richContent.kind === 'code' || n.richContent.kind === 'table') && editingId !== n.id"
+            class="zm-rich zm-rich-above"
+            :class="`zm-rich-${n.richContent.kind}`"
+            @click.stop
+            @dblclick.stop
+            @mousedown.stop
+          >
+            <pre v-if="n.richContent.kind === 'code'" class="zm-rich-code"><code :class="n.richContent.lang ? `language-${n.richContent.lang}` : ''">{{ stripCodeFence(n.richContent.raw) }}</code></pre>
+            <table v-else-if="n.richContent.kind === 'table'" class="zm-rich-table">
+              <tbody>
+                <tr v-for="(row, ri) in tableRows(n.richContent.raw)" :key="ri">
+                  <td v-for="(cell, ci) in row" :key="ci">{{ cell }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          -->
           <span v-if="editingId !== n.id" class="zm-text">
             <span class="zm-text-label">{{ n.text }}</span>
             <a
@@ -1688,35 +1716,6 @@ onMounted(() => {
               @mousedown.stop
             ><Icon name="note" :size="11" :stroke="2" /></button>
           </span>
-          <!-- Rich body: produced by markdownToRichMindMap so a
-               whole markdown document can be previewed as a
-               mindmap without losing code / list / table / paragraph
-               content.  Rendered as a small framed block under the
-               node title; the kind decides the layout.  Pointer
-               events are explicitly disabled on the body so clicks
-               fall through to the node (lets the user dblclick the
-               node to edit). -->
-          <div
-            v-if="n.richContent && editingId !== n.id"
-            class="zm-rich"
-            :class="`zm-rich-${n.richContent.kind}`"
-            @click.stop
-            @dblclick.stop
-            @mousedown.stop
-          >
-            <pre v-if="n.richContent.kind === 'code'" class="zm-rich-code"><code :class="n.richContent.lang ? `language-${n.richContent.lang}` : ''">{{ stripCodeFence(n.richContent.raw) }}</code></pre>
-            <ul v-else-if="n.richContent.kind === 'list'" class="zm-rich-list">
-              <li v-for="(line, i) in listLines(n.richContent.raw)" :key="i">{{ line }}</li>
-            </ul>
-            <table v-else-if="n.richContent.kind === 'table'" class="zm-rich-table">
-              <tbody>
-                <tr v-for="(row, ri) in tableRows(n.richContent.raw)" :key="ri">
-                  <td v-for="(cell, ci) in row" :key="ci">{{ cell }}</td>
-                </tr>
-              </tbody>
-            </table>
-            <div v-else class="zm-rich-paragraph">{{ paragraphText(n.richContent.raw) }}</div>
-          </div>
           <input
             v-else
             class="zm-input"
