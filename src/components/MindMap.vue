@@ -28,6 +28,14 @@ import { usePanZoom } from '../composables/usePanZoom'
 import { useKeyboard } from '../composables/useKeyboard'
 import { useHistory } from '../composables/useHistory'
 import NodeContextMenu from './NodeContextMenu.vue'
+import {
+  codeLang,
+  highlightCode,
+  sortTable,
+  stripCodeFence,
+  tableRows,
+  type SortDir,
+} from '../composables/useRichContent'
 
 const props = withDefaults(
   defineProps<{
@@ -84,6 +92,15 @@ const editingId = ref<string | null>(null)
 const editText = ref('')
 const selectedId = ref<string | null>(null)
 const collapsedIds = ref<Set<string>>(new Set())
+
+// In-place rich body edit: which node has its code/table flipped
+// into edit mode, and the live draft text.  Only one node can be
+// in this state at a time.  Sort state is also per-node so the
+// same node keeps its sort across re-renders.  Both are plain
+// Maps keyed by node id — they hold no data-tree state.
+const richEditingId = ref<string | null>(null)
+const richEditDraft = ref('')
+const sortState = ref<Map<string, { col: number; dir: SortDir }>>(new Map())
 const dataRef = ref<MindMapNode>(clone(props.data))
 // `usingMarkdown` is true when the current dataRef was derived from
 // the `markdown` prop.  Used by the change-watcher below to decide
@@ -200,6 +217,55 @@ function removeNodeImage(id: string) {
   record()
   triggerRef()
   emit('change', dataRef.value)
+}
+
+/** Set / replace / clear a node's image from a plain URL or
+ *  data: URI.  Used by the right-side panel's image input — the
+ *  image picker is still the canvas's file-input flow.  We have
+ *  to fetch the asset to read its natural dimensions; on failure
+ *  we fall back to IMG_DEFAULT_W squared so the node still has a
+ *  visible image shape. */
+function applyNodeImageByUrl(id: string, url: string) {
+  const trimmed = url.trim()
+  const n = findNode(dataRef.value, id)
+  if (!n) return
+  if (!trimmed) {
+    removeNodeImage(id)
+    return
+  }
+  const img = new Image()
+  img.onload = () => {
+    const n2 = findNode(dataRef.value, id)
+    if (!n2) return
+    // Lock aspect ratio, clamp width to IMG_MAX_W, fall back
+    // to a square when the image is broken.
+    const aspect = img.naturalWidth && img.naturalHeight
+      ? img.naturalWidth / img.naturalHeight
+      : 1
+    const w = clamp(
+      img.naturalWidth || IMG_DEFAULT_W,
+      IMG_MIN_W,
+      IMG_MAX_W
+    )
+    const h = Math.round(w / aspect)
+    n2.image = {
+      src: trimmed,
+      naturalW: img.naturalWidth || w,
+      naturalH: img.naturalHeight || h,
+      width: w,
+      height: h,
+    }
+    record()
+    triggerRef()
+    emit('change', dataRef.value)
+  }
+  img.onerror = () => {
+    // Keep what was there before, but the panel hides a broken
+    // image via its own @error handler.  We could fall back to
+    // a 1×1 placeholder; for now just leave the existing image
+    // untouched so the user can correct the URL.
+  }
+  img.src = trimmed
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -1041,6 +1107,79 @@ function cancelEdit() {
   editingId.value = null
 }
 
+// ---------------------------------------------------------------------------
+// In-place rich body edit (code block / table).  Dblclick the
+// rich body to flip into a textarea; blur or Enter commits,
+// Escape cancels.  Writes back through the same
+// `applyNodeRichContent` helper the context menu / NotePanel
+// use, so undo and the change emit fire once.
+// ---------------------------------------------------------------------------
+function startRichEdit(id: string) {
+  if (props.readonly) return
+  const n = findNode(dataRef.value, id)
+  if (!n?.richContent) return
+  richEditingId.value = id
+  richEditDraft.value = n.richContent.raw
+  nextTick(() => {
+    const ta = document.querySelector<HTMLTextAreaElement>(
+      '.zm-node .zm-rich textarea'
+    )
+    ta?.focus()
+  })
+}
+function commitRichEdit() {
+  if (!richEditingId.value) return
+  const id = richEditingId.value
+  const n = findNode(dataRef.value, id)
+  const next = richEditDraft.value
+  if (n && n.richContent && n.richContent.raw !== next) {
+    if (n.richContent.kind === 'code') {
+      const lang = codeLang(next) || undefined
+      applyNodeRichContent(id, { kind: 'code', raw: next, lang })
+    } else {
+      applyNodeRichContent(id, { kind: 'table', raw: next })
+    }
+  }
+  richEditingId.value = null
+}
+function cancelRichEdit() {
+  richEditingId.value = null
+}
+function onRichEditKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    cancelRichEdit()
+  } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault()
+    commitRichEdit()
+  }
+}
+
+// Sort UI for the on-canvas table.  Same asc/desc/off cycle as
+// the panel; state is per-node so different tables can be sorted
+// independently.
+function toggleNodeSort(id: string, col: number) {
+  const cur = sortState.value.get(id)
+  if (!cur || cur.col !== col) {
+    sortState.value.set(id, { col, dir: 'asc' })
+  } else if (cur.dir === 'asc') {
+    sortState.value.set(id, { col, dir: 'desc' })
+  } else {
+    sortState.value.delete(id)
+  }
+}
+// Apply the per-node sort (if any) before the template iterates.
+function sortedTableRows(id: string, rows: string[][]): string[][] {
+  const s = sortState.value.get(id)
+  if (!s || rows.length <= 1) return rows
+  return sortTable(rows, s.col, s.dir)
+}
+function sortMark(id: string, col: number): string {
+  const s = sortState.value.get(id)
+  if (!s || s.col !== col) return '↕'
+  return s.dir === 'asc' ? '▲' : '▼'
+}
+
 function onEditKeydown(e: KeyboardEvent) {
   const mod = e.metaKey || e.ctrlKey
   if (mod && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
@@ -1168,18 +1307,6 @@ function doNavigate(dx: number, dy: number) {
 // the template can call them inline and re-runs are cheap
 // (each block is ≤ a few KB of markdown).
 
-/** Strip the opening and closing ``` fences from a code block,
- *  returning just the body.  Handles both ``` and ~~~ markers. */
-function stripCodeFence(raw: string): string {
-  const lines = raw.split('\n')
-  // Drop the first line if it opens a fence, and the last if
-  // it closes one.  If the user truncated the closing fence
-  // (e.g. mid-edit), just return everything minus the opener.
-  if (/^(`{3,}|~{3,})/.test(lines[0] ?? '')) lines.shift()
-  if (/^(`{3,}|~{3,})\s*$/.test(lines[lines.length - 1] ?? '')) lines.pop()
-  return lines.join('\n').replace(/\n+$/, '')
-}
-
 /** Strip the bullet/number marker from each list line so the
  *  template can render the items in its own <ul>. */
 function listLines(raw: string): string[] {
@@ -1187,23 +1314,6 @@ function listLines(raw: string): string[] {
     .split('\n')
     .map(l => l.replace(/^\s*[-*+]\s+/, '').replace(/^\s*\d+\.\s+/, '').trim())
     .filter(l => l.length > 0)
-}
-
-/** Split a pipe-delimited table into rows of cells.  Strips
- *  the alignment separator row (`| --- | --- |`) and trims
- *  leading/trailing pipes. */
-function tableRows(raw: string): string[][] {
-  return raw
-    .split('\n')
-    .filter(l => l.trim().length > 0)
-    .filter(l => !/^\s*\|?\s*(:?-+:?\s*\|\s*)+(:?-+:?)(\s*\|)?\s*$/.test(l))
-    .map(l =>
-      l
-        .replace(/^\s*\|/, '')
-        .replace(/\|\s*$/, '')
-        .split('|')
-        .map(c => c.trim())
-    )
 }
 
 /** Collapse a multi-line paragraph into a single line (the
@@ -1553,10 +1663,17 @@ defineExpose<MindMapExpose>({
   balance: () => runBalance(),
   applyNodeStyle: (id: string, style: NodeStyle) => applyNodeStyle(id, style),
   getNodeStyle: (id: string): NodeStyle => getNodeStyle(id),
+  applyNodeImage: (id: string, image: MindMapImage) => applyNodeImage(id, image),
+  applyNodeImageByUrl: (id: string, url: string) => applyNodeImageByUrl(id, url),
+  removeNodeImage: (id: string) => removeNodeImage(id),
   applyNodeLink: (id: string, url: string) => applyNodeLink(id, url),
   removeNodeLink: (id: string) => removeNodeLink(id),
   applyNodeNote: (id: string, text: string) => applyNodeNote(id, text),
   removeNodeNote: (id: string) => removeNodeNote(id),
+  applyNodeRichContent: (
+    id: string,
+    content: { kind: 'code' | 'table'; raw: string; lang?: string } | null
+  ) => applyNodeRichContent(id, content),
   undo: () => doUndo(),
   redo: () => doRedo(),
   canUndo: () => history.canUndo(),
@@ -1754,17 +1871,53 @@ onMounted(() => {
             class="zm-rich zm-rich-above"
             :class="{ 'zm-rich-no-overflow': n.richContent.kind === 'table' }"
             @click.stop
-            @dblclick.stop
+            @dblclick.stop="startRichEdit(n.id)"
             @mousedown.stop
           >
-            <pre v-if="n.richContent.kind === 'code'" class="zm-rich-code"><code :class="n.richContent.lang ? `language-${n.richContent.lang}` : ''">{{ stripCodeFence(n.richContent.raw) }}</code></pre>
-            <table v-else-if="n.richContent.kind === 'table'" class="zm-rich-table">
-              <tbody>
-                <tr v-for="(row, ri) in tableRows(n.richContent.raw)" :key="ri">
-                  <td v-for="(cell, ci) in row" :key="ci">{{ cell }}</td>
-                </tr>
-              </tbody>
-            </table>
+            <!-- Edit mode: textarea overlays the preview, same size. -->
+            <textarea
+              v-if="richEditingId === n.id"
+              v-model="richEditDraft"
+              class="zm-rich-edit"
+              spellcheck="false"
+              @blur="commitRichEdit"
+              @keydown="onRichEditKeydown"
+            />
+            <template v-else>
+              <pre
+                v-if="n.richContent.kind === 'code'"
+                class="zm-rich-code"
+              ><code v-html="highlightCode(stripCodeFence(n.richContent.raw), codeLang(n.richContent.raw))"></code></pre>
+              <table
+                v-else-if="n.richContent.kind === 'table'"
+                class="zm-rich-table"
+              >
+                <tbody>
+                  <tr v-for="(row, ri) in sortedTableRows(n.id, tableRows(n.richContent.raw))" :key="ri">
+                    <th
+                      v-if="ri === 0"
+                      v-for="(cell, ci) in row"
+                      :key="`h${ci}`"
+                      class="zm-rich-table-sort"
+                      :class="{
+                        'is-sorted': sortState.get(n.id)?.col === ci,
+                        'is-asc': sortState.get(n.id)?.col === ci && sortState.get(n.id)?.dir === 'asc',
+                        'is-desc': sortState.get(n.id)?.col === ci && sortState.get(n.id)?.dir === 'desc',
+                      }"
+                      @click.stop="toggleNodeSort(n.id, ci)"
+                    >
+                      <span>{{ cell }}</span>
+                      <span class="zm-rich-sort-mark" aria-hidden="true">{{ sortMark(n.id, ci) }}</span>
+                    </th>
+                    <td
+                      v-else
+                      v-for="(cell, ci) in row"
+                      :key="`c${ci}`"
+                    >{{ cell }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
           </div>
           <span v-if="editingId !== n.id" class="zm-text">
             <span class="zm-text-label">{{ n.text }}</span>
@@ -1959,6 +2112,8 @@ onMounted(() => {
 </template>
 
 <style>
+@import 'highlight.js/styles/github.css';
+
 .zm-mindmap {
   position: relative;
   width: 100%;
@@ -2084,7 +2239,10 @@ onMounted(() => {
  * explicitly disabled via .zm-rich so the node stays
  * clickable for selection / dblclick-to-edit. */
 .zm-rich {
-  pointer-events: none;
+  /* The body is editable in place: dblclick flips to a
+   * textarea, clickable sort headers in tables.  We stop click
+   * propagation in the template so a click on the body doesn't
+   * also re-select the node. */
   margin-top: 6px;
   width: 100%;
   max-width: 260px;
@@ -2141,6 +2299,58 @@ onMounted(() => {
   border: 1px solid currentColor;
   opacity: 0.7;
   padding: 2px 5px;
+}
+.zm-rich-table-sort {
+  position: relative;
+  background: rgba(0, 0, 0, 0.06);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 5px;
+  border: 1px solid currentColor;
+  /* The parent .zm-rich has pointer-events: none so clicks fall
+   * through to the node; re-enable here so sort actually works. */
+  pointer-events: auto;
+}
+.zm-rich-table-sort:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+.zm-rich-table-sort.is-sorted {
+  background: rgba(59, 130, 246, 0.18);
+  color: #1d4ed8;
+}
+.zm-rich-sort-mark {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9px;
+  color: #94a3b8;
+}
+.zm-rich-table-sort.is-sorted .zm-rich-sort-mark {
+  color: #1d4ed8;
+}
+.zm-rich-edit {
+  width: 100%;
+  min-height: 90px;
+  margin: 0;
+  padding: 4px 6px;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 0.92em;
+  line-height: 1.4;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  outline: none;
+  resize: vertical;
+  white-space: pre;
+  box-sizing: border-box;
+}
+.zm-rich-edit:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
 }
 .zm-rich-paragraph {
   white-space: pre-wrap;

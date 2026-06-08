@@ -1,22 +1,31 @@
 <script setup lang="ts">
 /**
- * Node panel — body of the right-side drawer.  Renamed in spirit
- * from "笔记" to "节点内容" because it now shows ALL of a node's
- * payload, not just the note:
+ * Node panel — body of the right-side drawer.  Renders every
+ * payload of the selected node, each section is editable:
  *
- *   1. note  — editable textarea (the only field the user can
- *              edit from this panel; right-click on the canvas
- *              node handles the rest)
- *   2. link  — read-only URL chip; clicking opens in a new tab
- *   3. image — read-only preview thumbnail
- *   4. code  — read-only fenced code block
- *   5. table — read-only mini grid
+ *   1. note  — editable textarea
+ *   2. link  — URL input (display: chip; click to expand)
+ *   3. image — URL input + live preview
+ *   4. code  — textarea (raw markdown) with a syntax-highlighted
+ *              preview that re-renders as the user types
+ *   5. table — CSV-ish textarea with a live preview; column
+ *              headers in the preview are clickable to sort the
+ *              rows (asc → desc → off, doesn't write back to raw)
  *
  * Sections that aren't set on the selected node are hidden, so
  * the panel collapses to just the note when nothing else exists.
  */
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { MindMapNode } from '../types'
+import {
+  codeLang,
+  highlightCode,
+  rowsToTable,
+  sortTable,
+  stripCodeFence,
+  tableRows,
+  type SortDir,
+} from '../composables/useRichContent'
 
 const props = defineProps<{
   /** The currently selected node.  `null` means nothing is
@@ -31,18 +40,29 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  /** User edited the note.  `text` may be empty (clears the note). */
+  /** Note edit committed (blur / Ctrl+Enter).  Empty string clears it. */
   (e: 'apply', text: string): void
-  /** User removed the note entirely. */
+  /** Note removed. */
   (e: 'remove'): void
+  /** Link URL edited (empty string removes the link). */
+  (e: 'set-link', url: string): void
+  /** Image src edited (empty string removes the image). */
+  (e: 'set-image', src: string): void
+  /** Rich body (code / table) raw markdown edited.  Pass the
+   *  whole `richContent` payload so the parent can refresh the
+   *  kind + lang tag too; pass `null` to remove the body. */
+  (
+    e: 'set-rich',
+    payload: { kind: 'code' | 'table'; raw: string; lang?: string } | null
+  ): void
 }>()
 
+// ---------------------------------------------------------------------------
+// Note (the only always-editable field)
+// ---------------------------------------------------------------------------
 const draft = ref('')
 const isEmpty = computed(() => !draft.value || draft.value.trim() === '')
 
-// Keep the draft in sync with the bound node.  Whenever the
-// selected id changes (or the underlying note field changes via
-// undo/redo), the draft re-seeds.
 watch(
   () => [props.selectedNode?.id, props.selectedNode?.note?.text],
   () => {
@@ -51,90 +71,184 @@ watch(
   { immediate: true }
 )
 
-// Focus the textarea when the parent signals a fresh open.  We
-// use a `tick` prop rather than auto-focusing on mount so that
-// re-selecting a node while the drawer is already open also
-// re-focuses.
 watch(
   () => props.focusTick,
   async () => {
     if (props.readonly) return
     await nextTick()
-    const ta = document.querySelector<HTMLTextAreaElement>('.zm-note-panel textarea')
+    const ta = document.querySelector<HTMLTextAreaElement>('.zm-note-panel textarea.zm-note-textarea')
     if (ta) {
       ta.focus()
-      // Don't select all on re-focus — the user might just want
-      // the cursor at the end.  Place caret at the end of the
-      // current text instead.
       const len = ta.value.length
       ta.setSelectionRange(len, len)
     }
   }
 )
 
-function commit() {
+function commitNote() {
   if (props.readonly) return
   const next = draft.value
   const current = props.selectedNode?.note?.text ?? ''
   if (next === current) return
   emit('apply', next)
 }
-
-function onKeydown(e: KeyboardEvent) {
+function onNoteKeydown(e: KeyboardEvent) {
   if (props.readonly) return
   if (e.key === 'Escape') {
     e.preventDefault()
-    // Revert local draft and lose focus.  Parent keeps the
-    // drawer open so the user can re-open the editor.
     draft.value = props.selectedNode?.note?.text ?? ''
     ;(e.target as HTMLTextAreaElement).blur()
   } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault()
-    commit()
+    commitNote()
     ;(e.target as HTMLTextAreaElement).blur()
   }
 }
-
-function onRemove() {
+function onRemoveNote() {
   if (props.readonly) return
   if (!confirm('移除该节点的笔记?')) return
   draft.value = ''
   emit('remove')
 }
 
-// Which previews have content?  The template skips any section
-// whose flag is false, so an empty node shows only the textarea.
+// ---------------------------------------------------------------------------
+// Section visibility flags
+// ---------------------------------------------------------------------------
 const hasLink = computed(() => !!props.selectedNode?.link?.url)
 const hasImage = computed(() => !!props.selectedNode?.image?.src)
 const richKind = computed(() => props.selectedNode?.richContent?.kind)
 const hasCode = computed(() => richKind.value === 'code')
 const hasTable = computed(() => richKind.value === 'table')
 
-// Pull a table's pipe rows out of the raw markdown.  Same logic
-// as MindMap.vue's tableRows() — duplicated here rather than
-// exported so the panel can be used without pulling layout code.
-function splitTableRows(raw: string): string[][] {
-  return raw
-    .split('\n')
-    .map(l => l.trim())
-    .filter(l => /^\|/.test(l) && !/^\|\s*[-:]+\s*\|/.test(l))
-    .map(l =>
-      l
-        .replace(/^\|/, '')
-        .replace(/\|$/, '')
-        .split('|')
-        .map(c => c.trim())
-    )
+// ---------------------------------------------------------------------------
+// Link edit
+// ---------------------------------------------------------------------------
+const linkDraft = ref('')
+watch(
+  () => [props.selectedNode?.id, props.selectedNode?.link?.url],
+  () => {
+    linkDraft.value = props.selectedNode?.link?.url ?? ''
+  },
+  { immediate: true }
+)
+function commitLink() {
+  if (props.readonly) return
+  const next = linkDraft.value.trim()
+  const current = props.selectedNode?.link?.url ?? ''
+  if (next === current) return
+  emit('set-link', next)
 }
 
-// Strip the opening/closing ``` fences from a code block so the
-// preview shows the body, not the fence markers.
-function stripCodeFence(raw: string): string {
-  const lines = raw.split('\n')
-  if (/^(`{3,}|~{3,})/.test(lines[0] ?? '')) lines.shift()
-  if (/^(`{3,}|~{3,})\s*$/.test(lines[lines.length - 1] ?? '')) lines.pop()
-  return lines.join('\n').replace(/\n+$/, '')
+// ---------------------------------------------------------------------------
+// Image edit
+// ---------------------------------------------------------------------------
+const imageDraft = ref('')
+watch(
+  () => [props.selectedNode?.id, props.selectedNode?.image?.src],
+  () => {
+    imageDraft.value = props.selectedNode?.image?.src ?? ''
+  },
+  { immediate: true }
+)
+function commitImage() {
+  if (props.readonly) return
+  const next = imageDraft.value.trim()
+  const current = props.selectedNode?.image?.src ?? ''
+  if (next === current) return
+  emit('set-image', next)
 }
+function onImageError(e: Event) {
+  const img = e.target as HTMLImageElement
+  img.style.display = 'none'
+}
+function onImageLoad(e: Event) {
+  const img = e.target as HTMLImageElement
+  img.style.display = ''
+}
+
+// ---------------------------------------------------------------------------
+// Code edit — textarea holds the raw markdown (with or without
+// the ``` fence), preview re-highlights as the user types.  On
+// commit we re-derive the lang tag from the opening fence and
+// emit a new richContent payload.
+// ---------------------------------------------------------------------------
+const codeDraft = ref('')
+watch(
+  () => [props.selectedNode?.id, props.selectedNode?.richContent?.raw],
+  () => {
+    codeDraft.value = props.selectedNode?.richContent?.raw ?? ''
+  },
+  { immediate: true }
+)
+const codePreviewHtml = computed(() => {
+  return highlightCode(stripCodeFence(codeDraft.value), codeLang(codeDraft.value))
+})
+function commitCode() {
+  if (props.readonly) return
+  const next = codeDraft.value
+  const current = props.selectedNode?.richContent?.raw ?? ''
+  if (next === current) return
+  const lang = codeLang(next) || undefined
+  emit('set-rich', next ? { kind: 'code', raw: next, lang } : null)
+}
+
+// ---------------------------------------------------------------------------
+// Table edit — textarea holds the raw markdown; preview is
+// sortable but only in-memory (raw stays untouched).
+// ---------------------------------------------------------------------------
+const tableDraft = ref('')
+const sortCol = ref(-1)
+const sortDir = ref<SortDir>('asc')
+watch(
+  () => [props.selectedNode?.id, props.selectedNode?.richContent?.raw],
+  () => {
+    tableDraft.value = props.selectedNode?.richContent?.raw ?? ''
+    // Switching nodes resets the sort UI.
+    sortCol.value = -1
+    sortDir.value = 'asc'
+  },
+  { immediate: true }
+)
+function commitTable() {
+  if (props.readonly) return
+  const next = tableDraft.value
+  const current = props.selectedNode?.richContent?.raw ?? ''
+  if (next === current) return
+  emit('set-rich', next ? { kind: 'table', raw: next } : null)
+}
+
+// Live parse for the table preview.  Uses textarea content so the
+// preview reflects in-progress edits before commit.
+const tableParsedRows = computed(() => tableRows(tableDraft.value))
+const sortedRows = computed(() => {
+  const rows = tableParsedRows.value
+  if (sortCol.value < 0 || rows.length <= 1) return rows
+  return sortTable(rows, sortCol.value, sortDir.value)
+})
+function toggleSort(col: number) {
+  if (sortCol.value !== col) {
+    sortCol.value = col
+    sortDir.value = 'asc'
+  } else if (sortDir.value === 'asc') {
+    sortDir.value = 'desc'
+  } else {
+    sortCol.value = -1
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Header summary
+// ---------------------------------------------------------------------------
+const summary = computed(() => {
+  const parts: string[] = []
+  if (!isEmpty.value) parts.push(`${draft.value.length} 字`)
+  if (hasLink.value) parts.push('1 链接')
+  if (hasImage.value) parts.push('1 图片')
+  if (hasCode.value) parts.push('代码块')
+  if (hasTable.value) parts.push('表格')
+  if (parts.length === 0) return '节点没有额外内容'
+  return parts.join(' · ')
+})
 </script>
 
 <template>
@@ -142,7 +256,7 @@ function stripCodeFence(raw: string): string {
     <div v-if="!selectedNode" class="zm-note-empty">
       <p>请先在画布上选中一个节点。</p>
       <p class="zm-note-hint">
-        选中节点后，会在这里展示节点的笔记、链接、图片、代码块、表格。
+        选中节点后，会在这里展示并可编辑节点的笔记、链接、图片、代码块、表格。
       </p>
     </div>
     <template v-else>
@@ -151,15 +265,11 @@ function stripCodeFence(raw: string): string {
           <span class="zm-note-label">节点</span>
           <span class="zm-note-name">{{ selectedNode.text || '(无标题)' }}</span>
         </div>
-        <div class="zm-note-meta">
-          {{ isEmpty && !hasLink && !hasImage && !hasCode && !hasTable
-              ? '节点没有额外内容'
-              : `${isEmpty ? '' : draft.length + ' 字'}${hasLink ? ' · 1 链接' : ''}${hasImage ? ' · 1 图片' : ''}${hasCode ? ' · 代码块' : ''}${hasTable ? ' · 表格' : ''}` }}
-        </div>
+        <div class="zm-note-meta">{{ summary }}</div>
       </div>
 
       <div class="zm-note-scroll">
-        <!-- Note: the only editable field. -->
+        <!-- Note -->
         <section class="zm-note-section">
           <header class="zm-note-section-head">
             <span class="zm-note-section-title">笔记</span>
@@ -171,24 +281,30 @@ function stripCodeFence(raw: string): string {
             :placeholder="'写点什么吧…'"
             spellcheck="false"
             :disabled="readonly"
-            @blur="commit"
-            @keydown="onKeydown"
+            @blur="commitNote"
+            @keydown="onNoteKeydown"
           />
           <div v-if="!readonly && !isEmpty" class="zm-note-section-actions">
-            <button
-              class="zm-note-action-btn is-danger"
-              title="移除笔记"
-              @click="onRemove"
-            >移除笔记</button>
+            <button class="zm-note-action-btn is-danger" @click="onRemoveNote">移除笔记</button>
           </div>
         </section>
 
-        <!-- Link: read-only chip; click to follow. -->
-        <section v-if="hasLink" class="zm-note-section">
+        <!-- Link -->
+        <section v-if="hasLink || !readonly" class="zm-note-section">
           <header class="zm-note-section-head">
             <span class="zm-note-section-title">链接</span>
           </header>
+          <input
+            v-model="linkDraft"
+            class="zm-note-input"
+            type="url"
+            :placeholder="'https://…'"
+            :disabled="readonly"
+            @blur="commitLink"
+            @keydown.enter.prevent="(e) => (e.target as HTMLInputElement).blur()"
+          />
           <a
+            v-if="hasLink"
             class="zm-note-link-chip"
             :href="selectedNode.link?.url"
             target="_blank"
@@ -197,38 +313,86 @@ function stripCodeFence(raw: string): string {
           >{{ selectedNode.link?.url }}</a>
         </section>
 
-        <!-- Image: read-only preview at natural width, capped. -->
-        <section v-if="hasImage" class="zm-note-section">
+        <!-- Image -->
+        <section v-if="hasImage || !readonly" class="zm-note-section">
           <header class="zm-note-section-head">
             <span class="zm-note-section-title">图片</span>
           </header>
+          <input
+            v-model="imageDraft"
+            class="zm-note-input"
+            type="url"
+            :placeholder="'data:image/… 或 https://…'"
+            :disabled="readonly"
+            @blur="commitImage"
+            @keydown.enter.prevent="(e) => (e.target as HTMLInputElement).blur()"
+          />
           <img
+            v-if="hasImage"
             class="zm-note-image"
             :src="selectedNode.image?.src"
             :alt="selectedNode.text"
+            @error="onImageError"
+            @load="onImageLoad"
           />
         </section>
 
-        <!-- Code: read-only fenced block, monospace. -->
-        <section v-if="hasCode" class="zm-note-section">
+        <!-- Code -->
+        <section v-if="hasCode || !readonly" class="zm-note-section">
           <header class="zm-note-section-head">
             <span class="zm-note-section-title">代码块</span>
-            <span v-if="selectedNode.richContent?.lang" class="zm-note-section-tag">
-              {{ selectedNode.richContent?.lang }}
-            </span>
+            <span v-if="codeLang(codeDraft)" class="zm-note-section-tag">{{ codeLang(codeDraft) }}</span>
           </header>
-          <pre class="zm-note-code"><code>{{ stripCodeFence(selectedNode.richContent?.raw || '') }}</code></pre>
+          <textarea
+            v-model="codeDraft"
+            class="zm-note-input zm-note-input-code"
+            :placeholder="'```ts\nconsole.log(123)\n```'"
+            spellcheck="false"
+            :disabled="readonly"
+            @blur="commitCode"
+          />
+          <pre v-if="codeDraft.trim()" class="zm-note-code"><code v-html="codePreviewHtml"></code></pre>
         </section>
 
-        <!-- Table: read-only mini grid. -->
-        <section v-if="hasTable" class="zm-note-section">
+        <!-- Table -->
+        <section v-if="hasTable || !readonly" class="zm-note-section">
           <header class="zm-note-section-head">
             <span class="zm-note-section-title">表格</span>
+            <span class="zm-note-section-hint">点击表头排序</span>
           </header>
-          <table class="zm-note-table">
+          <textarea
+            v-model="tableDraft"
+            class="zm-note-input zm-note-input-code"
+            :placeholder="'| 列1 | 列2 |\n| --- | --- |\n| a | b |'"
+            spellcheck="false"
+            :disabled="readonly"
+            @blur="commitTable"
+          />
+          <table v-if="tableParsedRows.length" class="zm-note-table">
             <tbody>
-              <tr v-for="(row, ri) in splitTableRows(selectedNode.richContent?.raw || '')" :key="ri">
-                <td v-for="(cell, ci) in row" :key="ci">{{ cell }}</td>
+              <tr v-for="(row, ri) in sortedRows" :key="ri">
+                <th
+                  v-if="ri === 0"
+                  v-for="(cell, ci) in row"
+                  :key="`h${ci}`"
+                  class="zm-note-table-sort"
+                  :class="{
+                    'is-sorted': sortCol === ci,
+                    'is-asc': sortCol === ci && sortDir === 'asc',
+                    'is-desc': sortCol === ci && sortDir === 'desc',
+                  }"
+                  @click="toggleSort(ci)"
+                >
+                  <span>{{ cell }}</span>
+                  <span class="zm-note-table-sort-mark" aria-hidden="true">
+                    {{ sortCol === ci ? (sortDir === 'asc' ? '▲' : '▼') : '↕' }}
+                  </span>
+                </th>
+                <td
+                  v-else
+                  v-for="(cell, ci) in row"
+                  :key="`c${ci}`"
+                >{{ cell }}</td>
               </tr>
             </tbody>
           </table>
@@ -239,6 +403,8 @@ function stripCodeFence(raw: string): string {
 </template>
 
 <style>
+@import 'highlight.js/styles/github.css';
+
 .zm-note-panel {
   display: flex;
   flex-direction: column;
@@ -298,10 +464,6 @@ function stripCodeFence(raw: string): string {
   font-size: 11px;
   color: #94a3b8;
 }
-
-/* Scroll container for the previews so the textarea + cards
- * can grow beyond the drawer height.  The header stays pinned
- * outside this container. */
 .zm-note-scroll {
   flex: 1;
   min-height: 0;
@@ -310,7 +472,6 @@ function stripCodeFence(raw: string): string {
   flex-direction: column;
   gap: 10px;
   padding-right: 2px;
-  /* Pull the scrollbar a bit inside the panel gutter. */
 }
 .zm-note-section {
   background: #ffffff;
@@ -386,6 +547,38 @@ function stripCodeFence(raw: string): string {
   white-space: pre-line;
 }
 
+.zm-note-input {
+  width: 100%;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #1e293b;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  outline: none;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+.zm-note-input:focus {
+  border-color: #3b82f6;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+.zm-note-input:disabled {
+  background: #f8fafc;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+.zm-note-input-code {
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 11px;
+  min-height: 90px;
+  resize: vertical;
+  white-space: pre;
+}
+
 .zm-note-link-chip {
   display: inline-block;
   max-width: 100%;
@@ -420,8 +613,9 @@ function stripCodeFence(raw: string): string {
 .zm-note-code {
   margin: 0;
   padding: 10px 12px;
-  background: #0f172a;
-  color: #e2e8f0;
+  background: #f6f8fa;
+  color: #24292e;
+  border: 1px solid #e2e8f0;
   border-radius: 6px;
   font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
   font-size: 12px;
@@ -452,9 +646,33 @@ function stripCodeFence(raw: string): string {
   vertical-align: top;
   word-break: break-word;
 }
-.zm-note-table tr:first-child td {
+.zm-note-table-sort {
   background: #f1f5f9;
   font-weight: 600;
+  padding: 5px 8px;
+  border: 1px solid #e2e8f0;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+}
+.zm-note-table-sort:hover {
+  background: #e2e8f0;
+}
+.zm-note-table-sort.is-sorted {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.zm-note-table-sort-mark {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  color: #94a3b8;
+}
+.zm-note-table-sort.is-sorted .zm-note-table-sort-mark {
+  color: #1d4ed8;
 }
 
 .zm-note-action-btn {

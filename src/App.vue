@@ -410,6 +410,18 @@ function onNoteRemove() {
   if (!selectedNode.value) return
   mindMapRef.value?.removeNodeNote(selectedNode.value.id)
 }
+function onLinkSet(url: string) {
+  if (!selectedNode.value) return
+  mindMapRef.value?.applyNodeLink(selectedNode.value.id, url)
+}
+function onImageSet(src: string) {
+  if (!selectedNode.value) return
+  mindMapRef.value?.applyNodeImageByUrl(selectedNode.value.id, src)
+}
+function onRichSet(payload: { kind: 'code' | 'table'; raw: string; lang?: string } | null) {
+  if (!selectedNode.value) return
+  mindMapRef.value?.applyNodeRichContent(selectedNode.value.id, payload)
+}
 
 function onOutlineSelect(node: MindMapNode) {
   // Drive the canvas's selection by clicking the matching node
@@ -629,6 +641,9 @@ const totalNodes = computed(() => countNodes(data.value))
         :focus-tick="noteFocusTick"
         @apply="onNoteApply"
         @remove="onNoteRemove"
+        @set-link="onLinkSet"
+        @set-image="onImageSet"
+        @set-rich="onRichSet"
       />
     </Drawer>
 

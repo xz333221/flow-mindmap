@@ -228,6 +228,25 @@ export interface MindMapExpose {
   applyNodeNote: (nodeId: string, text: string) => void
   /** Remove a node's note (no-op if absent). */
   removeNodeNote: (nodeId: string) => void
+  /** Set a node's image from a URL or data: URI.  Fetches the
+   *  asset to read its natural dimensions; clamps to IMG_MAX_W
+   *  with a preserved aspect ratio.  Empty string removes the
+   *  image. */
+  applyNodeImageByUrl: (nodeId: string, url: string) => void
+  /** Set a node's image from a fully-resolved MindMapImage.
+   *  Used by the file-picker flow (readImageFile) and the drag
+   *  resize handle.  Prefer `applyNodeImageByUrl` from the
+   *  panel — it fetches the natural dimensions for you. */
+  applyNodeImage: (nodeId: string, image: MindMapImage) => void
+  /** Remove a node's image (no-op if absent). */
+  removeNodeImage: (nodeId: string) => void
+  /** Set a node's rich body (code block or table).  Pass `null`
+   *  to remove the body.  The renderer reads `kind` to decide
+   *  which preview layout to use. */
+  applyNodeRichContent: (
+    nodeId: string,
+    content: { kind: 'code' | 'table'; raw: string; lang?: string } | null
+  ) => void
   undo: () => void
   redo: () => void
   canUndo: () => boolean
