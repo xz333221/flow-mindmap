@@ -190,7 +190,7 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v))
 }
 
-function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number, richHeights?: Record<string, number>): { w: number; h: number } {
+function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number, richHeights?: Record<string, number>, richWidths?: Record<string, number>): { w: number; h: number } {
   const t = tierFor(level)
   const fontSize = fontAt(level, baseFontSize)
   const textW = Math.min(measureText(node.text || '', fontSize, NODE_FONT_WEIGHTS[t]), TEXT_MAX_W)
@@ -224,7 +224,12 @@ function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number, ri
       node.richContent &&
       (node.richContent.kind === 'code' || node.richContent.kind === 'table')
     ) {
-      return Math.max(base, 240)
+      // Floor 240 keeps a short title from producing a tiny box
+      // (the SVG edge anchor would land off-centre).  The
+      // measured width, if available, takes precedence so the
+      // box grows to fit wide tables / long code lines.
+      const measured = richWidths?.[node.id]
+      return Math.max(base, measured ?? 240)
     }
     return base
   })()
@@ -293,19 +298,19 @@ export interface LayoutOptions {
    */
   preservePositions?: boolean
   /**
-   * Per-node measured height of the rendered rich body (the
+   * Per-node measured size of the rendered rich body (the
    * `<div class="zm-rich">` element above the title), in px.  The
    * caller (MindMap.vue) populates this after each render with
-   * `el.getBoundingClientRect().height`; layout reads it for nodes
-   * that carry code / table rich content.  When a node has a
-   * measured height we use it directly (clamped to a sensible
-   * floor) so the box grows / shrinks to fit the content.  When
-   * the caller hasn't measured a node yet we fall back to the
-   * fixed 70-200px cap.  IDs not present in the map are simply
-   * ignored — useful for the very first render before measurement
-   * has happened.
+   * `el.offsetWidth` / `el.offsetHeight`; layout reads it for
+   * nodes that carry code / table rich content.  When a node has
+   * a measured size we use it directly so the box grows /
+   * shrinks to fit the content.  When the caller hasn't
+   * measured a node yet we fall back to the fixed floor / cap.
+   * IDs not present in the map are simply ignored — useful for
+   * the very first render before measurement has happened.
    */
   richHeights?: Record<string, number>
+  richWidths?: Record<string, number>
 }
 
 export function layout(
@@ -323,7 +328,7 @@ export function layout(
   const mode: LayoutMode = options.mode ?? 'mindmap'
   const preservePositions = options.preservePositions === true
   const baseFontSize = options.baseFontSize ?? 14
-  const lr = buildLayout(root, 0, null, 1, 'right', baseFontSize, options.richHeights)
+  const lr = buildLayout(root, 0, null, 1, 'right', baseFontSize, options.richHeights, options.richWidths)
 
   // 1.html interleaves calcSubtreeH with doLayout.  We split into two
   // passes: extents first (post-order, so leaves are computed before
@@ -552,9 +557,10 @@ function buildLayout(
   side: 1 | -1,
   dir: 'right' | 'left' | 'down',
   baseFontSize: number,
-  richHeights?: Record<string, number>
+  richHeights?: Record<string, number>,
+  richWidths?: Record<string, number>
 ): LayoutNode {
-  const size = calcNodeSize(node, depth, baseFontSize, richHeights)
+  const size = calcNodeSize(node, depth, baseFontSize, richHeights, richWidths)
   const ln: LayoutNode = {
     id: node.id,
     text: node.text,
@@ -587,7 +593,7 @@ function buildLayout(
   ln.children = node.children.map((c, i) => {
     const childSide: 1 | -1 =
       depth === 0 ? (i < rightCount ? (1 as const) : (-1 as const)) : side
-    return buildLayout(c, depth + 1, ln, childSide, dir, baseFontSize, richHeights)
+    return buildLayout(c, depth + 1, ln, childSide, dir, baseFontSize, richHeights, richWidths)
   })
   return ln
 }

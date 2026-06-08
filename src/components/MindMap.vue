@@ -105,10 +105,11 @@ const dataRef = ref<MindMapNode>(clone(props.data))
 // Post-render measurements of each node's rich body
 // (<div class="zm-rich">).  Populated by `measureRichBodies()`
 // after every layout-affecting mutation, consumed by `layout()`
-// via the `richHeights` option.  Re-rendering after the height
-// changes re-lays out the tree so neighbouring nodes don't
-// collide with the new box.
+// via the `richHeights` / `richWidths` options.  Re-rendering
+// after the size changes re-lays out the tree so neighbouring
+// nodes don't collide with the new box.
 const richHeights = ref<Record<string, number>>({})
+const richWidths = ref<Record<string, number>>({})
 // `usingMarkdown` is true when the current dataRef was derived from
 // the `markdown` prop.  Used by the change-watcher below to decide
 // whether to emit `markdownChange` after a user edit.
@@ -732,15 +733,16 @@ function triggerRef() {
 }
 
 // Walk every rendered `.zm-rich` element, read its current
-// pixel height, and write it into `richHeights` so the next
-// layout pass reserves the right amount of vertical space.
+// pixel size, and write it into `richHeights` / `richWidths`
+// so the next layout pass reserves the right amount of space.
 // Runs in the post-render tick (after Vue has flushed the DOM
 // for the latest dataRef change).  The function is idempotent
-// — only writes when the value actually changed — so it doesn't
+// — only writes when a value actually changed — so it doesn't
 // cause a layout feedback loop.
 function measureRichBodies() {
   const els = document.querySelectorAll<HTMLElement>('.zm-rich')
-  const next: Record<string, number> = {}
+  const nextH: Record<string, number> = {}
+  const nextW: Record<string, number> = {}
   let anyChanged = false
   els.forEach((el) => {
     // The node id is stamped on the parent `.zm-node` div as
@@ -753,22 +755,33 @@ function measureRichBodies() {
       cur = cur.parentElement
     }
     if (!id) return
-    // Use `offsetHeight` (the un-transformed box size), not
-    // `getBoundingClientRect().height` — the canvas's pan/zoom
-    // wrapper applies `transform: scale()` so the bounding rect
-    // reports the visually-scaled size and would over-reserve
-    // when the user is zoomed in.
+    // Use `offsetWidth` / `offsetHeight` (the un-transformed
+    // box size), not `getBoundingClientRect()` — the canvas's
+    // pan/zoom wrapper applies `transform: scale()` so the
+    // bounding rect reports the visually-scaled size and would
+    // over-reserve when the user is zoomed in.
     const h = el.offsetHeight
+    // scrollWidth is needed for width: the `.zm-rich` element
+    // itself is capped at `max-width: 260px` (so very wide
+    // tables get a horizontal scrollbar in the rich body, and
+    // the box stays compact).  We want to size the box to fit
+    // the content, so we read the scroll content's width
+    // instead of the capped width.
+    const w = el.scrollWidth
     // Round to a half-pixel to keep the map stable — sub-pixel
     // jitter from antialiasing would otherwise force a layout
     // recompute on every render.
-    const rounded = Math.round(h * 2) / 2
-    next[id] = rounded
-    if (richHeights.value[id] !== rounded) anyChanged = true
+    const rH = Math.round(h * 2) / 2
+    const rW = Math.round(w * 2) / 2
+    nextH[id] = rH
+    nextW[id] = rW
+    if (richHeights.value[id] !== rH) anyChanged = true
+    if (richWidths.value[id] !== rW) anyChanged = true
   })
   if (!anyChanged) return
-  // Replace the map so Vue's reactivity picks it up.
-  richHeights.value = next
+  // Replace the maps so Vue's reactivity picks them up.
+  richHeights.value = nextH
+  richWidths.value = nextW
 }
 
 const theme = computed<Required<MindMapTheme>>(() => ({
@@ -1075,6 +1088,7 @@ const layoutResult = computed(() => {
     mode: settings.layoutMode,
     baseFontSize: theme.value.fontSize,
     richHeights: richHeights.value,
+    richWidths: richWidths.value,
   })
 })
 
@@ -2302,8 +2316,8 @@ onMounted(() => {
    * propagation in the template so a click on the body doesn't
    * also re-select the node. */
   margin-top: 6px;
-  width: 100%;
-  max-width: 260px;
+  width: max-content;
+  max-width: 100%;
   max-height: 200px;
   overflow: auto;
   font-size: 0.78em;
