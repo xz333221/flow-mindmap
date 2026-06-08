@@ -22,11 +22,18 @@ const props = withDefaults(
     /** Whether the node already has a note.  Same role as
      *  hasLink for the note action. */
     hasNote?: boolean
+    /** Whether the node already has a code block in its
+     *  richContent.  Drives the code-block action's label and
+     *  whether a "移除代码块" sub-action shows. */
+    hasCode?: boolean
+    /** Whether the node already has a table in its richContent.
+     *  Same role as hasCode for the table action. */
+    hasTable?: boolean
     /** True if the component is in readonly mode — all actions
      *  render but are disabled. */
     readonly?: boolean
   }>(),
-  { hasImage: false, hasLink: false, hasNote: false, readonly: false }
+  { hasImage: false, hasLink: false, hasNote: false, hasCode: false, hasTable: false, readonly: false }
 )
 
 const emit = defineEmits<{
@@ -36,6 +43,12 @@ const emit = defineEmits<{
   (e: 'editNote'): void
   (e: 'removeNote'): void
   (e: 'removeImage'): void
+  (e: 'addCode'): void
+  (e: 'editCode'): void
+  (e: 'removeCode'): void
+  (e: 'addTable'): void
+  (e: 'editTable'): void
+  (e: 'removeTable'): void
   (e: 'close'): void
 }>()
 
@@ -50,11 +63,19 @@ const clamped = computed<ClampedPos>(() => {
   if (props.container) {
     const rect = props.container.getBoundingClientRect()
     const menuWidth = 180
-    const menuHeight = hasImage.value
-      ? hasLink.value
-        ? 184
-        : 160
-      : 136
+    // Count visible rows: 3 base (image/link/note), +1 each for
+    // "remove" rows that follow an existing item, +1 for code,
+    // +1 for table.
+    const rows =
+      3 +
+      (props.hasImage ? 1 : 0) +
+      (props.hasLink ? 1 : 0) +
+      (props.hasNote ? 1 : 0) +
+      1 +
+      (props.hasCode ? 1 : 0) +
+      1 +
+      (props.hasTable ? 1 : 0)
+    const menuHeight = 4 + rows * 28
     if (left + menuWidth > rect.right) {
       left = Math.max(rect.left + 4, props.x - menuWidth - 2)
     }
@@ -125,6 +146,22 @@ function run(handler: () => void) {
       <Icon name="x" :size="13" />
       <span>移除链接</span>
     </button>
+    <button class="zm-node-menu-item" :disabled="readonly" @click.stop="run(() => emit('addCode'))">
+      <span class="zm-node-menu-icon zm-node-menu-icon-code" aria-hidden="true">{ }</span>
+      <span>{{ hasCode ? '编辑代码块' : '添加代码块' }}</span>
+    </button>
+    <button v-if="hasCode" class="zm-node-menu-item" :disabled="readonly" @click.stop="run(() => emit('removeCode'))">
+      <Icon name="x" :size="13" />
+      <span>移除代码块</span>
+    </button>
+    <button class="zm-node-menu-item" :disabled="readonly" @click.stop="run(() => emit('addTable'))">
+      <span class="zm-node-menu-icon zm-node-menu-icon-table" aria-hidden="true">▦</span>
+      <span>{{ hasTable ? '编辑表格' : '添加表格' }}</span>
+    </button>
+    <button v-if="hasTable" class="zm-node-menu-item" :disabled="readonly" @click.stop="run(() => emit('removeTable'))">
+      <Icon name="x" :size="13" />
+      <span>移除表格</span>
+    </button>
     <button class="zm-node-menu-item" :disabled="readonly" @click.stop="run(() => emit('editNote'))">
       <Icon name="note" :size="13" />
       <span>{{ hasNote ? '编辑笔记' : '添加笔记' }}</span>
@@ -177,5 +214,25 @@ function run(handler: () => void) {
 .zm-node-menu-item:disabled {
   color: #94a3b8;
   cursor: not-allowed;
+}
+.zm-node-menu-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-weight: 600;
+  color: #64748b;
+  flex-shrink: 0;
+}
+.zm-node-menu-icon-code {
+  font-size: 10px;
+  letter-spacing: -1px;
+}
+.zm-node-menu-icon-table {
+  font-size: 12px;
+  font-family: inherit;
 }
 </style>

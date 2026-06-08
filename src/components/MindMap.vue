@@ -285,6 +285,18 @@ function applyNodeNote(id: string, text: string) {
 function removeNodeNote(id: string) {
   applyNodeNote(id, '')
 }
+function applyNodeRichContent(id: string, content: { kind: 'code' | 'table'; raw: string; lang?: string } | null) {
+  const n = findNode(dataRef.value, id)
+  if (!n) return
+  if (!content) {
+    delete n.richContent
+  } else {
+    n.richContent = content
+  }
+  record()
+  triggerRef()
+  emit('change', dataRef.value)
+}
 
 // ---------------------------------------------------------------------------
 // Context menu — right-click a node to open a small popover with
@@ -349,6 +361,57 @@ function menuRemoveImage() {
   const id = contextMenu.value?.nodeId
   if (!id) return
   removeNodeImage(id)
+}
+function menuAddCode() {
+  const id = contextMenu.value?.nodeId
+  if (!id) return
+  const existing = findNode(dataRef.value, id)?.richContent
+  const cur = existing?.kind === 'code' ? stripCodeFence(existing.raw) : ''
+  const lang = existing?.kind === 'code' ? existing.lang || '' : ''
+  const header = lang ? '```' + lang + '\n' : '```\n'
+  const placeholder = '// 你的代码'
+  const raw = window.prompt(
+    '输入代码块内容（用 ```lang 包裹；留空取消）',
+    cur ? header + cur + (cur.endsWith('```') ? '' : '\n```') : header + placeholder + '\n```'
+  )
+  if (raw === null) return
+  const trimmed = raw.trim()
+  if (!trimmed) {
+    applyNodeRichContent(id, null)
+    return
+  }
+  // Detect an opening fence to extract the language tag.
+  const m = /^```([^\s`]*)/.exec(trimmed)
+  const lang2 = m ? m[1] : undefined
+  applyNodeRichContent(id, { kind: 'code', raw: trimmed, lang: lang2 })
+}
+function menuRemoveCode() {
+  const id = contextMenu.value?.nodeId
+  if (!id) return
+  applyNodeRichContent(id, null)
+}
+function menuAddTable() {
+  const id = contextMenu.value?.nodeId
+  if (!id) return
+  const existing = findNode(dataRef.value, id)?.richContent
+  const cur = existing?.kind === 'table' ? existing.raw : ''
+  const placeholder = '| 列1 | 列2 | 列3 |\n| --- | --- | --- |\n| a | b | c |'
+  const raw = window.prompt(
+    '输入 markdown 表格（每行以 | 分隔；留空取消）',
+    cur || placeholder
+  )
+  if (raw === null) return
+  const trimmed = raw.trim()
+  if (!trimmed) {
+    applyNodeRichContent(id, null)
+    return
+  }
+  applyNodeRichContent(id, { kind: 'table', raw: trimmed })
+}
+function menuRemoveTable() {
+  const id = contextMenu.value?.nodeId
+  if (!id) return
+  applyNodeRichContent(id, null)
 }
 
 // ---------------------------------------------------------------------------
@@ -1345,7 +1408,12 @@ function lineAnchor(
   if (side === 'in') d = (-n.side) as 1 | -1
   else if (dir !== undefined) d = dir
   else d = n.side
-  return { x: n.x + d * (n.width / 2), y: n.y }
+  // Inset the 'in' anchor a few pixels inside the box so a
+  // thick ribbon (especially at high zoom) can't visually
+  // pierce the child rectangle — the ribbon's normal-width
+  // lands cleanly inside the visible border.
+  const inset = side === 'in' ? 2 : 0
+  return { x: n.x + d * (n.width / 2 - inset), y: n.y }
 }
 
 function resetView() {
@@ -1684,7 +1752,7 @@ onMounted(() => {
           <div
             v-if="n.richContent && (n.richContent.kind === 'code' || n.richContent.kind === 'table') && editingId !== n.id"
             class="zm-rich zm-rich-above"
-            :class="`zm-rich-${n.richContent.kind}`"
+            :class="{ 'zm-rich-no-overflow': n.richContent.kind === 'table' }"
             @click.stop
             @dblclick.stop
             @mousedown.stop
@@ -1800,6 +1868,8 @@ onMounted(() => {
         :has-image="!!findNode(dataRef, contextMenu.nodeId)?.image"
         :has-link="!!findNode(dataRef, contextMenu.nodeId)?.link"
         :has-note="!!findNode(dataRef, contextMenu.nodeId)?.note"
+        :has-code="findNode(dataRef, contextMenu.nodeId)?.richContent?.kind === 'code'"
+        :has-table="findNode(dataRef, contextMenu.nodeId)?.richContent?.kind === 'table'"
         :readonly="props.readonly"
         @pick-image="menuPickImage"
         @remove-image="menuRemoveImage"
@@ -1807,6 +1877,12 @@ onMounted(() => {
         @remove-link="menuRemoveLink"
         @edit-note="menuEditNote"
         @remove-note="menuRemoveNote"
+        @add-code="menuAddCode"
+        @edit-code="menuAddCode"
+        @remove-code="menuRemoveCode"
+        @add-table="menuAddTable"
+        @edit-table="menuAddTable"
+        @remove-table="menuRemoveTable"
         @close="closeContextMenu"
       />
     </div>
@@ -2028,6 +2104,14 @@ onMounted(() => {
 .zm-rich-above {
   margin: 0 0 6px 0;
 }
+/* Tables should grow with their content and never show a
+ * scrollbar — the layout's reserved height cap was meant
+ * to keep long code fences from dominating the tree; for
+ * tables we just let the box take its natural height. */
+.zm-rich-no-overflow {
+  max-height: none;
+  overflow: visible;
+}
 .zm-rich-code {
   margin: 0;
   font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
@@ -2043,6 +2127,11 @@ onMounted(() => {
 .zm-rich-list li {
   margin: 1px 0;
 }
+/* Tables should grow with their content and never show a
+ * scrollbar — the only thing the layout reserved height
+ * gave them was a cap to keep the tree readable.  A short
+ * 3-4 row table that fits within the reserved space should
+ * just be its natural height. */
 .zm-rich-table {
   width: 100%;
   border-collapse: collapse;
