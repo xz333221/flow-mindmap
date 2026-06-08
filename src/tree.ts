@@ -459,6 +459,258 @@ export function mindMapToMarkdown(n: MindMapNode, depth = 1): string {
   if (n.link) s += `[${n.text || 'link'}](${n.link.url})\n`
   if (n.image) s += `![image](${n.image.src})\n`
   if (n.note) s += '```note\n' + n.note.text + '\n```\n'
+  if (n.richContent) s += n.richContent.raw + '\n'
   for (const c of n.children) s += mindMapToMarkdown(c, depth + 1)
   return s
+}
+
+// ── rich-content parser ─────────────────────────────────────
+//
+// `markdownToRichMindMap` is the "document-as-mindmap" twin of
+// `markdownToMindMap`.  Where the latter only reads `#`-style
+// headings and dumps everything else as a flat body, this one
+// walks the whole document and turns EVERY block — heading,
+// paragraph, list, code fence, table — into a tree node, with
+// the original markdown preserved verbatim in
+// `node.richContent.raw` so `mindMapToMarkdown` can round-trip
+// it back.
+//
+// The hierarchy is built by tracking a stack of "active
+// containers".  A `#` heading pushes a new container at the
+// matching depth (and pops anything shallower so siblings
+// flatten).  Plain blocks (paragraphs, lists, code, tables)
+// become children of the currently-open heading; if no
+// heading has been seen yet, they become children of the
+// synthetic root.
+//
+// The tree is unbounded by design — the user asked for
+// "every paragraph becomes a child node, no depth limit".
+// Hosts that want a finite view should post-process the
+// result (e.g. cap depth, collapse sub-trees).
+
+interface Block {
+  /** 'heading' for `#…`, 'code' for fenced, 'list' for `-`/`*`/`1.`, 'table' for `|…|`, 'paragraph' for prose. */
+  kind: 'heading' | 'code' | 'list' | 'table' | 'paragraph'
+  level?: number         // 1..6 for heading; indent for list; undefined otherwise
+  text: string           // for heading: the heading text; for others: a one-line summary used as node title
+  raw: string            // original markdown source, multi-line allowed
+  lang?: string          // for code: the fence info string
+}
+
+function splitBlocks(md: string): Block[] {
+  const lines = md.split(/\r?\n/)
+  const out: Block[] = []
+  let i = 0
+  const HEADING_RE = /^(#{1,6})\s+(.+?)\s*#*\s*$/
+  const FENCE_RE = /^(`{3,}|~{3,})\s*(\S+)?\s*$/
+  const TABLE_SEP_RE = /^\s*\|?\s*(:?-+:?\s*\|\s*)+(:?-+:?)(\s*\|)?\s*$/
+  const UL_RE = /^(\s*)[-*+]\s+(.*)$/
+  const OL_RE = /^(\s*)\d+\.\s+(.*)$/
+
+  while (i < lines.length) {
+    const raw = lines[i]
+
+    // Fenced code block (``` or ~~~).  Body runs until a matching closer.
+    const fence = raw.match(FENCE_RE)
+    if (fence) {
+      const marker = fence[1][0]
+      const lang = fence[2] || ''
+      const body: string[] = [raw]
+      i++
+      while (i < lines.length) {
+        const closer = lines[i].match(FENCE_RE)
+        if (closer && closer[1][0] === marker) {
+          body.push(lines[i])
+          i++
+          break
+        }
+        body.push(lines[i])
+        i++
+      }
+      const codeText = body.slice(1, -1).join('\n').trim()
+      out.push({
+        kind: 'code',
+        text: codeText.split('\n')[0]?.slice(0, 80) || '(空代码块)',
+        raw: body.join('\n'),
+        lang,
+      })
+      continue
+    }
+
+    // Heading.
+    const h = raw.match(HEADING_RE)
+    if (h) {
+      out.push({ kind: 'heading', level: h[1].length, text: h[2].trim(), raw: raw })
+      i++
+      continue
+    }
+
+    // Table — contiguous lines starting with `|`.  A separator
+    // row (`| --- | --- |`) must appear for the block to count
+    // as a table; otherwise the lines fall through to paragraph.
+    if (/^\s*\|/.test(raw)) {
+      const tblLines: string[] = []
+      let j = i
+      let sawSep = false
+      while (j < lines.length && /^\s*\|/.test(lines[j])) {
+        tblLines.push(lines[j])
+        if (TABLE_SEP_RE.test(lines[j])) sawSep = true
+        j++
+      }
+      if (sawSep && tblLines.length >= 2) {
+        out.push({
+          kind: 'table',
+          text: tblLines[0].replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|')[0]?.trim() || '表格',
+          raw: tblLines.join('\n'),
+        })
+        i = j
+        continue
+      }
+      // No separator — treat as paragraph so a stray `|` line
+      // doesn't get lost.
+    }
+
+    // List — `-`, `*`, `+`, or `1.`.  Each non-empty list line
+    // becomes its own block so the resulting mindmap can show
+    // every list item as a separate node (the user asked for
+    // "every paragraph / list item becomes a child, no depth
+    // limit").  Blank lines inside a list split it; we don't
+    // try to preserve "lists within lists" — each top-level
+    // list line is one block with a one-line summary.
+    const ul = raw.match(UL_RE)
+    const ol = raw.match(OL_RE)
+    if (ul || ol) {
+      let j = i
+      while (j < lines.length) {
+        const m1 = lines[j].match(UL_RE)
+        const m2 = lines[j].match(OL_RE)
+        if (!(m1 || m2)) break
+        const cleaned = lines[j]
+          .replace(/^\s*[-*+]\s+/, '')
+          .replace(/^\s*\d+\.\s+/, '')
+          .trim()
+        if (cleaned.length > 0) {
+          out.push({
+            kind: 'list',
+            text: cleaned.slice(0, 80) || '(列表项)',
+            raw: lines[j],
+          })
+        }
+        j++
+      }
+      i = j
+      continue
+    }
+
+    // Blank line — skip; paragraphs are delimited by blank
+    // lines below.
+    if (raw.trim() === '') { i++; continue }
+
+    // Paragraph — gather until the next blank line / heading /
+    // list / table / fence.
+    const paraLines: string[] = [raw]
+    let j = i + 1
+    while (j < lines.length) {
+      const peek = lines[j]
+      if (peek.trim() === '') break
+      if (HEADING_RE.test(peek)) break
+      if (FENCE_RE.test(peek)) break
+      if (UL_RE.test(peek) || OL_RE.test(peek)) break
+      if (/^\s*\|/.test(peek)) break
+      paraLines.push(peek)
+      j++
+    }
+    const paraText = paraLines.join(' ').trim()
+    out.push({
+      kind: 'paragraph',
+      text: paraText.slice(0, 80) || '(空段落)',
+      raw: paraLines.join('\n'),
+    })
+    i = j
+  }
+  return out
+}
+
+/**
+ * Parse a whole markdown document into a MindMapNode tree where
+ * every block (heading, paragraph, list, code fence, table)
+ * becomes a node.  Body blocks carry their original markdown
+ * payload in `node.richContent` so the renderer can show code,
+ * tables, lists, etc. inside the node box.  Headings form the
+ * hierarchy; everything else is attached to the most recent
+ * heading as a child (or to the synthetic root if no heading
+ * has been seen yet).
+ *
+ * Unlike `markdownToMindMap`, this does NOT collapse body into
+ * a single child of the heading, and the depth is unbounded —
+ * a paragraph under `## Foo` becomes a child of `Foo`, and a
+ * paragraph that follows a list under the same heading becomes
+ * a sibling of that list, etc.  This is the mode the user
+ * asked for: "every paragraph becomes a child, no depth limit".
+ *
+ * A document with no `#` heading still produces a valid tree —
+ * every block lands under the synthetic root.
+ */
+export function markdownToRichMindMap(md: string, rootText: string = '导入的导图'): MindMapNode {
+  const blocks = splitBlocks(md || '')
+  const root: MindMapNode = { id: uid(), text: rootText, children: [] }
+  // Container stack.  Bottom is the synthetic root at level 0.
+  // Heading pushes a new container at its level (after popping
+  // anything >= the same level so headings are siblings of
+  // each other at the right tier).
+  const stack: MindMapNode[] = [root]
+  const levelStack: number[] = [0]
+  let firstHeadingPromoted = false
+
+  function attach(block: Block) {
+    if (block.kind === 'heading') {
+      const lvl = block.level!
+      while (stack.length > 1 && levelStack[levelStack.length - 1] >= lvl) {
+        stack.pop()
+        levelStack.pop()
+      }
+      // The first level-1 heading in the doc becomes the visible
+      // root: mutate the synthetic root in place (text + id) and
+      // use it as the new container, so the heading doesn't
+      // appear twice (once as root, once as a child of root).
+      if (!firstHeadingPromoted && lvl === 1) {
+        firstHeadingPromoted = true
+        root.text = block.text
+        // Keep the original id so the tree is stable across
+        // re-parses of the same source.
+        // (No need to push a new node — `stack[0]` is already
+        // root, and we just bumped its level on the stack so
+        // subsequent H2s know they're nested under an H1.)
+        levelStack[0] = 1
+        return
+      }
+      const node: MindMapNode = { id: uid(), text: block.text, children: [] }
+      stack[stack.length - 1].children.push(node)
+      stack.push(node)
+      levelStack.push(lvl)
+      return
+    }
+    // Body block — attach to current container.
+    const node: MindMapNode = {
+      id: uid(),
+      text: block.text,
+      children: [],
+      richContent: { kind: block.kind, raw: block.raw, lang: block.lang },
+    }
+    stack[stack.length - 1].children.push(node)
+  }
+
+  for (const b of blocks) attach(b)
+  return root
+}
+
+/**
+ * Serialize a single node's rich body (if any) back to the
+ * original markdown it came from.  Used by `mindMapToMarkdown`
+ * to round-trip a tree built by `markdownToRichMindMap`.
+ * Returns '' when the node has no rich body.
+ */
+export function richBlockToMarkdown(n: MindMapNode): string {
+  if (!n.richContent) return ''
+  return n.richContent.raw + '\n'
 }

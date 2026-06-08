@@ -56,11 +56,17 @@ export interface LayoutNode {
   /** Mirrored from MindMapNode.note.  Read by the renderer to
    *  show a note icon next to the text. */
   note?: { text: string }
+  /** Mirrored from MindMapNode.richContent.  Read by the renderer
+   *  to show a small framed body under the node title (code / list /
+   *  table / paragraph).  Undefined means the node is plain text
+   *  only — the default behaviour, unchanged from before this
+   *  field was introduced. */
+  richContent?: RichContent
   children: LayoutNode[]
   parent: LayoutNode | null
 }
 
-import type { MindMapNode, MindMapImage } from '../types'
+import type { MindMapNode, MindMapImage, RichContent } from '../types'
 
 // =====================================================================
 // Node metrics — 1.html's getNodeStyle() table (1.html JS L332-338).
@@ -205,15 +211,23 @@ function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number): {
   }
   const textRowW = textWWithPad + iconTrayW
   const minW = Math.round((NODE_MIN_W[t] * baseFontSize) / 14)
+  // Reserve vertical room for a rich body (code / list / table /
+  // paragraph) when one is present.  The CSS clamps the body to
+  // 160px so a very long code fence doesn't blow up the layout —
+  // we mirror that here so the box height matches what the
+  // renderer actually paints.  The title fontSize is reused for
+  // the body so the visual ratio stays consistent.
+  const richH = node.richContent ? Math.min(160, Math.ceil(fontSize * 6.5)) : 0
+  const richGap = richH > 0 ? 6 : 0
   if (!node.image) {
     const w = Math.max(minW, textRowW)
-    return { w, h: textH }
+    return { w, h: textH + richGap + richH }
   }
   // Has an image: width accommodates the wider of the text row or
   // the image; height stacks the image + gap + text region.
   const imgW = clamp(node.image.width, IMG_MIN_W, IMG_MAX_W)
   const w = Math.max(minW, textRowW, Math.ceil(imgW + pad * 2))
-  const h = Math.ceil(node.image.height + IMG_GAP + textH)
+  const h = Math.ceil(node.image.height + IMG_GAP + textH + richGap + richH)
   return { w, h }
 }
 
@@ -510,6 +524,7 @@ function buildLayout(
     image: node.image ? { ...node.image } : undefined,
     link: node.link ? { url: node.link.url } : undefined,
     note: node.note ? { text: node.note.text } : undefined,
+    richContent: node.richContent ? { kind: node.richContent.kind, raw: node.richContent.raw, lang: node.richContent.lang } : undefined,
     children: [],
     parent,
   }

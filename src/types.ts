@@ -40,6 +40,35 @@ export interface MindMapNode {
    * `text` field is treated as "no note" by the UI.
    */
   note?: { text: string }
+  /**
+   * Optional rich body.  When set, the node renders the raw
+   * markdown payload in a small framed block under the title
+   * (code fences get monospace styling, lists get bullet
+   * markers, tables get a mini grid, paragraphs get plain
+   * text).  Produced by `markdownToRichMindMap` so a whole
+   * markdown document can be previewed as a mindmap without
+   * losing its body content.  The first line of `raw` is
+   * still available as `text` so the node always has a
+   * meaningful label.
+   */
+  richContent?: RichContent
+}
+
+/**
+ * A node body that came from a markdown block.  `raw` is the
+ * original markdown source for the block (preserved verbatim so
+ * `mindMapToMarkdown` can re-emit it byte-for-byte).  `kind`
+ * tells the renderer which layout to use.
+ */
+export interface RichContent {
+  kind: 'code' | 'list' | 'table' | 'paragraph'
+  /** Original markdown source.  Always non-empty. */
+  raw: string
+  /**
+   * Optional language tag for code blocks (the info string after
+   * the opening fence).  `undefined` for non-code kinds.
+   */
+  lang?: string
 }
 
 export interface MindMapImage {

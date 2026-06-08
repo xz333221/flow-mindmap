@@ -1098,6 +1098,58 @@ function doNavigate(dx: number, dy: number) {
   }
 }
 
+// ── rich body helpers ────────────────────────────────────────
+//
+// Convert a richContent.raw payload into the fragments the
+// template renders.  Kept as plain functions (not computed) so
+// the template can call them inline and re-runs are cheap
+// (each block is ≤ a few KB of markdown).
+
+/** Strip the opening and closing ``` fences from a code block,
+ *  returning just the body.  Handles both ``` and ~~~ markers. */
+function stripCodeFence(raw: string): string {
+  const lines = raw.split('\n')
+  // Drop the first line if it opens a fence, and the last if
+  // it closes one.  If the user truncated the closing fence
+  // (e.g. mid-edit), just return everything minus the opener.
+  if (/^(`{3,}|~{3,})/.test(lines[0] ?? '')) lines.shift()
+  if (/^(`{3,}|~{3,})\s*$/.test(lines[lines.length - 1] ?? '')) lines.pop()
+  return lines.join('\n').replace(/\n+$/, '')
+}
+
+/** Strip the bullet/number marker from each list line so the
+ *  template can render the items in its own <ul>. */
+function listLines(raw: string): string[] {
+  return raw
+    .split('\n')
+    .map(l => l.replace(/^\s*[-*+]\s+/, '').replace(/^\s*\d+\.\s+/, '').trim())
+    .filter(l => l.length > 0)
+}
+
+/** Split a pipe-delimited table into rows of cells.  Strips
+ *  the alignment separator row (`| --- | --- |`) and trims
+ *  leading/trailing pipes. */
+function tableRows(raw: string): string[][] {
+  return raw
+    .split('\n')
+    .filter(l => l.trim().length > 0)
+    .filter(l => !/^\s*\|?\s*(:?-+:?\s*\|\s*)+(:?-+:?)(\s*\|)?\s*$/.test(l))
+    .map(l =>
+      l
+        .replace(/^\s*\|/, '')
+        .replace(/\|\s*$/, '')
+        .split('|')
+        .map(c => c.trim())
+    )
+}
+
+/** Collapse a multi-line paragraph into a single line (the
+ *  node body shows a short summary; the full text is still
+ *  available via richContent.raw for round-tripping). */
+function paragraphText(raw: string): string {
+  return raw.replace(/\s+/g, ' ').trim()
+}
+
 function doRemove(nodeId: string) {
   if (nodeId === dataRef.value.id) return
   if (removeNode(dataRef.value, nodeId)) {
@@ -1636,6 +1688,35 @@ onMounted(() => {
               @mousedown.stop
             ><Icon name="note" :size="11" :stroke="2" /></button>
           </span>
+          <!-- Rich body: produced by markdownToRichMindMap so a
+               whole markdown document can be previewed as a
+               mindmap without losing code / list / table / paragraph
+               content.  Rendered as a small framed block under the
+               node title; the kind decides the layout.  Pointer
+               events are explicitly disabled on the body so clicks
+               fall through to the node (lets the user dblclick the
+               node to edit). -->
+          <div
+            v-if="n.richContent && editingId !== n.id"
+            class="zm-rich"
+            :class="`zm-rich-${n.richContent.kind}`"
+            @click.stop
+            @dblclick.stop
+            @mousedown.stop
+          >
+            <pre v-if="n.richContent.kind === 'code'" class="zm-rich-code"><code :class="n.richContent.lang ? `language-${n.richContent.lang}` : ''">{{ stripCodeFence(n.richContent.raw) }}</code></pre>
+            <ul v-else-if="n.richContent.kind === 'list'" class="zm-rich-list">
+              <li v-for="(line, i) in listLines(n.richContent.raw)" :key="i">{{ line }}</li>
+            </ul>
+            <table v-else-if="n.richContent.kind === 'table'" class="zm-rich-table">
+              <tbody>
+                <tr v-for="(row, ri) in tableRows(n.richContent.raw)" :key="ri">
+                  <td v-for="(cell, ci) in row" :key="ci">{{ cell }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-else class="zm-rich-paragraph">{{ paragraphText(n.richContent.raw) }}</div>
+          </div>
           <input
             v-else
             class="zm-input"
@@ -1909,6 +1990,60 @@ onMounted(() => {
   text-align: center;
   width: 100%;
   min-width: 40px;
+}
+
+/* ── rich body ─────────────────────────────────────
+ * Shows the markdown payload produced by
+ * `markdownToRichMindMap` inside the node box, so a whole
+ * document can be previewed as a mindmap without losing
+ * its body content.  All four kinds are styled to fit
+ * inside the small node frame (max-height + scroll for
+ * code, capped width for prose).  Pointer events are
+ * explicitly disabled via .zm-rich so the node stays
+ * clickable for selection / dblclick-to-edit. */
+.zm-rich {
+  pointer-events: none;
+  margin-top: 6px;
+  width: 100%;
+  max-width: 260px;
+  max-height: 160px;
+  overflow: auto;
+  font-size: 0.78em;
+  line-height: 1.35;
+  text-align: left;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: inherit;
+}
+.zm-rich-code {
+  margin: 0;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 0.92em;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.zm-rich-list {
+  margin: 0;
+  padding-left: 1.2em;
+  list-style: disc;
+}
+.zm-rich-list li {
+  margin: 1px 0;
+}
+.zm-rich-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+.zm-rich-table td {
+  border: 1px solid currentColor;
+  opacity: 0.7;
+  padding: 2px 5px;
+}
+.zm-rich-paragraph {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .zm-btn {
   position: absolute;

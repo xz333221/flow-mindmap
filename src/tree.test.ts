@@ -14,6 +14,7 @@ import {
   countDescendants,
   markdownToMindMap,
   mindMapToMarkdown,
+  markdownToRichMindMap,
   DEFAULT_NEW_NODE_TEXT,
 } from './tree'
 import type { MindMapNode } from './types'
@@ -406,5 +407,129 @@ describe('mindMapToMarkdown — round-trip', () => {
     expect(reparsed.image?.src).toBe('https://example.com/p.png')
     expect(reparsed.link?.url).toBe('https://example.com')
     expect(reparsed.note?.text).toBe('line 1\nline 2')
+  })
+})
+
+describe('markdownToRichMindMap', () => {
+  it('treats headings as parents and body blocks as children', () => {
+    const md = [
+      '# 项目',
+      '',
+      '总览段落。',
+      '',
+      '## 第一阶段',
+      '',
+      '阶段说明。',
+      '',
+      '- 任务 A',
+      '- 任务 B',
+      '',
+      '## 第二阶段',
+      '',
+      '```ts',
+      'const x = 1',
+      '```',
+      '',
+    ].join('\n')
+    const r = markdownToRichMindMap(md)
+    expect(r.text).toBe('项目')
+    const phases = r.children.filter(c => c.text === '第一阶段' || c.text === '第二阶段')
+    expect(phases.length).toBe(2)
+    const phase1 = phases.find(p => p.text === '第一阶段')!
+    // 阶段说明. paragraph + 2 list items (one per list line)
+    expect(phase1.children.length).toBe(3)
+    const para = phase1.children.find(c => c.richContent?.kind === 'paragraph')!
+    expect(para.richContent?.raw).toContain('阶段说明')
+    const lists = phase1.children.filter(c => c.richContent?.kind === 'list')
+    expect(lists.length).toBe(2)
+    expect(lists.map(l => l.text)).toEqual(['任务 A', '任务 B'])
+  })
+
+  it('captures code fences with their language tag', () => {
+    const md = [
+      '# H',
+      '',
+      '```ts',
+      'const x = 1',
+      'const y = 2',
+      '```',
+      '',
+    ].join('\n')
+    const r = markdownToRichMindMap(md)
+    const code = r.children.find(c => c.richContent?.kind === 'code')!
+    expect(code.richContent?.lang).toBe('ts')
+    expect(code.richContent?.raw).toContain('const x = 1')
+    expect(code.richContent?.raw).toContain('```ts')
+  })
+
+  it('captures tables and keeps raw markdown verbatim', () => {
+    const md = [
+      '# H',
+      '',
+      '| 列1 | 列2 |',
+      '| --- | --- |',
+      '| a   | b   |',
+      '',
+    ].join('\n')
+    const r = markdownToRichMindMap(md)
+    const tbl = r.children.find(c => c.richContent?.kind === 'table')!
+    expect(tbl.richContent?.raw).toContain('| 列1 | 列2 |')
+    expect(tbl.richContent?.raw).toContain('| --- | --- |')
+    expect(tbl.richContent?.raw).toContain('| a   | b   |')
+  })
+
+  it('round-trips a rich body through mindMapToMarkdown', () => {
+    const md = [
+      '# H',
+      '',
+      '正文段。',
+      '',
+      '```js',
+      'let a = 1',
+      '```',
+      '',
+    ].join('\n')
+    const r = markdownToRichMindMap(md)
+    const out = mindMapToMarkdown(r)
+    // Rich body raw should be present, plus the heading.
+    expect(out).toContain('# H')
+    expect(out).toContain('正文段')
+    expect(out).toContain('```js')
+    expect(out).toContain('let a = 1')
+  })
+
+  it('attaches body blocks to the synthetic root when no heading is present', () => {
+    const md = [
+      '段落一。',
+      '',
+      '段落二。',
+      '',
+    ].join('\n')
+    const r = markdownToRichMindMap(md, 'Root')
+    expect(r.text).toBe('Root')
+    expect(r.children.length).toBe(2)
+    expect(r.children.every(c => c.richContent?.kind === 'paragraph')).toBe(true)
+  })
+
+  it('unlimited depth: heading under heading under heading all become nodes', () => {
+    const md = [
+      '# A',
+      '## B',
+      '### C',
+      '#### D',
+      '正文',
+    ].join('\n')
+    const r = markdownToRichMindMap(md)
+    const a = r
+    const b = a.children[0]
+    const c = b.children[0]
+    const d = c.children[0]
+    expect(a.text).toBe('A')
+    expect(b.text).toBe('B')
+    expect(c.text).toBe('C')
+    expect(d.text).toBe('D')
+    const para = d.children[0]
+    expect(para.richContent?.kind).toBe('paragraph')
+    expect(para.richContent?.raw).toContain('正文')
   })
 })
