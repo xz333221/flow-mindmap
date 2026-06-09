@@ -205,7 +205,34 @@ function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number, ri
   const textW = Math.min(measureText(node.text || '', fontSize, NODE_FONT_WEIGHTS[t]), TEXT_MAX_W)
   const pad = padPx(level, baseFontSize)
   const textWWithPad = Math.ceil(textW + pad * 2)
-  const textH = heightAt(level, baseFontSize)
+  // Title-row height reserved in the layout.  `heightAt()` returns
+  // the full single-row node height per tier (e.g. 40 px at
+  // depth 1), which is right for a text-only node.  But when a
+  // rich body is stacked ABOVE the title (code/table), the title
+  // is a small flex item at the bottom of a column — the
+  // surrounding `n.height` only needs the title's intrinsic
+  // pixel height, not the full single-row reservation.  Using
+  // the full reservation here gives the box ~20+ px of extra
+  // vertical space that flex's `justify-content: center` then
+  // splits above and below the rich body, producing uneven
+  // top/bottom padding between short-title (table) and
+  // long-content (code) rich bodies.
+  //
+  // Breakdown: title row = fontSize × line-height 1.2 (intrinsic
+  // line-box) + 2 px for the box's 1-px top+bottom border +
+  // 6 px safety buffer (2 above title, 2 below, 2 flex
+  // rounding).  Without the 6 px buffer the title's bottom
+  // descender line gets clipped by the box's bottom border —
+  // visually the title looks "half-rendered".  For text-only
+  // nodes `textH` still uses the full reservation via the
+  // `else` branch below.
+  const hasAboveRichForH = !!(
+    node.richContent &&
+    (node.richContent.kind === 'code' || node.richContent.kind === 'table')
+  )
+  const textH = hasAboveRichForH
+    ? Math.ceil(fontSize * 1.2) + 2
+    : heightAt(level, baseFontSize)
   // Reserve space for the inline icons: each link/note icon is
   // 16px + 4px gap (only between adjacent icons; no trailing gap
   // — the text label sits right after the last icon).
@@ -268,12 +295,18 @@ function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number, ri
   // than the layout.
   const measured = richHeights?.[node.id]
   const richH = hasAboveRich
-    ? Math.max(24, measured ?? Math.min(200, Math.max(70, Math.ceil(fontSize * 5))))
+    ? Math.max(24, measured ?? Math.max(70, Math.ceil(fontSize * 5)))
     : 0
-  const richGap = richH > 0 ? 8 : 0
+  // Gap between the rich body and the title below it.  Matches
+  // the CSS `.zm-rich-above { margin: 0 0 6px 0 }` (rich body
+  // bottom margin), not 8 — without this match the box height
+  // is 2 px too tall and flex pushes the title 2 px below the
+  // box border, clipping its descender.
+  const richGap = richH > 0 ? 6 : 0
   if (!node.image) {
     const w = Math.max(minW, textRowW)
-    return { w, h: textH + richGap + richH }
+    const h = Math.ceil(textH + richGap + richH)
+    return { w, h }
   }
   // Has an image: width accommodates the wider of the text row or
   // the image; height stacks the image + gap + text region.

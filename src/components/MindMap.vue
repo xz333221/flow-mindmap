@@ -547,6 +547,12 @@ function onPaste(e: ClipboardEvent) {
 }
 onMounted(() => {
   window.addEventListener('paste', onPaste)
+  // Initial render doesn't go through any data-mutating path, so
+  // triggerRef() never fires on mount — but we still need the
+  // post-mount rich-body measurement so the layout picks up real
+  // heights for code/table nodes.  Call it once here to start
+  // the measure → re-layout cycle for the first paint.
+  triggerRef()
 })
 onBeforeUnmount(() => {
   window.removeEventListener('paste', onPaste)
@@ -719,17 +725,28 @@ function triggerRef() {
   // bump layoutVersion again so a height change forces another
   // re-layout (the loop terminates because the heights are
   // stable on the second pass).
-  void nextTick().then(() => {
-    measureRichBodies()
-  })
-  // NB: autoBalanceOnChange used to call resetView() here, but
-  // that yanked the user's zoom/pan on every add / edit /
-  // collapse-toggle — "I zoom in, then click any node and the
-  // view snaps back to fit" was the bug.  We let the layout
-  // recompute and keep the view as-is.  runBalance() — the
-  // explicit "balance" button — is the only place that
-  // re-centres, since it's the user explicitly asking for a
-  // fresh view.
+  //
+  // Why a *double* nextTick: the first await flushes the layout
+  // computed (synchronous) into Vue's render queue, the second
+  // await flushes the actual DOM patch — the `.zm-rich` elements
+  // we read `offsetHeight` from only exist AFTER both ticks.  A
+  // single `nextTick().then(measure)` runs before the DOM is
+  // patched, finds zero `.zm-rich` elements, and the layout
+  // falls back to its pre-render `richH` estimate forever (the
+  // "rich body never resizes to fit content" bug).  Two ticks
+  // guarantees the DOM is up-to-date.
+  void nextTick()
+    .then(() => nextTick())
+    .then(() => measureRichBodies())
+    .then(() => {
+      // The measure above wrote fresh richHeights/richWidths.
+      // Bump layoutVersion so allNodes re-derives from the latest
+      // layout result.  layoutResult itself is reactive on
+      // richHeights, so it has already re-run; this bump is the
+      // belt-and-suspenders that makes the change visible even
+      // when the measure values are stable.
+      layoutVersion.value++
+    })
 }
 
 // Walk every rendered `.zm-rich` element, read its current
@@ -778,8 +795,16 @@ function measureRichBodies() {
     if (richHeights.value[id] !== rH) anyChanged = true
     if (richWidths.value[id] !== rW) anyChanged = true
   })
-  if (!anyChanged) return
-  // Replace the maps so Vue's reactivity picks them up.
+  // Always write the new map back so the first paint — which
+  // happens BEFORE any rich body is mounted in the DOM, so
+  // `els` is empty and `anyChanged` stays `false` — still
+  // replaces the ref.  Without this, the early-return path
+  // skips the assignment and the layout keeps seeing the
+  // stale `{}` (or the last-paint values) instead of an
+  // empty map it can re-derive on the next pass.  A
+  // redundant replacement is cheap (Vue's reactivity
+  // short-circuits same-content updates) so we just always
+  // write.
   richHeights.value = nextH
   richWidths.value = nextW
 }
@@ -2288,10 +2313,37 @@ onMounted(() => {
    * icons.  `pointer-events: none` is kept on the *label* so a
    * click on text still falls through to the node (lets the
    * user dblclick-to-edit the text).  The icon buttons inside
-   * re-enable pointer events explicitly. */
-  display: inline-flex;
+   * re-enable pointer events explicitly.
+   *
+   * `display: flex` (not inline-flex): the parent `.zm-node` is
+   * `display: flex; flex-direction: column; align-items: center`,
+   * and an inline-flex child reports its content size to the
+   * parent as ~0 height (the inline formatting context doesn't
+   * contribute a line-box here), which collapsed the title to a
+   * 0-height strip and clipped the visible text.
+   *
+   * `min-height: 1em` (belt-and-braces): a flex item's default
+   * `min-height: auto` resolves to the content's min-content
+   * size, which for an inline-element child can still be 0 if
+   * the parent has tight overflow constraints.  Forcing `1em`
+   * guarantees the title takes at least one line-box's worth
+   * of vertical space so the text is never clipped by the
+   * parent box.  The actual `n.height` reservation in
+   * `calcNodeSize` accounts for this 1em too. */
+  display: flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
+  /* Force the title row to reserve at least one line-box's
+   * worth of vertical space.  A flex item's default
+   * `min-height: auto` resolves to its content's min-content
+   * size, which for an inline-element child of an
+   * overflow-constrained flex parent can be 0.  Using
+   * `min-height: 1.2em` (matching the parent's line-height)
+   * guarantees the title takes the full line-box height so
+   * `align-items: center` never clips a taller label.  The
+   * layout's `n.height` reservation accounts for this. */
+  min-height: 1.2em;
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2335,8 +2387,13 @@ onMounted(() => {
    * also re-select the node. */
   margin-top: 6px;
   width: max-content;
-  max-height: 200px;
-  overflow: auto;
+  /* No height cap: the body grows to fit its content so very long
+   * tables / code stay fully visible.  The box's layout-reserved
+   * height comes from the measured `richHeights` map (see
+   * core/layout.ts), so neighbours don't collide when a table
+   * grows.  If you want a safety bound for pathological pastes,
+   * add `max-height` here and switch `overflow` back to `auto`. */
+  overflow: visible;
   font-size: 0.78em;
   line-height: 1.35;
   text-align: left;
