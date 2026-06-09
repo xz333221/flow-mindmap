@@ -151,7 +151,12 @@ function pickDataByHash(): MindMapNode {
   if (typeof location !== 'undefined' && location.hash === '#fan') return fanData
   if (typeof location !== 'undefined' && location.hash === '#stress') return stressData
   if (typeof location !== 'undefined' && location.hash === '#rich') return richData
-  return initialData
+  // No hash → fall through to the "rich sample" (节点能力一览)
+  // as the default demo.  Reviewers land on the page and
+  // immediately see every renderable field (image / code / table
+  // / note / link).  The simple 3-branch sample is still
+  // available via the toolbar toggle.
+  return richData
 }
 
 // Test fixture: load a multi-branch dataset when the URL has #fan.
@@ -199,7 +204,7 @@ const stressData: MindMapNode = (() => {
   return { id: 'root', text: 'flow-mindmap 思维导图', children: [...left, ...right] }
 })()
 
-const data = ref<MindMapNode>(pickDataByHash())
+const data = ref<MindMapNode>(richData)
 const selectedNode = ref<MindMapNode | null>(null)
 const collapsedIds = ref<Set<string>>(new Set())
 const showOutline = ref(false)
@@ -232,7 +237,11 @@ function syncHashData() {
 // (image / code / table / note / link).  The button toggles
 // back to the default sample on second click so reviewers can
 // A/B compare.
-const richMode = ref(typeof location !== 'undefined' && location.hash === '#rich')
+// Default to the "节点能力一览" fixture so reviewers see every
+// renderable field (image / code / table / note / link) on first
+// load.  The toolbar button toggles back to the simple sample on
+// the first click.
+const richMode = ref(true)
 function loadRichSample() {
   if (richMode.value) {
     data.value = initialData
@@ -550,7 +559,7 @@ const totalNodes = computed(() => countNodes(data.value))
         <button
           class="zm-app-icon-btn"
           :class="{ 'is-on': richMode }"
-          title="加载节点能力一览(图片 / 代码 / 表格 / 笔记 / 链接)"
+          :title="richMode ? '切回默认示例 (3 分支)' : '切到节点能力一览 (图片/代码/表格/笔记/链接)'"
           @click="loadRichSample"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
