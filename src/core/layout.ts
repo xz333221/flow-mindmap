@@ -231,7 +231,7 @@ function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number, ri
     (node.richContent.kind === 'code' || node.richContent.kind === 'table')
   )
   const textH = hasAboveRichForH
-    ? Math.ceil(fontSize * 1.2) + 2
+    ? Math.ceil(fontSize * 1.2) + 6
     : heightAt(level, baseFontSize)
   // Reserve space for the inline icons: each link/note icon is
   // 16px + 4px gap (only between adjacent icons; no trailing gap
@@ -298,11 +298,11 @@ function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number, ri
     ? Math.max(24, measured ?? Math.max(70, Math.ceil(fontSize * 5)))
     : 0
   // Gap between the rich body and the title below it.  Matches
-  // the CSS `.zm-rich-above { margin: 0 0 6px 0 }` (rich body
+  // the CSS `.zm-rich-above { margin: 0 0 10px 0 }` (rich body
   // bottom margin), not 8 — without this match the box height
   // is 2 px too tall and flex pushes the title 2 px below the
   // box border, clipping its descender.
-  const richGap = richH > 0 ? 6 : 0
+  const richGap = richH > 0 ? 10 : 0
   if (!node.image) {
     const w = Math.max(minW, textRowW)
     const h = Math.ceil(textH + richGap + richH)

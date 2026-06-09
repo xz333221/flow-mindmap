@@ -2406,7 +2406,7 @@ onMounted(() => {
  * margin (no need to separate from a thing that doesn't
  * exist yet) and add a bottom gap before the title. */
 .zm-rich-above {
-  margin: 0 0 6px 0;
+  margin: 0 0 2px 0;
 }
 /* Both code and table rich bodies grow with their content and
  * never show a scrollbar — the layout's reserved height cap
