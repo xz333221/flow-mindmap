@@ -570,20 +570,45 @@ function buildLayout(
   richWidths?: Record<string, number>
 ): LayoutNode {
   const size = calcNodeSize(node, depth, baseFontSize, richHeights, richWidths)
-  // SVG line anchor inset for code/table nodes.  The visible content
-  // (the `.zm-rich` framed body) sits inside the box by:
-  //   - `.zm-node` horizontal padding  = `padPx(depth, baseFontSize)`
-  //   - `.zm-rich` horizontal padding  = 6 px (CSS `padding: 4px 6px`)
-  //   - small extra 2 px so the line tip lands just inside the
-  //     rich body, not on the inner padding boundary.
-  // For plain nodes (no richContent, or kind other than code/table)
-  // the geometric box edge IS the visible edge, so leave 0 and let
-  // the MindMap.vue lineAnchor keep its 2-px inset.
+  // SVG line anchor inset for code/table nodes.  The line tip
+  // should land at the rich body's OUTER left edge (so the
+  // ribbon visually "touches" the framed body without piercing
+  // the visible content).
+  //
+  // Geometry: the box is centered on (n.x, n.y) with
+  // `transform: translate(-50%, -50%)`, so its geometric left
+  // edge sits at `n.x − n.width / 2`.  For a right-side child
+  // (d = −1 in `lineAnchor`), `lineAnchor('in')` returns
+  // `n.x − n.width / 2 + inset` — so **smaller inset = line tip
+  // further LEFT** (more outside the box).
+  //
+  //   - `gap` = (n.width − rich body outer width) / 2 = horizontal
+  //     distance from the box edge to the rich body edge.  When
+  //     `richWidths[id]` is missing (first render, before
+  //     `measureRichBodies` runs), treat the gap as 0 (the
+  //     legacy assumption that the rich body fills the box).
+  //   - `inset = max(0, gap)` lands the line tip ON the rich
+  //     body outer left edge.  Final `Math.max(0, ...)` clamps
+  //     the value at 0 — without it, `max(0, gap) − 1` (an
+  //     earlier draft) would round to −1 when gap=0, pushing
+  //     the line tip 1 px OUTSIDE the box and leaving a visible
+  //     gap between the line and the box border.
+  //   - For plain nodes (no rich body), the box edge IS the
+  //     visible frame, so `MindMap.vue`'s `lineAnchor` falls
+  //     back to a 0 default — the line tip lands on the box
+  //     edge, consistent with the rich-body case.
   const isAboveRich = !!(
     node.richContent &&
     (node.richContent.kind === 'code' || node.richContent.kind === 'table')
   )
-  const richInsetX = isAboveRich ? Math.round(padPx(depth, baseFontSize)) + 6 + 2 : 0
+  const richInsetX = isAboveRich
+    ? Math.max(
+        0,
+        Math.round(
+          Math.max(0, (size.w - (richWidths?.[node.id] ?? size.w)) / 2)
+        )
+      )
+    : 0
   const ln: LayoutNode = {
     id: node.id,
     text: node.text,

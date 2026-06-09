@@ -16,7 +16,13 @@ export interface MarqueeRect {
 
 export function usePanZoom(opts: PanZoomOptions) {
   const minScale = opts.minScale ?? 0.2
-  const maxScale = opts.maxScale ?? 3
+  // Default zoom-out cap is 0.2 (20%).  No upper cap on zoom-in
+  // — users may want to inspect a single node up close.  The
+  // call site (MindMap.vue) does not pass `maxScale`, so this
+  // default applies.  If a consumer needs a hard cap, they can
+  // pass `maxScale: N` and the `Math.min(maxScale, …)` clamps
+  // below will still apply.
+  const maxScale = opts.maxScale ?? Infinity
   const step = opts.step ?? 1.2
 
   const scale: Ref<number> = ref(1)

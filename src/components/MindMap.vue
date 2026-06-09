@@ -1597,11 +1597,16 @@ function lineAnchor(
   //
   // For code/table nodes the box's *visible* content (the
   // `.zm-rich` framed body) sits well inside the geometric
-  // box edge by `.zm-node` padding + `.zm-rich` padding.
-  // Layout stamps `_richInsetX` with that depth-aware total;
-  // falling back to 2 for plain nodes keeps the original
-  // "tip just inside the border" look.
-  const inset = side === 'in' ? (n._richInsetX ?? 2) : 0
+  // box edge.  Layout stamps `_richInsetX` with the gap from
+  // the box edge to the rich body edge (see layout.ts
+  // `buildLayout`); the line tip lands ON the rich body
+  // outer left edge, which is what we want — the ribbon
+  // visually "touches" the framed body without piercing it.
+  // For plain nodes (no rich body) the geometric box edge IS
+  // the visible frame, so the default is 0 (line tip on the
+  // box edge) — symmetric with the rich-body case so all
+  // node types line up at the same horizontal position.
+  const inset = side === 'in' ? (n._richInsetX ?? 0) : 0
   return { x: n.x + d * (n.width / 2 - inset), y: n.y }
 }
 
