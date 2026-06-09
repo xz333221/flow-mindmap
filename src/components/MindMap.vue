@@ -1906,6 +1906,12 @@ onMounted(() => {
           :style="{
             left: n.x + 'px',
             top: n.y + 'px',
+            // Pin the box to the layout's reserved width so the
+            // SVG edge anchor (which keys off n.width) lands on
+            // the visible centre.  Without `width` here the box
+            // would grow to fit the rich body's `width: max-content`
+            // and the line would pierce the visible frame.
+            width: n.width + 'px',
             minWidth: n.width + 'px',
             height: n.height + 'px',
             fontSize: n.fontSize + 'px',
@@ -2324,7 +2330,6 @@ onMounted(() => {
    * also re-select the node. */
   margin-top: 6px;
   width: max-content;
-  max-width: 100%;
   max-height: 200px;
   overflow: auto;
   font-size: 0.78em;
