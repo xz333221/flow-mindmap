@@ -52,6 +52,69 @@ defineProps<{
     <template v-else-if="name === 'expand'">
       <polyline points="9 6 15 12 9 18" />
     </template>
+    <!-- collapse-all: 4 diagonal arrows pointing INWARD to the
+         center (4,4) (20,4) (20,20) (4,20) → (10,10) (14,10)
+         (14,14) (10,14).  Reads as "compress all to center". -->
+    <template v-else-if="name === 'collapse-all'">
+      <line x1="4" y1="4" x2="10" y2="10" />
+      <polyline points="6 10 10 10 10 6" />
+      <line x1="20" y1="4" x2="14" y2="10" />
+      <polyline points="14 6 14 10 18 10" />
+      <line x1="20" y1="20" x2="14" y2="14" />
+      <polyline points="14 18 14 14 18 14" />
+      <line x1="4" y1="20" x2="10" y2="14" />
+      <polyline points="6 14 10 14 10 18" />
+    </template>
+    <!-- expand-all: mirror of collapse-all — 4 diagonal arrows
+         pointing OUTWARD from the center.  Reads as "expand to
+         bounds". -->
+    <template v-else-if="name === 'expand-all'">
+      <line x1="10" y1="10" x2="4" y2="4" />
+      <polyline points="4 6 4 4 6 4" />
+      <line x1="14" y1="10" x2="20" y2="4" />
+      <polyline points="20 6 20 4 18 4" />
+      <line x1="14" y1="14" x2="20" y2="20" />
+      <polyline points="20 18 20 20 18 20" />
+      <line x1="10" y1="14" x2="4" y2="20" />
+      <polyline points="4 18 4 20 6 20" />
+    </template>
+    <!-- expand-level-1: 1 root dot + 3 children dots (2-level tree,
+         root centered at top, 3 children at the bottom row). -->
+    <template v-else-if="name === 'expand-level-1'">
+      <circle cx="12" cy="5" r="1.8" fill="currentColor" stroke="none" />
+      <line x1="12" y1="7" x2="12" y2="11" />
+      <line x1="12" y1="11" x2="5" y2="17" />
+      <line x1="12" y1="11" x2="12" y2="17" />
+      <line x1="12" y1="11" x2="19" y2="17" />
+      <circle cx="5" cy="19" r="1.8" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="19" r="1.8" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="19" r="1.8" fill="currentColor" stroke="none" />
+    </template>
+    <!-- expand-level-2: 1 root + 3 children + 3 grandchildren
+         (3-level tree).  Lines fan out from each child to its
+         single grandchild, giving a symmetric "tree" silhouette. -->
+    <template v-else-if="name === 'expand-level-2'">
+      <circle cx="12" cy="3" r="1.4" fill="currentColor" stroke="none" />
+      <line x1="12" y1="4.5" x2="12" y2="7" />
+      <line x1="12" y1="7" x2="5" y2="11" />
+      <line x1="12" y1="7" x2="12" y2="11" />
+      <line x1="12" y1="7" x2="19" y2="11" />
+      <line x1="5" y1="11" x2="3" y2="16" />
+      <line x1="5" y1="11" x2="7" y2="16" />
+      <line x1="12" y1="11" x2="10" y2="16" />
+      <line x1="12" y1="11" x2="14" y2="16" />
+      <line x1="19" y1="11" x2="17" y2="16" />
+      <line x1="19" y1="11" x2="21" y2="16" />
+      <circle cx="5" cy="11" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="11" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="11" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="3" cy="18" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="7" cy="18" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="10" cy="18" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="14" cy="18" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="17" cy="18" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="21" cy="18" r="1.4" fill="currentColor" stroke="none" />
+    </template>
     <!-- zoom in -->
     <template v-else-if="name === 'zoom-in'">
       <circle cx="11" cy="11" r="7" />

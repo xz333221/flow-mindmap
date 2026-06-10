@@ -2234,19 +2234,24 @@ onMounted(() => {
       <span class="zm-tb-divider" />
 
       <!-- Bulk expand/collapse: safe in preview mode (it's a view
-           operation, not an edit).  Visually they're the same in
-           both modes. -->
+           operation, not an edit).  Each button has its own glyph
+           so they're visually distinct, not three identical
+           right-chevrons:
+             全部收起  → 4 chevrons pointing inward (compress)
+             展开一级 → 1 root + 3 children (2-level tree)
+             展开二级 → 1 root + 3 children + 6 grandchildren
+             全部展开  → 4 chevrons pointing outward (expand) -->
       <button class="zm-tb-btn" title="全部收起" @click="collapseAll">
-        <Icon name="collapse" />
+        <Icon name="collapse-all" />
       </button>
       <button class="zm-tb-btn" title="展开一级" @click="expandToLevel(1)">
-        <Icon name="expand" />
+        <Icon name="expand-level-1" />
       </button>
       <button class="zm-tb-btn" title="展开二级" @click="expandToLevel(2)">
-        <Icon name="expand" />
+        <Icon name="expand-level-2" />
       </button>
       <button class="zm-tb-btn" title="全部展开" @click="expandAll">
-        <Icon name="expand" />
+        <Icon name="expand-all" />
       </button>
       <span class="zm-tb-divider" />
 
