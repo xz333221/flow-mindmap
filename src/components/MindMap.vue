@@ -40,15 +40,13 @@ import {
 const props = withDefaults(
   defineProps<{
     data: MindMapNode
-    readonly?: boolean
     theme?: MindMapTheme
     /**
-     * When true, hides the MindMap's own toolbar and any UI that
-     * isn't strictly the canvas (resize handles, collapse
-     * buttons still appear on hover so the user can still
-     * interact).  The app-level top toolbar / drawers are
-     * controlled by the parent (App.vue) — this only toggles
-     * the canvas's own chrome.
+     * When true, hides the MindMap's own toolbar and disables every
+     * edit operation (add/remove/edit/drag/paste/rich-edit/note
+     * edit/context menu).  Expand/collapse stays available so the
+     * user can still navigate a large tree.  The app-level top
+     * toolbar / drawers are controlled by the parent (App.vue).
      */
     previewMode?: boolean
     /**
@@ -70,7 +68,7 @@ const props = withDefaults(
      */
     lineColors?: string[]
   }>(),
-  { readonly: false, previewMode: false }
+  { previewMode: false }
 )
 
 const emit = defineEmits<{
@@ -389,7 +387,7 @@ interface MenuState {
 const contextMenu = ref<MenuState | null>(null)
 
 function onNodeContextMenu(e: MouseEvent, n: LayoutNode) {
-  if (props.readonly) return
+  if (props.previewMode) return
   e.preventDefault()
   e.stopPropagation()
   // Selecting the node is implicit — right-clicking a different
@@ -498,7 +496,7 @@ function menuRemoveTable() {
 /** Ask App.vue to open the note drawer for this node.  The
  *  drawer auto-focuses its textarea on open. */
 function emitEditNote(id: string) {
-  if (props.readonly) return
+  if (props.previewMode) return
   emit('edit-note', id)
 }
 
@@ -519,7 +517,7 @@ function notePreview(text: string, max = 60): string {
 // handler is image-only.
 // ---------------------------------------------------------------------------
 function onPaste(e: ClipboardEvent) {
-  if (props.readonly) return
+  if (props.previewMode) return
   // Don't hijack paste inside any text-editing surface.
   if (editingId.value) return
   const tgt = e.target as HTMLElement | null
@@ -1079,7 +1077,7 @@ panZoom.setOnMarqueeEnd(onMarqueeEnd)
 // keyboard
 useKeyboard({
   isEditing: () => editingId.value !== null,
-  isReadonly: () => props.readonly,
+  isReadonly: () => props.previewMode,
   getSelectedId: () => selectedId.value,
   getRootId: () => dataRef.value.id,
   // If nothing is selected, default Tab/Enter to the root so the user
@@ -1212,7 +1210,7 @@ function cancelEdit() {
 // use, so undo and the change emit fire once.
 // ---------------------------------------------------------------------------
 function startRichEdit(id: string) {
-  if (props.readonly) return
+  if (props.previewMode) return
   const n = findNode(dataRef.value, id)
   if (!n?.richContent) return
   richEditingId.value = id
@@ -1953,7 +1951,7 @@ onMounted(() => {
             transform: `translate(-50%, -50%)`,
           }"
           @click="(e) => onNodeClick(e, n)"
-          @dblclick="(e) => { e.stopPropagation(); if (!readonly) startEdit(n.id) }"
+          @dblclick="(e) => { e.stopPropagation(); if (!previewMode) startEdit(n.id) }"
           @contextmenu="(e) => onNodeContextMenu(e, n)"
           @mouseenter="onNodeMouseEnter(n.id)"
           @mouseleave="onNodeMouseLeave(n.id)"
@@ -2087,7 +2085,7 @@ onMounted(() => {
           >{{ collapsedChildCount(n.id) }}</span>
 
           <button
-            v-if="!readonly && !n.isRoot && nodeHasChildren(n) && !isCollapsed(n.id)"
+            v-if="!n.isRoot && nodeHasChildren(n) && !isCollapsed(n.id)"
             class="zm-btn zm-collapse"
             :class="{ 'is-on-left': n.side === -1 }"
             :style="{ color: branchColor.get(n.id) ?? '#64748b', borderColor: branchColor.get(n.id) ?? '#64748b' }"
@@ -2138,7 +2136,6 @@ onMounted(() => {
         :has-note="!!findNode(dataRef, contextMenu.nodeId)?.note"
         :has-code="findNode(dataRef, contextMenu.nodeId)?.richContent?.kind === 'code'"
         :has-table="findNode(dataRef, contextMenu.nodeId)?.richContent?.kind === 'table'"
-        :readonly="props.readonly"
         @pick-image="menuPickImage"
         @remove-image="menuRemoveImage"
         @set-link="menuSetLink"
@@ -2167,7 +2164,6 @@ onMounted(() => {
       </button>
       <span class="zm-tb-divider" />
       <button
-        v-if="!readonly"
         class="zm-tb-btn"
         title="添加子节点 (Tab)"
         @click="selectedId && doAddChild(selectedId)"
@@ -2175,7 +2171,6 @@ onMounted(() => {
         <img :src="addSubNodeIcon" width="14" height="14" alt="添加子节点" draggable="false" />
       </button>
       <button
-        v-if="!readonly"
         class="zm-tb-btn"
         title="添加同级 (Enter)"
         @click="selectedId && doAddSibling(selectedId)"
@@ -2211,7 +2206,6 @@ onMounted(() => {
       </button>
       <span class="zm-tb-divider" />
       <button
-        v-if="!readonly"
         class="zm-tb-btn"
         title="导入 JSON"
         @click="importFromFile"

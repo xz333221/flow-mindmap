@@ -94,14 +94,6 @@ record('initial render', initialTotal === 13, `${initialTotal} nodes (expected 1
 // =====================================================================
 console.log('\n=== Props ===')
 
-// readonly
-await clickByTestId(page, 'prop-readonly')
-await page.waitForTimeout(200)
-const readonlyOn = await page.evaluate(() => document.querySelector('.demo-canvas')?.classList.contains('readonly'))
-record('prop:readonly=true', readonlyOn === true, 'canvas has .readonly class')
-await clickByTestId(page, 'prop-readonly')
-await page.waitForTimeout(200)
-
 // previewMode
 await clickByTestId(page, 'prop-preview')
 await page.waitForTimeout(300)

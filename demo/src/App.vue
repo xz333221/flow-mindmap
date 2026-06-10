@@ -39,7 +39,6 @@ const data = ref<MindMapNode>(initialData)
 const mmRef = ref<InstanceType<typeof MindMap> | null>(null)
 const selectedId = ref<string | null>(null)
 const lastEvent = ref<string>('(none)')
-const readOnly = ref(false)
 const previewMode = ref(false)
 const theme = reactive({
   rootBg: '#0f172a',
@@ -244,10 +243,6 @@ onBeforeUnmount(() => {
         <section>
           <h2>Props</h2>
           <label>
-            <input type="checkbox" v-model="readOnly" data-testid="prop-readonly" />
-            readonly
-          </label>
-          <label>
             <input type="checkbox" v-model="previewMode" data-testid="prop-preview" />
             previewMode
           </label>
@@ -365,11 +360,10 @@ onBeforeUnmount(() => {
         </section>
       </aside>
 
-      <section class="demo-canvas" :class="{ readonly: readOnly, preview: previewMode }">
+      <section class="demo-canvas" :class="{ preview: previewMode }">
         <MindMap
           ref="mmRef"
           :data="data"
-          :readonly="readOnly"
           :preview-mode="previewMode"
           :theme="theme"
           :line-colors="lineColorsList"

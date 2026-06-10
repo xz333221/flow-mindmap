@@ -86,7 +86,6 @@ export interface MindMapImage {
 
 export interface MindMapOptions {
   data: MindMapNode
-  readonly?: boolean
   theme?: MindMapTheme
 }
 

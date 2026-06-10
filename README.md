@@ -109,8 +109,7 @@ function onMdChange(next: string) {
 | Prop | Type | Default | 说明 |
 | ---- | ---- | ------- | ---- |
 | `data` | [`MindMapNode`](#数据类型) | — | **必填**。思维导图根节点。 |
-| `readonly` | `boolean` | `false` | 只读模式:禁用增删改、拖拽、编辑输入框。 |
-| `previewMode` | `boolean` | `false` | 预览模式:隐藏画布自带工具栏,只保留节点和折叠/调整手柄。适合做截图、嵌入展示。 |
+| `previewMode` | `boolean` | `false` | 预览模式:隐藏画布自带工具栏,禁用所有编辑(增删改、拖拽、编辑输入框),但**保留节点的展开/折叠**以方便浏览。适合做截图、嵌入展示。 |
 | `theme` | [`MindMapTheme`](#数据类型) | — | 主题色/字号/连线粗细等外观配置,见下表。 |
 | `markdown` | `string` | — | 可选:传入 markdown 文本,内部解析为 `data`。**与 `data` 二选一**,传了 `markdown` 后 `data` 被忽略。双向同步:数据变化时通过 `markdownChange` 事件回传序列化结果。 |
 | `lineColors` | `string[]` | — | 可选:顶层分支**连线**颜色列表(hex / rgb / 命名色)。优先级高于 `branchPaletteId` / `customPalettes`;留空走 palette 流程。 |
