@@ -2202,7 +2202,6 @@ onMounted(() => {
         @remove-table="menuRemoveTable"
         @close="closeContextMenu"
       />
-    </div>
 
     <!-- Bottom toolbar.  Always rendered; the parent's previewMode
          + canvasHovered refs drive visibility:
@@ -2213,7 +2212,16 @@ onMounted(() => {
                           clicks while invisible.
          Inside, the "secondary" group (add child/sibling, layout
          mode, import) is non-preview-only — those buttons mutate
-         data, which preview mode disallows. -->
+         data, which preview mode disallows.
+
+         IMPORTANT: this toolbar MUST live inside .zm-canvas (not
+         a sibling).  .zm-canvas's @mouseleave fires when the
+         cursor moves to a sibling element, which would hide the
+         toolbar the moment the user reaches for it.  Sitting
+         inside .zm-canvas means the cursor is technically still
+         inside the canvas while it's on the toolbar (because
+         mouseenter/mouseleave don't fire when moving between
+         parent and child). -->
     <div
       class="zm-toolbar"
       :class="{ 'is-preview-only': props.previewMode, 'is-hovered': canvasHovered }"
@@ -2312,6 +2320,7 @@ onMounted(() => {
           <Icon name="import" />
         </button>
       </template>
+    </div>
     </div>
   </div>
 </template>
