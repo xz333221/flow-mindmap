@@ -43,6 +43,7 @@
     "./style.css": "./dist/style.css"
   },
   "scripts": {
+    "pull": "git pull",
     "dev": "vite --port 7851 --strictPort",
     "build:types": "vue-tsc -p tsconfig.build.json",
     "build:lib": "vite build --mode lib",
