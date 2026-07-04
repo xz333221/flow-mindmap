@@ -1,78 +1,78 @@
 {
-  "name": "flow-mindmap",
-  "version": "0.3.1",
-  "description": "A modern, minimalist mind mapping tool — xmind-style, embeddable as a Vue component.",
-  "type": "module",
-  "license": "Apache-2.0",
-  "author": {
-    "name": "xuze",
-    "email": "569552263@qq.com"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/xz333221/flow-mindmap.git"
-  },
-  "bugs": {
-    "url": "https://github.com/xz333221/flow-mindmap/issues"
-  },
-  "keywords": [
-    "mindmap",
-    "mind-map",
-    "xmind",
-    "vue",
-    "vue3",
-    "vite",
-    "svg",
-    "canvas",
-    "tree"
-  ],
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE"
-  ],
-  "main": "./dist/flow-mindmap.umd.cjs",
-  "module": "./dist/flow-mindmap.js",
-  "types": "./dist/entry.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/entry.d.ts",
-      "import": "./dist/flow-mindmap.js",
-      "require": "./dist/flow-mindmap.umd.cjs"
-    },
-    "./style.css": "./dist/style.css"
-  },
-  "scripts": {
-    "pull": "git pull",
-    "dev": "vite --port 7851 --strictPort",
-    "build:types": "vue-tsc -p tsconfig.build.json",
-    "build:lib": "vite build --mode lib",
-    "build": "pnpm build:types && pnpm build:lib",
-    "preview": "vite preview --port 7852",
-    "typecheck": "vue-tsc --noEmit",
-    "lint": "eslint . --ext .vue,.ts,.js --max-warnings 0",
-    "test": "vitest run",
-    "test:watch": "vitest"
-  },
-  "peerDependencies": {
-    "vue": "^3.4.0"
-  },
-  "devDependencies": {
-    "@types/dompurify": "^3.2.0",
-    "@types/node": "^25.9.1",
-    "@vitejs/plugin-vue": "^5.1.4",
-    "@vue/test-utils": "^2.4.11",
-    "happy-dom": "^20.10.1",
-    "playwright": "^1.60.0",
-    "typescript": "^5.6.3",
-    "vite": "^5.4.10",
-    "vitest": "3.2.4",
-    "vue": "^3.5.12",
-    "vue-tsc": "^2.1.10"
-  },
-  "dependencies": {
-    "dompurify": "^3.4.8",
-    "highlight.js": "^11.11.1",
-    "marked": "^18.0.5"
-  }
+    "name":  "flow-mindmap",
+    "version":  "0.4.0",
+    "description":  "A modern, minimalist mind mapping tool 闂?xmind-style, embeddable as a Vue component.",
+    "type":  "module",
+    "license":  "Apache-2.0",
+    "author":  {
+                   "name":  "xuze",
+                   "email":  "569552263@qq.com"
+               },
+    "repository":  {
+                       "type":  "git",
+                       "url":  "git+https://github.com/xz333221/flow-mindmap.git"
+                   },
+    "bugs":  {
+                 "url":  "https://github.com/xz333221/flow-mindmap/issues"
+             },
+    "keywords":  [
+                     "mindmap",
+                     "mind-map",
+                     "xmind",
+                     "vue",
+                     "vue3",
+                     "vite",
+                     "svg",
+                     "canvas",
+                     "tree"
+                 ],
+    "files":  [
+                  "dist",
+                  "README.md",
+                  "LICENSE"
+              ],
+    "main":  "./dist/flow-mindmap.umd.cjs",
+    "module":  "./dist/flow-mindmap.js",
+    "types":  "./dist/entry.d.ts",
+    "exports":  {
+                    ".":  {
+                              "types":  "./dist/entry.d.ts",
+                              "import":  "./dist/flow-mindmap.js",
+                              "require":  "./dist/flow-mindmap.umd.cjs"
+                          },
+                    "./style.css":  "./dist/style.css"
+                },
+    "scripts":  {
+                    "pull":  "git pull",
+                    "dev":  "vite --port 7851 --strictPort",
+                    "build:types":  "vue-tsc -p tsconfig.build.json",
+                    "build:lib":  "vite build --mode lib",
+                    "build":  "pnpm build:types \u0026\u0026 pnpm build:lib",
+                    "preview":  "vite preview --port 7852",
+                    "typecheck":  "vue-tsc --noEmit",
+                    "lint":  "eslint . --ext .vue,.ts,.js --max-warnings 0",
+                    "test":  "vitest run",
+                    "test:watch":  "vitest"
+                },
+    "peerDependencies":  {
+                             "vue":  "^3.4.0"
+                         },
+    "devDependencies":  {
+                            "@types/dompurify":  "^3.2.0",
+                            "@types/node":  "^25.9.1",
+                            "@vitejs/plugin-vue":  "^5.1.4",
+                            "@vue/test-utils":  "^2.4.11",
+                            "happy-dom":  "^20.10.1",
+                            "playwright":  "^1.60.0",
+                            "typescript":  "^5.6.3",
+                            "vite":  "^5.4.10",
+                            "vitest":  "3.2.4",
+                            "vue":  "^3.5.12",
+                            "vue-tsc":  "^2.1.10"
+                        },
+    "dependencies":  {
+                         "dompurify":  "^3.4.8",
+                         "highlight.js":  "^11.11.1",
+                         "marked":  "^18.0.5"
+                     }
 }

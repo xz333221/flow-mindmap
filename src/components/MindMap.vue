@@ -28,6 +28,7 @@ import { usePanZoom } from '../composables/usePanZoom'
 import { useKeyboard } from '../composables/useKeyboard'
 import { useHistory } from '../composables/useHistory'
 import NodeContextMenu from './NodeContextMenu.vue'
+import CanvasContextMenu from './CanvasContextMenu.vue'
 import {
   codeLang,
   highlightCode,
@@ -67,8 +68,17 @@ const props = withDefaults(
      * the palette pipeline.
      */
     lineColors?: string[]
+    /**
+     * When true, hides the built-in canvas action buttons
+     * (top-right preview toggle, top-left outline view).  Use this
+     * when the consumer already exposes equivalent controls in
+     * their surrounding chrome and doesn't want duplicates.  Default
+     * false so the npm package ships with a discoverable, ready-to-use
+     * UI.
+     */
+    hideCanvasActions?: boolean
   }>(),
-  { previewMode: false }
+  { previewMode: false, hideCanvasActions: false }
 )
 
 const emit = defineEmits<{
@@ -389,11 +399,42 @@ interface MenuState {
   y: number
 }
 const contextMenu = ref<MenuState | null>(null)
+// Right-click on empty canvas (not on a node) opens a small popover
+// with 查看数据 / 导入 / 设置.  No node context, so the state is just
+// the cursor position.  Closed by the menu's own outside-click /
+// Esc / scroll listeners.
+const canvasMenu = ref<{ x: number; y: number } | null>(null)
 
+// Canvas action buttons -- top-right preview toggle and top-left
+// outline view.  Always visible so the npm package ships with a
+// discoverable, ready-to-use UI; the host just listens to the
+// canvas-toggle-preview / canvas-outline events and handles
+// preview mode + drawer state itself.  hideCanvasActions lets a
+// consumer opt out (e.g. when they already have their own buttons
+// in the surrounding chrome).
+// Match the bottom toolbar's visibility: always show in non-preview
+// mode (the FABs are a discoverable nav control), but only show in
+// preview mode while the cursor is over the canvas (otherwise the
+// user is just viewing -- don't clutter the chrome).
+const fabPreviewClass = computed(() => {
+  const visible = !props.hideCanvasActions && (!props.previewMode || canvasHovered.value)
+  return ['zm-canvas-fab', 'zm-canvas-fab-preview', visible ? 'is-visible' : '']
+    .filter(Boolean)
+    .join(' ')
+})
+const fabOutlineClass = computed(() => {
+  const visible = !props.hideCanvasActions && (!props.previewMode || canvasHovered.value)
+  return ['zm-canvas-fab', 'zm-canvas-fab-outline', visible ? 'is-visible' : '']
+    .filter(Boolean)
+    .join(' ')
+})
 function onNodeContextMenu(e: MouseEvent, n: LayoutNode) {
   if (props.previewMode) return
   e.preventDefault()
   e.stopPropagation()
+  // Mutual exclusion: dismiss any open canvas menu so two menus
+  // never stack.  Right-clicking a node replaces the canvas menu.
+  canvasMenu.value = null
   // Selecting the node is implicit — right-clicking a different
   // node should move the selection to it so the menu actions
   // operate on the right node.  If it's the same node, no-op.
@@ -403,6 +444,34 @@ function onNodeContextMenu(e: MouseEvent, n: LayoutNode) {
 }
 function closeContextMenu() {
   contextMenu.value = null
+}
+function onCanvasContextMenu(e: MouseEvent) {
+  // The node context-menu handler stopPropagation()'s, so this only
+  // fires for right-clicks on the canvas background -- not on a node.
+  // Don't open the canvas menu when the right-click lands on a control
+  // (toolbar, fab, note button, etc).
+  const target = e.target as HTMLElement | null
+  if (target?.closest('.zm-toolbar, button, input, textarea, .zm-canvas-fab-preview, .zm-canvas-fab-outline')) return
+  e.preventDefault()
+  // Mutual exclusion: opening the canvas menu dismisses any open
+  // node context menu.
+  if (contextMenu.value) contextMenu.value = null
+  canvasMenu.value = { x: e.clientX, y: e.clientY }
+}
+function closeCanvasMenu() {
+  canvasMenu.value = null
+}
+function menuOpenSettings() {
+  closeCanvasMenu()
+  emit('canvas-settings')
+}
+function menuOpenData() {
+  closeCanvasMenu()
+  emit('canvas-data')
+}
+function menuOpenImport(mode: 'markdown' | 'json' | 'txt') {
+  closeCanvasMenu()
+  emit('canvas-import', mode)
 }
 
 function menuPickImage() {
@@ -1908,7 +1977,7 @@ onMounted(() => {
       ref="wrapperRef"
       class="zm-canvas"
       @mousedown="onCanvasMouseDown"
-      @contextmenu.prevent
+      @contextmenu="onCanvasContextMenu"
       @wheel="panZoom.onWheel"
       @mouseenter="canvasHovered = true"
       @mouseleave="canvasHovered = false"
@@ -2202,6 +2271,37 @@ onMounted(() => {
         @remove-table="menuRemoveTable"
         @close="closeContextMenu"
       />
+
+      <!-- Canvas right-click menu -- rendered only while the user is
+           interacting with it.  Container is the canvas so the menu can
+           clamp itself inside the visible area.  Actions re-emit to the
+           parent (App.vue decides which drawer to open). -->
+      <CanvasContextMenu
+        v-if="canvasMenu"
+        :x="canvasMenu.x"
+        :y="canvasMenu.y"
+        :container="wrapperRef"
+        @open-settings="menuOpenSettings"
+        @open-data="menuOpenData"
+        @open-import="menuOpenImport"
+        @close="closeCanvasMenu"
+      />
+
+      <!-- FABs. See fabPreviewClass and fabOutlineClass. -->
+      <button
+        :class="fabPreviewClass"
+        :title="props.previewMode ? '退出预览模式' : '进入预览模式'"
+        @click="emit('canvas-toggle-preview')"
+      >
+        <Icon :name="props.previewMode ? 'eye-off' : 'eye'" :size="16" />
+      </button>
+      <button
+        :class="fabOutlineClass"
+        title="显示大纲视图"
+        @click="emit('canvas-outline')"
+      >
+        <Icon name="outline" :size="16" />
+      </button>
 
     <!-- Bottom toolbar.  Always rendered; the parent's previewMode
          + canvasHovered refs drive visibility:
@@ -2833,6 +2933,58 @@ onMounted(() => {
   user-select: none;
   vertical-align: middle;
 }
+/* Canvas action FABs -- top-right preview toggle, top-left
+ * outline view.  Always visible by default so the npm package
+ * ships with a discoverable, ready-to-use UI.  Hidden when
+ * the consumer passes hideCanvasActions.
+ *
+ * Styled to match the bottom toolbar (rounded pill, soft
+ * shadow, monoline icon).  Position is relative to the
+ * .zm-canvas wrapper (which is the offset parent) so the
+ * buttons track the canvas regardless of panning / scaling.
+ */
+.zm-canvas-fab {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  color: #475569;
+  cursor: pointer;
+  z-index: 11;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 0.18s ease, transform 0.18s ease, background 0.1s, color 0.1s;
+}
+.zm-canvas-fab.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.zm-canvas-fab:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+}
+.zm-canvas-fab:active {
+  transform: scale(0.94);
+}
+.zm-canvas-fab-preview {
+  top: 16px;
+  right: 16px;
+}
+.zm-canvas-fab-outline {
+  top: 16px;
+  left: 16px;
+}
+
 .zm-toolbar {
   position: absolute;
   bottom: 16px;

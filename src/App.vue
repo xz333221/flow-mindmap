@@ -308,6 +308,21 @@ function loadRichSample() {
     richMode.value = true
   }
 }
+// From MindMap's right-click -> View data: open the data
+// drawer; close the markdown / note drawers so only one
+// side panel is visible at a time.
+function openDataDrawer() {
+  showData.value = true
+  showMarkdown.value = false
+  showNote.value = false
+}
+
+// From MindMap's right-click -> Import submenu.  Opens the
+// data drawer (the per-mode import UI is inside DataPanel
+// which reads pendingMode from the right-click handler).
+function openImport(_mode: 'json' | 'markdown' | 'txt') {
+  openDataDrawer()
+}
 
 // Local mirror of the MindMap settings; we apply changes by calling
 // applySettings on the component.  The initial state matches the
@@ -660,6 +675,11 @@ const totalNodes = computed(() => countNodes(data.value))
           @change="onChange"
           @select="onSelect"
           @edit-note="onEditNote"
+          @canvas-settings="showSettings = true"
+          @canvas-data="openDataDrawer"
+          @canvas-import="openImport"
+          @canvas-toggle-preview="previewMode = !previewMode"
+          @canvas-outline="showOutline = true"
         />
       </div>
     </main>

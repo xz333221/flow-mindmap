@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
-import { MindMap } from 'flow-mindmap'
+import { MindMap, Outline } from 'flow-mindmap'
 import 'flow-mindmap/style.css'
 import type { MindMapNode, MindMapSettings, NodeStyle, BranchPalette } from 'flow-mindmap'
 
@@ -40,6 +40,8 @@ const mmRef = ref<InstanceType<typeof MindMap> | null>(null)
 const selectedId = ref<string | null>(null)
 const lastEvent = ref<string>('(none)')
 const previewMode = ref(false)
+const showOutline = ref(false)
+const outlineCollapsed = ref(new Set<string>())
 const theme = reactive({
   rootBg: '#0f172a',
   rootText: '#ffffff',
@@ -89,6 +91,11 @@ const onSelect = (n: MindMapNode | null) => {
   selectedId.value = n?.id ?? null
   lastEvent.value = n ? `select — ${n.id} (${n.text})` : 'select — null'
 }
+
+const openSettings = () => { lastEvent.value = 'canvas-settings' }
+const openDataDrawer = () => { lastEvent.value = 'canvas-data' }
+const openImport = (_mode: 'markdown' | 'json' | 'txt') => { lastEvent.value = 'canvas-import' }
+
 const onEditNote = (id: string) => {
   lastEvent.value = `edit-note — ${id}`
 }
@@ -370,10 +377,29 @@ onBeforeUnmount(() => {
           @change="onChange"
           @select="onSelect"
           @edit-note="onEditNote"
+            @canvas-settings="openSettings"
+            @canvas-data="openDataDrawer"
+            @canvas-import="openImport"
+            @canvas-toggle-preview="previewMode = !previewMode"
+            @canvas-outline="showOutline = !showOutline"
           @markdown-change="onMarkdownChange"
           style="width: 100%; height: 100%"
         />
       </section>
+
+
+      <div v-if="showOutline" class="demo-outline-backdrop" @click="showOutline = false" />
+      <aside v-if="showOutline" class="demo-outline-drawer">
+        <div class="demo-outline-header">
+          <span class="demo-outline-title">大纲</span>
+          <button class="demo-outline-close" title="关闭" @click="showOutline = false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6 L18 18 M18 6 L6 18" /></svg>
+          </button>
+        </div>
+        <div class="demo-outline-body">
+          <Outline :data="data" :selected-id="selectedId" :collapsed-ids="outlineCollapsed" readonly />
+        </div>
+      </aside>
     </main>
   </div>
 </template>
@@ -395,4 +421,61 @@ html, body, #app { margin: 0; padding: 0; height: 100%; font-family: -apple-syst
 .demo-panel button:hover:not(:disabled) { background: #e0e7ff; border-color: #818cf8; }
 .demo-panel button:disabled { opacity: 0.4; cursor: not-allowed; }
 .demo-canvas { flex: 1; position: relative; min-width: 0; background: #f8fafc; }
-</style>
+
+
+/* Outline drawer (slides in from the left when the user clicks the
+ * canvas fab).  Overlay backdrop dims the rest of the page; the
+ * drawer holds the read-only <Outline> tree. */
+.demo-outline-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.18);
+  z-index: 50;
+}
+.demo-outline-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 320px;
+  max-width: 90vw;
+  background: #ffffff;
+  border-right: 1px solid #e2e8f0;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  display: flex;
+  flex-direction: column;
+  z-index: 51;
+  font-size: 13px;
+}
+.demo-outline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.demo-outline-title {
+  font-weight: 600;
+  color: #1e293b;
+}
+.demo-outline-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  color: #64748b;
+  cursor: pointer;
+}
+.demo-outline-close:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+.demo-outline-body {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 0;
+}</style>

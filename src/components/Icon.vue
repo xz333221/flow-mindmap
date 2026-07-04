@@ -136,7 +136,92 @@ defineProps<{
       <polyline points="20 15 20 20 15 20" />
       <polyline points="9 20 4 20 4 15" />
     </template>
-    <!-- mindmap logo: branched node -->
+    <!-- settings: gear / cog, universal "settings" glyph.  Drawn
+         as a stroked circle in the middle with 8 short teeth
+         around the rim.  Sits at 16-px size like the other
+         icons so the menu rows line up. -->
+    <template v-else-if="name === 'settings'">
+      <circle cx="12" cy="12" r="3" />
+      <line x1="12" y1="2.5" x2="12" y2="4.5" />
+      <line x1="12" y1="19.5" x2="12" y2="21.5" />
+      <line x1="2.5" y1="12" x2="4.5" y2="12" />
+      <line x1="19.5" y1="12" x2="21.5" y2="12" />
+      <line x1="5.6" y1="5.6" x2="7" y2="7" />
+      <line x1="17" y1="17" x2="18.4" y2="18.4" />
+      <line x1="5.6" y1="18.4" x2="7" y2="17" />
+      <line x1="17" y1="7" x2="18.4" y2="5.6" />
+    </template>
+    <!-- data: two curved braces 鈥?reads as a JSON / code block.
+         Stroke-only; matches the other monoline icons in this set. -->
+    <template v-else-if="name === 'data'">
+      <path d="M9 5 C7 5 7 7 7 9 C7 11 7 12 5 12 C7 12 7 13 7 15 C7 17 7 19 9 19" />
+      <path d="M15 5 C17 5 17 7 17 9 C17 11 17 12 19 12 C17 12 17 13 17 15 C17 17 17 19 15 19" />
+      <line x1="10.5" y1="12" x2="13.5" y2="12" />
+    </template>
+    <!-- settings: gear / cog, universal "settings" glyph.  Drawn
+         as a stroked circle in the middle with 8 short teeth
+         around the rim.  Sits at 16-px size like the other
+         icons so the menu rows line up. -->
+    <template v-else-if="name === 'settings'">
+      <circle cx="12" cy="12" r="3" />
+      <line x1="12" y1="2.5" x2="12" y2="4.5" />
+      <line x1="12" y1="19.5" x2="12" y2="21.5" />
+      <line x1="2.5" y1="12" x2="4.5" y2="12" />
+      <line x1="19.5" y1="12" x2="21.5" y2="12" />
+      <line x1="5.6" y1="5.6" x2="7" y2="7" />
+      <line x1="17" y1="17" x2="18.4" y2="18.4" />
+      <line x1="5.6" y1="18.4" x2="7" y2="17" />
+      <line x1="17" y1="7" x2="18.4" y2="5.6" />
+    </template>
+    <!-- data: two curved braces  reads as a JSON / code block.
+         Stroke-only; matches the other monoline icons in this set. -->
+    <template v-else-if="name === 'data'">
+      <path d="M9 5 C7 5 7 7 7 9 C7 11 7 12 5 12 C7 12 7 13 7 15 C7 17 7 19 9 19" />
+      <path d="M15 5 C17 5 17 7 17 9 C17 11 17 12 19 12 C17 12 17 13 17 15 C17 17 17 19 15 19" />
+      <line x1="10.5" y1="12" x2="13.5" y2="12" />
+    </template>
+    <!-- markdown: bold M with a small underline, reads as a
+         .md file / markdown source. -->
+    <template v-else-if="name === 'markdown'">
+      <path d="M3 17 V7 L7 13 L11 7 V17" />
+      <path d="M14 7 V17" />
+      <path d="M14 7 L18 12 L22 7" />
+      <line x1="14" y1="17" x2="22" y2="17" />
+    </template>
+    <!-- txt: a page with horizontal lines, reads as plain text.
+         Slightly different from 'note' (no folded corner). -->
+    <template v-else-if="name === 'txt'">
+      <rect x="5" y="3" width="14" height="18" rx="1.5" />
+      <line x1="8" y1="8" x2="16" y2="8" />
+      <line x1="8" y1="12" x2="16" y2="12" />
+      <line x1="8" y1="16" x2="13" y2="16" />
+    </template>
+    <!-- eye: open eye -- used for the canvas preview toggle button.
+         Reads as "click to enter preview mode" (the eye is "open",
+         i.e. seeing the canvas in full). -->
+    <template v-else-if="name === 'eye'">
+      <path d="M2 12 C4 6 8 3 12 3 C16 3 20 6 22 12 C20 18 16 21 12 21 C8 21 4 18 2 12 Z" />
+      <circle cx="12" cy="12" r="3.2" />
+    </template>
+    <!-- eye-off: closed/slashed eye -- used for "exit preview"
+         in the same button slot.  When the canvas is in preview
+         mode, the button shows this icon to signal "click to go
+         back to the editable view". -->
+    <template v-else-if="name === 'eye-off'">
+      <path d="M3 3 L21 21" />
+      <path d="M10.5 6.2 C11 6.1 11.5 6 12 6 C16 6 19.5 8.5 21 12 C20.4 13.2 19.6 14.3 18.7 15.2" />
+      <path d="M6.6 6.6 C4 8.2 2.7 10.2 2 12 C3 14.5 5.2 16.8 8 18.3 C9.2 19 10.6 19.4 12 19.4 C13.5 19.4 14.9 19 16.2 18.3" />
+      <path d="M9.5 9.5 C9.1 10.2 9 11.1 9 12 C9 13.7 9.8 15.2 11 16.1" />
+    </template>
+    <!-- outline: document with a list -- the left-drawer trigger.
+         Reads as "click to show the outline / sidebar view". -->
+    <template v-else-if="name === 'outline'">
+      <rect x="4" y="3" width="16" height="18" rx="2" />
+      <line x1="8" y1="8" x2="16" y2="8" />
+      <line x1="8" y1="12" x2="16" y2="12" />
+      <line x1="8" y1="16" x2="13" y2="16" />
+    </template>
+    <!-- mindmap logo: branched node -->    <!-- mindmap logo: branched node -->
     <template v-else-if="name === 'logo'">
       <circle cx="12" cy="12" r="2.2" />
       <circle cx="4" cy="5" r="1.6" />
