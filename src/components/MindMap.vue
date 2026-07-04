@@ -93,6 +93,16 @@ const emit = defineEmits<{
    *  changes (user edit, import, etc).  The string is the
    *  re-serialized markdown representation. */
   (e: 'markdownChange', markdown: string): void
+  /** Fired when the user clicks the canvas action buttons
+   *  (top-right preview toggle, top-left outline view) or
+   *  corresponding entries on the canvas context menu.  The
+   *  parent decides how to render them (drawer / dialog /
+   *  separate route) — MindMap only signals intent. */
+  (e: 'canvas-toggle-preview'): void
+  (e: 'canvas-outline'): void
+  (e: 'canvas-settings'): void
+  (e: 'canvas-data'): void
+  (e: 'canvas-import', mode: 'markdown' | 'json' | 'txt'): void
 }>()
 
 const wrapperRef = ref<HTMLElement | null>(null)
@@ -104,6 +114,15 @@ const collapsedIds = ref<Set<string>>(new Set())
 // bottom toolbar fades in on hover; in non-preview mode this is
 // ignored (the toolbar stays put).
 const canvasHovered = ref(false)
+
+// Text-overflow tooltip: shows the full text of a node whose label
+// is truncated by `max-width: 200px`.  We use text length as the
+// gate (DOM measurement via scrollWidth works but fights Vue's
+// patch lifecycle), and read the node's screen rect on demand for
+// positioning.  The tooltip is rendered as a fixed-position
+// element on the wrapper so it escapes the zoom transform on the
+// inner layer.
+const tooltip = ref<{ text: string; x: number; y: number; above: boolean } | null>(null)
 
 // In-place rich body edit: which node has its code/table flipped
 // into edit mode, and the live draft text.  Only one node can be
@@ -754,7 +773,39 @@ function onNodeMouseEnter(id: string) {
 }
 function onNodeMouseLeave(id: string) {
   if (hoveredId.value === id) hoveredId.value = null
+  if (tooltip.value) tooltip.value = null
 }
+
+/** Show a floating tooltip with the node's full text when the
+ *  label is long enough that `max-width: 200px` would clip it.
+ *  Threshold (12 visible chars ≈ 96px in the default font) is
+ *  a conservative estimate — the wrapping render path uses the
+ *  same max-width, so anything past the cap is almost certainly
+ *  clipped.  Position is read from the node element on the
+ *  next frame so layout has settled. */
+function onNodeTextHover(e: MouseEvent, n: LayoutNode) {
+  if (!n.text || n.text.length < 14) return
+  const el = e.currentTarget as HTMLElement
+  const rect = el.getBoundingClientRect()
+  const wrapperRect = wrapperRef.value?.getBoundingClientRect()
+  if (!wrapperRect) return
+  const margin = 10
+  const tipWidth = 240
+  // Anchor above the node, but flip below if there isn't room.
+  const above = rect.top - wrapperRect.top > 60
+  // `left` is the tooltip's horizontal CENTER.  CSS handles the
+  // -50% offset via `transform: translate(-50%, ...)`, so we just
+  // clamp the center to keep the bubble inside the wrapper.
+  const centerX = rect.left - wrapperRect.left + rect.width / 2
+  const minCenter = margin + tipWidth / 2
+  const maxCenter = wrapperRect.width - tipWidth / 2 - margin
+  const x = Math.max(minCenter, Math.min(centerX, maxCenter))
+  const y = above
+    ? rect.top - wrapperRect.top - 8
+    : rect.bottom - wrapperRect.top + 8
+  tooltip.value = { text: n.text, x, y, above }
+}
+
 function isNodeInteractive(id: string): boolean {
   // The image-upload button should appear when the node is hovered
   // OR selected.  Same gate as the collapse button on the canvas.
@@ -2074,7 +2125,7 @@ onMounted(() => {
           @click="(e) => onNodeClick(e, n)"
           @dblclick="(e) => { e.stopPropagation(); if (!previewMode) startEdit(n.id) }"
           @contextmenu="(e) => onNodeContextMenu(e, n)"
-          @mouseenter="onNodeMouseEnter(n.id)"
+          @mouseenter="(e) => { onNodeMouseEnter(n.id); onNodeTextHover(e, n) }"
           @mouseleave="onNodeMouseLeave(n.id)"
         >
           <img
@@ -2243,6 +2294,17 @@ onMounted(() => {
           </button>
         </div>
       </div>
+
+      <!-- Floating tooltip for truncated node labels.  Renders
+           above the zoom layer so it isn't affected by the
+           canvas's pan/zoom transform.  Position is anchored
+           to the node's screen rect at hover time. -->
+      <div
+        v-if="tooltip"
+        class="zm-tooltip"
+        :class="{ 'is-below': !tooltip.above }"
+        :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }"
+      >{{ tooltip.text }}</div>
 
       <!-- Floating context menu — mounted only while the user is
            interacting with it.  Container is the canvas so the
@@ -2569,6 +2631,56 @@ onMounted(() => {
   text-align: center;
   width: 100%;
   min-width: 40px;
+}
+
+/* Truncated-label tooltip.  Fixed-positioned on the canvas wrapper
+ * (outside the zoom transform).  Dark bubble, white text, with a
+ * small arrow pointing at the node when shown above. */
+.zm-tooltip {
+  position: absolute;
+  max-width: 240px;
+  padding: 6px 10px;
+  background: rgba(15, 23, 42, 0.94);
+  color: #f8fafc;
+  font-size: 12px;
+  line-height: 1.4;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  z-index: 1000;
+  white-space: normal;
+  word-break: break-word;
+  transform: translate(-50%, -100%);
+  animation: zm-tooltip-in 120ms ease-out;
+}
+.zm-tooltip.is-below {
+  transform: translate(-50%, 0);
+}
+.zm-tooltip::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: rgba(15, 23, 42, 0.94);
+}
+.zm-tooltip.is-below::after {
+  top: auto;
+  bottom: 100%;
+  border-top-color: transparent;
+  border-bottom-color: rgba(15, 23, 42, 0.94);
+}
+@keyframes zm-tooltip-in {
+  from { opacity: 0; transform: translate(-50%, calc(-100% + 4px)); }
+  to   { opacity: 1; transform: translate(-50%, -100%); }
+}
+.zm-tooltip.is-below {
+  animation-name: zm-tooltip-in-below;
+}
+@keyframes zm-tooltip-in-below {
+  from { opacity: 0; transform: translate(-50%, -4px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
 }
 
 /* ── rich body ─────────────────────────────────────

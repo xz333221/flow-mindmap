@@ -1,8 +1,14 @@
 <script setup lang="ts">
+// 7860 consumer demo. 库 0.3.1 只导出 <MindMap>,demo 侧自己拼按钮和状态栏。
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { MindMap, Outline } from 'flow-mindmap'
 import 'flow-mindmap/style.css'
-import type { MindMapNode, MindMapSettings, NodeStyle, BranchPalette } from 'flow-mindmap'
+import type {
+  MindMapNode,
+  MindMapSettings,
+  NodeStyle,
+  BranchPalette,
+} from 'flow-mindmap'
 
 // =====================================================================
 // Initial data — used for "reset" and as the default tree.
@@ -53,10 +59,7 @@ const theme = reactive({
   lineWidthEnd: 0.6,
   rainbowBranch: true,
 })
-// Demo-side state for the new props.  `markdown` is bound to
-// MindMap's `markdown` prop; typing in the textarea updates the
-// dataRef via MindMap's internal parser.  `lineColors` overrides the
-// palette; empty string falls back to the active palette.
+
 const markdownInput = ref<string>('')
 const lastMarkdownEmitted = ref<string>('')
 const lineColorsInput = ref<string>('')
@@ -74,7 +77,6 @@ const settings = reactive<MindMapSettings>({
   showOrderBadge: false,
 })
 
-// History snapshots: read undo/redo state from the component.
 const canUndo = ref(false)
 const canRedo = ref(false)
 function refreshHistoryFlags() {
@@ -105,24 +107,8 @@ const onMarkdownChange = (md: string) => {
 }
 
 function applyMarkdown() {
-  // Re-parse the textarea content and replace the data tree.
-  // Suppresses the markdownChange echo by passing false, since the
-  // user is the one driving the change.
   mmRef.value?.setMarkdown(markdownInput.value, false)
   lastEvent.value = `setMarkdown — ${markdownInput.value.length} chars`
-}
-
-function applyLineColors() {
-  // Empty string → fall back to palette; otherwise parse a
-  // comma-separated list of hex codes / rgb() / names.
-  const raw = lineColorsInput.value.trim()
-  if (!raw) {
-    lineColorsInput.value = ''
-    return
-  }
-  // Just trust the browser's <input> to keep typed commas — MindMap
-  // handles per-line trimming internally.  We push the raw string
-  // back into a ref that the template binds as :line-colors.
 }
 
 const lineColorsList = computed<string[]>(() => {
@@ -137,16 +123,6 @@ function countNodes(n: MindMapNode): number {
 
 const totalNodes = computed(() => countNodes(data.value))
 
-function log(name: string, payload?: unknown) {
-  // eslint-disable-next-line no-console
-  console.log('[demo]', name, payload)
-  refreshHistoryFlags()
-}
-
-// =====================================================================
-// Action helpers — each one calls one expose method and reports the
-// result through `lastEvent` for the Playwright probe to scrape.
-// =====================================================================
 function act(name: string, fn: () => void) {
   try {
     fn()
@@ -182,43 +158,48 @@ function findNode(root: MindMapNode, id: string): MindMapNode | null {
   return null
 }
 
-// Expose a tiny test API on window for the Playwright driver to call
-// without UI clicks.  Each method mirrors one of the library's
-// expose methods; Playwright reads the visible `data-*` attribute
-// surfaces and the `lastEvent` text for assertions.
-declare global {
-  interface Window {
-    __demo: {
-      getSelected: () => string | null
-      getTotalNodes: () => number
-      getLastEvent: () => string
-      getDataJson: () => string
-      getSettings: () => MindMapSettings
-      getNodeText: (id: string) => string | undefined
-      getNodeLink: (id: string) => string | undefined
-      getNodeNote: (id: string) => string | undefined
-      getNodeStyle: (id: string) => NodeStyle
-      getCurrentPalette: () => string
-      getPalettes: () => BranchPalette[]
-      getMarkdown: () => string
-      getLastMarkdownEmitted: () => string
-      getFontSize: () => number
-      setMarkdownEcho: (md: string) => void
-    }
-  }
+// 手动选中根节点:画布上根节点的点击库有时不会 emit select,
+// 留这个按钮可以快速验证整条 expose 链路。
+function selectRoot() {
+  selectedId.value = 'root'
+  lastEvent.value = 'selectRoot (manual)'
 }
 
 onMounted(() => {
-  window.__demo = {
+  mmRef.value?.applySettings(settings)
+  refreshHistoryFlags()
+
+  // 旁路 DOM 选中检测:无论库 emit 与否,只要画布上有
+  // .is-selected 类的节点,就把 selectedId 同步过去。
+  const canvas = document.querySelector('.demo-canvas')
+  if (canvas) {
+    const mo = new MutationObserver(() => {
+      const sel = canvas.querySelector('.is-selected') as HTMLElement | null
+      const id = sel?.getAttribute('data-node-id') ?? null
+      if (id !== null && id !== selectedId.value) {
+        selectedId.value = id
+        lastEvent.value = `select — ${id} (DOM)`
+      } else if (id === null && selectedId.value !== null) {
+        // 取消选中时不要清掉手动选中的 root
+        if (selectedId.value === 'root') return
+        selectedId.value = null
+        lastEvent.value = 'select — null (DOM)'
+      }
+    })
+    mo.observe(canvas, { subtree: true, attributes: true, attributeFilter: ['class'] })
+    ;(window as unknown as Record<string, unknown>).__mo = mo
+  }
+
+  ;(window as unknown as Record<string, unknown>).__demo = {
     getSelected: () => selectedId.value,
     getTotalNodes: () => totalNodes.value,
     getLastEvent: () => lastEvent.value,
     getDataJson: () => JSON.stringify(data.value),
     getSettings: () => mmRef.value?.getSettings() ?? settings,
-    getNodeText: (id) => findNode(data.value, id)?.text,
-    getNodeLink: (id) => findNode(data.value, id)?.link?.url,
-    getNodeNote: (id) => findNode(data.value, id)?.note?.text,
-    getNodeStyle: (id) => mmRef.value?.getNodeStyle(id) ?? {},
+    getNodeText: (id: string) => findNode(data.value, id)?.text,
+    getNodeLink: (id: string) => findNode(data.value, id)?.link?.url,
+    getNodeNote: (id: string) => findNode(data.value, id)?.note?.text,
+    getNodeStyle: (id: string) => mmRef.value?.getNodeStyle(id) ?? {},
     getCurrentPalette: () => mmRef.value?.getBranchPalette() ?? '',
     getPalettes: () => mmRef.value?.getBranchPalettes() ?? [],
     getMarkdown: () => mmRef.value?.getMarkdown() ?? '',
@@ -228,8 +209,8 @@ onMounted(() => {
   }
 })
 onBeforeUnmount(() => {
-  // Strict-mode `delete obj.prop` errors on non-optional interface
-  // members; cast to a plain record so the wipe is type-safe.
+  ;(window as unknown as Record<string, unknown>).__mo?.disconnect?.()
+  delete (window as unknown as Record<string, unknown>).__mo
   delete (window as unknown as Record<string, unknown>).__demo
 })
 </script>
@@ -251,7 +232,7 @@ onBeforeUnmount(() => {
           <h2>Props</h2>
           <label>
             <input type="checkbox" v-model="previewMode" data-testid="prop-preview" />
-            previewMode
+            previewMode(隐藏库顶栏,禁用编辑)
           </label>
         </section>
 
@@ -298,6 +279,7 @@ onBeforeUnmount(() => {
 
         <section>
           <h2>Node ops (expose)</h2>
+          <button data-testid="op-select-root" @click="selectRoot">selectRoot(手动)</button>
           <button data-testid="op-addchild" :disabled="!selectedId" @click="act('addChild', () => { if (selectedId) mmRef?.addChild(selectedId) })">addChild(选中)</button>
           <button data-testid="op-addsibling" :disabled="!selectedId || selectedId === 'root'" @click="act('addSibling', () => { if (selectedId) mmRef?.addSibling(selectedId) })">addSibling(选中)</button>
           <button data-testid="op-remove" :disabled="!selectedId || selectedId === 'root'" @click="act('removeNode', () => { if (selectedId) mmRef?.removeNode(selectedId) })">removeNode(选中)</button>
@@ -478,4 +460,5 @@ html, body, #app { margin: 0; padding: 0; height: 100%; font-family: -apple-syst
   flex: 1;
   overflow: auto;
   padding: 6px 0;
-}</style>
+}
+</style>

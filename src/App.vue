@@ -262,6 +262,30 @@ const stressData: MindMapNode = (() => {
 })()
 
 const data = ref<MindMapNode>(richData)
+// Top-bar buttons: each one is gated by a prop with the default
+// the package ships with.  Consumers can override any subset to
+// hide buttons they don't want on the host page.
+const props = withDefaults(
+  defineProps<{
+    /** Show the "显示大纲" button in the top bar. */
+    showOutlineBtn?: boolean
+    /** Show the "显示数据" button in the top bar. */
+    showDataBtn?: boolean
+    /** Show the "显示 Markdown" button in the top bar. */
+    showMarkdownBtn?: boolean
+    /** Show the "显示设置" button in the top bar. */
+    showSettingsBtn?: boolean
+    /** Show the "进入预览模式" button in the top bar. */
+    showPreviewModeBtn?: boolean
+  }>(),
+  {
+    showOutlineBtn: true,
+    showDataBtn: true,
+    showMarkdownBtn: false,
+    showSettingsBtn: true,
+    showPreviewModeBtn: true,
+  }
+)
 const selectedNode = ref<MindMapNode | null>(null)
 const collapsedIds = ref<Set<string>>(new Set())
 const showOutline = ref(false)
@@ -578,7 +602,7 @@ const totalNodes = computed(() => countNodes(data.value))
 
     <main class="zm-app-main">
       <div v-if="!previewMode" class="zm-app-toolbar">        <button
-          v-if="!showOutline"
+          v-if="props.showOutlineBtn && !showOutline"
           class="zm-app-icon-btn"
           title="显示大纲"
           @click="showOutline = true"
@@ -593,7 +617,7 @@ const totalNodes = computed(() => countNodes(data.value))
           </svg>
         </button>
         <button
-          v-if="!showData"
+          v-if="props.showDataBtn && !showData"
           class="zm-app-icon-btn"
           title="显示数据"
           @click="showData = true; showMarkdown = false; showNote = false"
@@ -604,7 +628,7 @@ const totalNodes = computed(() => countNodes(data.value))
           </svg>
         </button>
         <button
-          v-if="!showMarkdown"
+          v-if="props.showMarkdownBtn && !showMarkdown"
           class="zm-app-icon-btn"
           title="显示 Markdown"
           @click="showMarkdown = true; showData = false; showNote = false"
@@ -616,7 +640,7 @@ const totalNodes = computed(() => countNodes(data.value))
           </svg>
         </button>
         <button
-          v-if="!showSettings"
+          v-if="props.showSettingsBtn && !showSettings"
           class="zm-app-icon-btn"
           title="显示设置"
           @click="showSettings = true"
@@ -643,6 +667,7 @@ const totalNodes = computed(() => countNodes(data.value))
           </svg>
         </button>
         <button
+          v-if="props.showPreviewModeBtn"
           class="zm-app-icon-btn"
           :class="{ 'is-on': previewMode }"
           title="进入预览模式"
