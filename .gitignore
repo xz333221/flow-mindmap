@@ -29,3 +29,8 @@ verify-output/
 
 # Claude debug log written to .claude/codediff.txt by PostToolUse hooks
 .claude/codediff.txt
+
+# Vite / dev-server log files (regenerated on every dev run)
+*.log
+demo-dev-*.log
+demo/demo-dev-*.log
