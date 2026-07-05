@@ -136,57 +136,27 @@ defineProps<{
       <polyline points="20 15 20 20 15 20" />
       <polyline points="9 20 4 20 4 15" />
     </template>
-    <!-- settings: gear / cog, universal "settings" glyph.  Drawn
-         as a stroked circle in the middle with 8 short teeth
-         around the rim.  Sits at 16-px size like the other
-         icons so the menu rows line up. -->
+    <!-- database: classic cylinder — reads as “view data / data
+                 source”.  Stroke-only; matches the other monoline
+         icons. -->
+    <template v-else-if="name === 'database'">
+      <ellipse cx="12" cy="6" rx="7" ry="2.5" />
+      <path d="M5 6 V18 C5 19.4 8 20.5 12 20.5 C16 20.5 19 19.4 19 18 V6" />
+      <path d="M5 12 C5 13.4 8 14.5 12 14.5 C16 14.5 19 13.4 19 12" />
+    </template>
+    <!-- settings: gear / cog — Lucide-style single-path gear with
+         a center hole.  Reads as “settings / preferences” at any
+         size and stays crisp at 13 px. -->
     <template v-else-if="name === 'settings'">
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
       <circle cx="12" cy="12" r="3" />
-      <line x1="12" y1="2.5" x2="12" y2="4.5" />
-      <line x1="12" y1="19.5" x2="12" y2="21.5" />
-      <line x1="2.5" y1="12" x2="4.5" y2="12" />
-      <line x1="19.5" y1="12" x2="21.5" y2="12" />
-      <line x1="5.6" y1="5.6" x2="7" y2="7" />
-      <line x1="17" y1="17" x2="18.4" y2="18.4" />
-      <line x1="5.6" y1="18.4" x2="7" y2="17" />
-      <line x1="17" y1="7" x2="18.4" y2="5.6" />
     </template>
-    <!-- data: two curved braces 鈥?reads as a JSON / code block.
-         Stroke-only; matches the other monoline icons in this set. -->
-    <template v-else-if="name === 'data'">
-      <path d="M9 5 C7 5 7 7 7 9 C7 11 7 12 5 12 C7 12 7 13 7 15 C7 17 7 19 9 19" />
-      <path d="M15 5 C17 5 17 7 17 9 C17 11 17 12 19 12 C17 12 17 13 17 15 C17 17 17 19 15 19" />
-      <line x1="10.5" y1="12" x2="13.5" y2="12" />
-    </template>
-    <!-- settings: gear / cog, universal "settings" glyph.  Drawn
-         as a stroked circle in the middle with 8 short teeth
-         around the rim.  Sits at 16-px size like the other
-         icons so the menu rows line up. -->
-    <template v-else-if="name === 'settings'">
-      <circle cx="12" cy="12" r="3" />
-      <line x1="12" y1="2.5" x2="12" y2="4.5" />
-      <line x1="12" y1="19.5" x2="12" y2="21.5" />
-      <line x1="2.5" y1="12" x2="4.5" y2="12" />
-      <line x1="19.5" y1="12" x2="21.5" y2="12" />
-      <line x1="5.6" y1="5.6" x2="7" y2="7" />
-      <line x1="17" y1="17" x2="18.4" y2="18.4" />
-      <line x1="5.6" y1="18.4" x2="7" y2="17" />
-      <line x1="17" y1="7" x2="18.4" y2="5.6" />
-    </template>
-    <!-- data: two curved braces  reads as a JSON / code block.
-         Stroke-only; matches the other monoline icons in this set. -->
-    <template v-else-if="name === 'data'">
-      <path d="M9 5 C7 5 7 7 7 9 C7 11 7 12 5 12 C7 12 7 13 7 15 C7 17 7 19 9 19" />
-      <path d="M15 5 C17 5 17 7 17 9 C17 11 17 12 19 12 C17 12 17 13 17 15 C17 17 17 19 15 19" />
-      <line x1="10.5" y1="12" x2="13.5" y2="12" />
-    </template>
-    <!-- markdown: bold M with a small underline, reads as a
-         .md file / markdown source. -->
+    <!-- markdown: rounded rect with “M↓” — the standard Markdown
+                 logo mark.  Clean and recognizable at small sizes. -->
     <template v-else-if="name === 'markdown'">
-      <path d="M3 17 V7 L7 13 L11 7 V17" />
-      <path d="M14 7 V17" />
-      <path d="M14 7 L18 12 L22 7" />
-      <line x1="14" y1="17" x2="22" y2="17" />
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <path d="M6 15 V9 L9 12 L12 9 V15" />
+      <path d="M15 15 V9 L18 12 V9 M15 12 L18 15" />
     </template>
     <!-- txt: a page with horizontal lines, reads as plain text.
          Slightly different from 'note' (no folded corner). -->

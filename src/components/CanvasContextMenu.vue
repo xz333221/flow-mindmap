@@ -169,7 +169,7 @@ function run(handler: () => void) {
     :style="{ left: clamped.left + 'px', top: clamped.top + 'px' }"
     @contextmenu.prevent
   >
-    <button class="zm-canvas-menu-item" @click.stop="run(() => emit('openData'))"><Icon name="data" :size="13" /><span>查看数据</span></button>
+    <button class="zm-canvas-menu-item" @click.stop="run(() => emit('openData'))"><Icon name="database" :size="13" :stroke="1.6" /><span>查看数据</span></button>
     <div
       ref="importItemRef"
       class="zm-canvas-menu-item zm-canvas-menu-item-has-submenu"
@@ -177,7 +177,7 @@ function run(handler: () => void) {
       @mouseenter="onSubmenuEnter"
       @mouseleave="onSubmenuLeave"
     >
-      <Icon name="import" :size="13" /><span>导入</span>
+      <Icon name="import" :size="13" :stroke="1.6" /><span>导入</span>
       <svg class="zm-canvas-menu-caret" width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="2.5 1.8 5.2 4 2.5 6.2" /></svg>
       <div
         v-if="submenuOpen"
@@ -186,12 +186,12 @@ function run(handler: () => void) {
         @mouseenter="onSubmenuEnter"
         @mouseleave="onSubmenuLeave"
       >
-        <button class="zm-canvas-menu-item" @click.stop="run(() => emit('openImport', 'markdown'))"><Icon name="markdown" :size="13" /><span>Markdown 导入</span></button>
-        <button class="zm-canvas-menu-item" @click.stop="run(() => emit('openImport', 'json'))"><Icon name="data" :size="13" /><span>JSON 文件导入</span></button>
-        <button class="zm-canvas-menu-item" @click.stop="run(() => emit('openImport', 'txt'))"><Icon name="note" :size="13" /><span>TXT 文件导入</span></button>
+        <button class="zm-canvas-menu-item" @click.stop="run(() => emit('openImport', 'markdown'))"><Icon name="markdown" :size="13" :stroke="1.6" /><span>Markdown 导入</span></button>
+        <button class="zm-canvas-menu-item" @click.stop="run(() => emit('openImport', 'json'))"><Icon name="data" :size="13" :stroke="1.6" /><span>JSON 文件导入</span></button>
+        <button class="zm-canvas-menu-item" @click.stop="run(() => emit('openImport', 'txt'))"><Icon name="txt" :size="13" :stroke="1.6" /><span>TXT 文件导入</span></button>
       </div>
     </div>
-    <button class="zm-canvas-menu-item" @click.stop="run(() => emit('openSettings'))"><Icon name="settings" :size="13" /><span>设置</span></button>
+    <button class="zm-canvas-menu-item" @click.stop="run(() => emit('openSettings'))"><Icon name="settings" :size="13" :stroke="1.6" /><span>设置</span></button>
   </div>
 </template>
 

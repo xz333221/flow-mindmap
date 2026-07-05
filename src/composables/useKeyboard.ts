@@ -32,6 +32,12 @@ export interface KeyboardOptions {
    *  the primary selected node, or the root when nothing is selected).
    *  `targetId === null` means "default to root". */
   onPaste: (targetId: string | null) => void
+  /** Returns true when the host's internal clipboard buffer has at
+   *  least one copied node ready to paste.  When false, Ctrl+V is
+   *  NOT intercepted so the browser's native `paste` event fires —
+   *  this lets the onPaste(ClipboardEvent) handler pick up image
+   *  data from the system clipboard. */
+  hasClipboard: () => boolean
   onUndo: () => void
   onRedo: () => void
   /**
@@ -119,6 +125,14 @@ export function useKeyboard(opts: KeyboardOptions) {
         return
       }
       if (e.key === 'v' || e.key === 'V') {
+        // Only intercept Ctrl+V for node-paste when the internal
+        // clipboard buffer actually has copied nodes.  When it's
+        // empty, let the default action proceed so the browser's
+        // `paste` event fires — that's what the image-paste handler
+        // (onPaste / ClipboardEvent) listens for.  Without this
+        // guard, every Ctrl+V was preventDefault'd and image paste
+        // never worked.
+        if (!opts.hasClipboard()) return
         e.preventDefault()
         const ids = opts.getSelectedIds()
         opts.onPaste(ids.length > 0 ? ids[0] : null)

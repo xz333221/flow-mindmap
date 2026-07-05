@@ -514,6 +514,15 @@ function onCanvasContextMenu(e: MouseEvent) {
   // (toolbar, fab, note button, etc).
   const target = e.target as HTMLElement | null
   if (target?.closest('.zm-toolbar, button, input, textarea, .zm-canvas-fab-preview, .zm-canvas-fab-outline')) return
+  // If the right button was just used to drag-pan the canvas (moved
+  // beyond the threshold), suppress both our menu AND the native
+  // browser context menu — the user intended to pan, not to open a
+  // menu.  A simple right-click without movement still shows the menu.
+  if (lastPanWasRightButton && panZoom.panMoved.value) {
+    lastPanWasRightButton = false
+    e.preventDefault()
+    return
+  }
   e.preventDefault()
   // Mutual exclusion: opening the canvas menu dismisses any open
   // node context menu.
@@ -1268,6 +1277,7 @@ useKeyboard({
   onCopy: doCopy,
   onCut: doCut,
   onPaste: doPaste,
+  hasClipboard: () => !!clipboard.value && clipboard.value.nodes.length > 0,
   onUndo: doUndo,
   onRedo: doRedo,
   onNavigate: doNavigate,
@@ -1833,6 +1843,22 @@ function getNodeAtPointer(wx: number, wy: number, excludeId: string | null): Lay
   return hit
 }
 
+// Pending drag state — set on pointerdown, promoted to the reactive
+// `dragState` only after the pointer moves beyond DRAG_THRESHOLD.
+// This prevents the ghost chip and source-dimming from flashing on a
+// simple click/press.  A plain object (not reactive) since it's only
+// read by the three drag handlers below.
+interface PendingDrag {
+  srcId: string
+  srcText: string
+  pointerOffsetX: number
+  pointerOffsetY: number
+  startX: number
+  startY: number
+}
+let pendingDrag: PendingDrag | null = null
+const DRAG_THRESHOLD = 4 // px of movement before a drag becomes "active"
+
 function onNodePointerDown(e: PointerEvent, n: LayoutNode) {
   if (props.previewMode) return
   if (n.isRoot) return
@@ -1848,9 +1874,7 @@ function onNodePointerDown(e: PointerEvent, n: LayoutNode) {
   // intent (clean click → `onNodeClick`, successful drop →
   // `onDragPointerUp`).  Auto-selecting on mousedown made the
   // blue ring flash before any drag actually started, which felt
-  // jittery.  The drag ghost, source-dimming, and drop-target
-  // outline are all driven by `dragState` below — they appear
-  // immediately without touching selection.
+  // jittery.
 
   // Resolve pointer offset inside the source box (in wrapper
   // screen coords) so the ghost tracks the grab point, not the
@@ -1861,16 +1885,18 @@ function onNodePointerDown(e: PointerEvent, n: LayoutNode) {
   const pointerOffsetX = e.clientX - wrapperRect.left - sourceScreenX
   const pointerOffsetY = e.clientY - wrapperRect.top - sourceScreenY
 
-  dragState.value = {
+  // Record a pending drag — DON'T set dragState yet.  The ghost
+  // and source-dimming only appear once the pointer moves past
+  // DRAG_THRESHOLD, so a plain press/click doesn't flash the
+  // drag UI.
+  pendingDrag = {
     srcId: n.id,
     srcText: n.text,
     pointerOffsetX,
     pointerOffsetY,
-    currentTargetId: null,
+    startX: e.clientX,
+    startY: e.clientY,
   }
-  dragGhostX.value = e.clientX - wrapperRect.left - pointerOffsetX
-  dragGhostY.value = e.clientY - wrapperRect.top - pointerOffsetY
-  document.body.classList.add('is-dragging')
 
   // Listen on window so we catch move/up regardless of which DOM
   // element the pointer is over (incl. the empty canvas).  Using
@@ -1881,6 +1907,26 @@ function onNodePointerDown(e: PointerEvent, n: LayoutNode) {
 }
 
 function onDragPointerMove(e: PointerEvent) {
+  // If we have a pending drag, check whether it should be promoted
+  // to an active drag (pointer moved past the threshold).
+  if (pendingDrag) {
+    const dx = e.clientX - pendingDrag.startX
+    const dy = e.clientY - pendingDrag.startY
+    if (Math.abs(dx) <= DRAG_THRESHOLD && Math.abs(dy) <= DRAG_THRESHOLD) {
+      return // still within the dead-zone — not a drag yet
+    }
+    // Promote: show the ghost, dim the source, add the grabbing cursor.
+    dragState.value = {
+      srcId: pendingDrag.srcId,
+      srcText: pendingDrag.srcText,
+      pointerOffsetX: pendingDrag.pointerOffsetX,
+      pointerOffsetY: pendingDrag.pointerOffsetY,
+      currentTargetId: null,
+    }
+    document.body.classList.add('is-dragging')
+    pendingDrag = null
+  }
+
   const state = dragState.value
   if (!state) return
   const wrapperRect = wrapperRef.value!.getBoundingClientRect()
@@ -1895,11 +1941,19 @@ function onDragPointerMove(e: PointerEvent) {
 }
 
 function onDragPointerUp(_e: PointerEvent) {
-  const state = dragState.value
-  if (!state) return
   window.removeEventListener('pointermove', onDragPointerMove)
   window.removeEventListener('pointerup', onDragPointerUp)
   window.removeEventListener('pointercancel', onDragPointerUp)
+
+  // If there's still a pending drag, the user never moved past the
+  // threshold — this was a click, not a drag.  Just clean up.
+  if (pendingDrag) {
+    pendingDrag = null
+    return
+  }
+
+  const state = dragState.value
+  if (!state) return
 
   if (state.currentTargetId) {
     doMove(state.srcId, state.currentTargetId, 'child')
@@ -1921,6 +1975,12 @@ function onDragPointerUp(_e: PointerEvent) {
 
 /** Click on the canvas background (not on a node) — clear the
  *  current selection and tell the parent. */
+// Tracks whether the most recent canvas pan was started with the
+// right mouse button.  Set in onCanvasMouseDown (button 2 → startPan),
+// consumed by onCanvasContextMenu to decide whether to suppress the
+// menu after a drag-pan.  Reset to false on any non-right-button press.
+let lastPanWasRightButton = false
+
 function onCanvasMouseDown(e: MouseEvent) {
   const target = e.target as HTMLElement | null
   if (!target) return
@@ -1930,9 +1990,11 @@ function onCanvasMouseDown(e: MouseEvent) {
   if (target.closest('.zm-node, .zm-toolbar, button, input, textarea')) return
   if (e.button === 2) {
     // Right button: pan the canvas.
+    lastPanWasRightButton = true
     panZoom.startPan(e)
     return
   }
+  lastPanWasRightButton = false
   if (e.button !== 0) return
   // Left button: start a marquee (rectangle selection) anchored
   // at the press point. Convert screen → world coords through the

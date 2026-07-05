@@ -36,6 +36,11 @@ export function usePanZoom(opts: PanZoomOptions) {
   const offsetX: Ref<number> = ref(0)
   const offsetY: Ref<number> = ref(0)
   const isPanning = ref(false)
+  // Tracks whether the current/last pan actually moved the canvas
+  // beyond a small threshold.  Used by the caller to suppress the
+  // context menu after a right-button drag-pan (so the user can pan
+  // without the menu popping up on release).  Reset on every startPan.
+  const panMoved = ref(false)
   const panStart = reactive<{ x: number; y: number; ox: number; oy: number }>({
     x: 0,
     y: 0,
@@ -89,6 +94,7 @@ export function usePanZoom(opts: PanZoomOptions) {
     const target = e.target as HTMLElement
     if (target.closest('.zm-node, .zm-toolbar, button, input, textarea')) return
     isPanning.value = true
+    panMoved.value = false
     panStart.x = e.clientX
     panStart.y = e.clientY
     panStart.ox = offsetX.value
@@ -100,8 +106,14 @@ export function usePanZoom(opts: PanZoomOptions) {
 
   function onPanMove(e: MouseEvent) {
     if (!isPanning.value) return
-    offsetX.value = panStart.ox + (e.clientX - panStart.x)
-    offsetY.value = panStart.oy + (e.clientY - panStart.y)
+    const dx = e.clientX - panStart.x
+    const dy = e.clientY - panStart.y
+    // Only flag as moved once the cursor travels beyond a small
+    // threshold — a tiny jitter on right-click shouldn't suppress
+    // the context menu.
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) panMoved.value = true
+    offsetX.value = panStart.ox + dx
+    offsetY.value = panStart.oy + dy
   }
 
   function endPan() {
@@ -188,6 +200,7 @@ export function usePanZoom(opts: PanZoomOptions) {
     offsetX,
     offsetY,
     isPanning,
+    panMoved,
     onWheel,
     zoomIn,
     zoomOut,
