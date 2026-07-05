@@ -1315,7 +1315,7 @@ function startEdit(id: string) {
   })
 }
 
-function commitEdit(opts: { addSibling?: 'after' | 'before'; addChild?: boolean } = {}) {
+function commitEdit() {
   if (!editingId.value) return
   const n = findNode(dataRef.value, editingId.value)
   if (n && n.text !== (editText.value.trim() || ' ')) {
@@ -1323,19 +1323,7 @@ function commitEdit(opts: { addSibling?: 'after' | 'before'; addChild?: boolean 
     record()
     emit('change', dataRef.value)
   }
-  const id = editingId.value
   editingId.value = null
-  // After committing, optionally add a new node in the same pass.
-  // This matches xmind: pressing Enter while editing commits the text
-  // AND creates a fresh sibling ready to type into.  Tab while editing
-  // commits and creates a child of the same node.
-  if (opts.addChild) {
-    nextTick(() => doAddChild(id))
-  } else if (opts.addSibling === 'after') {
-    nextTick(() => doAddSibling(id))
-  } else if (opts.addSibling === 'before') {
-    nextTick(() => doAddSiblingBefore(id))
-  }
 }
 
 function cancelEdit() {
@@ -2399,9 +2387,8 @@ onMounted(() => {
             v-model="editText"
             autofocus
             @blur="commitEdit()"
-            @keydown.enter.exact="commitEdit({ addSibling: 'after' })"
-            @keydown.shift.enter.prevent.exact="commitEdit({ addSibling: 'before' })"
-            @keydown.tab.prevent="commitEdit({ addChild: true })"
+            @keydown.enter.exact="commitEdit()"
+            @keydown.tab.prevent="commitEdit()"
             @keydown.esc="cancelEdit"
             @keydown="onEditKeydown"
             @mousedown.stop
