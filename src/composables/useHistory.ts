@@ -4,12 +4,17 @@ import type { MindMapNode } from '../types'
 /**
  * Linear undo/redo history for the mind map.
  *
- * Each entry stores the data tree (full JSON snapshot).
- * Snapshots are deep-cloned JSON strings (one string per state).  The
- * timeline is bounded so a long session doesn't grow without limit.
+ * Each entry stores the data tree (full JSON snapshot) plus the
+ * multi-select state, so undo / redo restores both the tree shape
+ * and the user's selection.  Snapshots are deep-cloned JSON
+ * strings (one string per state).  The timeline is bounded so a
+ * long session doesn't grow without limit.
  */
 export interface HistoryState {
   data: MindMapNode
+  /** Selected node ids at snapshot time.  Optional so older
+   *  snapshots without it remain loadable. */
+  selectedIds?: string[]
 }
 
 export function useHistory(maxSize = 100) {

@@ -4,7 +4,11 @@ export interface KeyboardOptions {
   isEditing: () => boolean
   isReadonly: () => boolean
   getSelectedId: () => string | null
-  getRootId: () => string
+  /**
+   * Multi-select view of the current selection. Returned in
+   * preorder (root-first) so consumers can iterate top-down.
+   * Empty when nothing is selected. */
+  getSelectedIds: () => string[]
   /**
    * Called when Tab/Enter fires and no node is selected — defaults the
    * action to the root node so the user can build a tree from scratch
@@ -18,6 +22,16 @@ export interface KeyboardOptions {
   onStartEdit: (id: string) => void
   onClearSelection: () => void
   onDuplicate: (id: string) => void
+  /** Copy the currently selected subtrees into the host's clipboard
+   *  buffer.  No-op when the selection is empty. */
+  onCopy: (ids: string[]) => void
+  /** Cut the currently selected subtrees (copy + remove from tree).
+   *  No-op when the selection is empty. */
+  onCut: (ids: string[]) => void
+  /** Paste the host's clipboard buffer under `targetId` (defaults to
+   *  the primary selected node, or the root when nothing is selected).
+   *  `targetId === null` means "default to root". */
+  onPaste: (targetId: string | null) => void
   onUndo: () => void
   onRedo: () => void
   /**
@@ -46,7 +60,11 @@ export function useKeyboard(opts: KeyboardOptions) {
     const sel = opts.getSelectedId()
     if (sel) return sel
     if (opts.defaultTargetId) return opts.defaultTargetId()
-    return opts.getRootId()
+    // No getRootId() in the new options shape — fall back to the
+    // first selected id (which the multi-select getter would have
+    // returned as primary) or null.
+    const ids = opts.getSelectedIds()
+    return ids.length > 0 ? ids[0] : null
   }
 
   function onKey(e: KeyboardEvent) {
@@ -77,10 +95,33 @@ export function useKeyboard(opts: KeyboardOptions) {
     // ----- modifier-based shortcuts -----
     if (modKey(e) && !e.shiftKey) {
       if (e.key === 'd' || e.key === 'D') {
-        if (sel && sel !== opts.getRootId()) {
+        const rootId = opts.defaultTargetId?.()
+        if (sel && sel !== rootId) {
           e.preventDefault()
           opts.onDuplicate(sel)
         }
+        return
+      }
+      if (e.key === 'c' || e.key === 'C') {
+        const ids = opts.getSelectedIds()
+        if (ids.length > 0) {
+          e.preventDefault()
+          opts.onCopy(ids)
+        }
+        return
+      }
+      if (e.key === 'x' || e.key === 'X') {
+        const ids = opts.getSelectedIds()
+        if (ids.length > 0) {
+          e.preventDefault()
+          opts.onCut(ids)
+        }
+        return
+      }
+      if (e.key === 'v' || e.key === 'V') {
+        e.preventDefault()
+        const ids = opts.getSelectedIds()
+        opts.onPaste(ids.length > 0 ? ids[0] : null)
         return
       }
       if (e.key === 'z' || e.key === 'Z') {
@@ -113,14 +154,15 @@ export function useKeyboard(opts: KeyboardOptions) {
       e.preventDefault()
       if (e.shiftKey) {
         // Shift+Enter: insert a sibling BEFORE the current node
-        if (sel && sel !== opts.getRootId()) opts.onAddSiblingBefore(sel)
+        const rootId = opts.defaultTargetId?.()
+        if (sel && sel !== rootId) opts.onAddSiblingBefore(sel)
       } else {
         opts.onAddSibling(id)
       }
     } else if (
       (e.key === 'Delete' || e.key === 'Backspace') &&
       sel &&
-      sel !== opts.getRootId()
+      sel !== opts.defaultTargetId?.()
     ) {
       e.preventDefault()
       opts.onRemove(sel)

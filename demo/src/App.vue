@@ -44,6 +44,10 @@ const initialData: MindMapNode = {
 const data = ref<MindMapNode>(initialData)
 const mmRef = ref<InstanceType<typeof MindMap> | null>(null)
 const selectedId = ref<string | null>(null)
+// Multi-select: every id currently picked (primary + secondary).
+// Read from the library's expose API on every render so the
+// left panel always reflects the live canvas state.
+const selectedIds = computed<string[]>(() => mmRef.value?.getSelectedIds() ?? [])
 const lastEvent = ref<string>('(none)')
 const previewMode = ref(false)
 const showOutline = ref(false)
@@ -95,8 +99,13 @@ const onChange = (d: MindMapNode) => {
   refreshHistoryFlags()
   lastEvent.value = `change — ${countNodes(d)} 节点`
 }
-const onSelect = (n: MindMapNode | null) => {
-  selectedId.value = n?.id ?? null
+const onSelect = (nodes: MindMapNode[] | null) => {
+  // The library always emits an array; take the first as the
+  // primary selection.  Demo treats single + multi the same —
+  // the drawer opens for the primary node when it has content,
+  // and the left panel reflects the count of all selected ids.
+  const primary = nodes && nodes.length > 0 ? nodes[0] : null
+  selectedId.value = primary?.id ?? null
   // Mirror the library's built-in App: clicking a node opens the
   // note drawer; clicking empty canvas closes it.  We ALSO gate
   // the open on `nodeHasContent` so plain text nodes don't pop
@@ -108,8 +117,8 @@ const onSelect = (n: MindMapNode | null) => {
   // updated), not a stale snapshot.
   // previewMode also closes the drawer — gated on the Drawer's
   // :open expression so we don't need to do anything special here.
-  showNote.value = !!n && (mmRef.value?.nodeHasContent(n.id) ?? false)
-  lastEvent.value = n ? `select — ${n.id} (${n.text})` : 'select — null'
+  showNote.value = !!primary && (mmRef.value?.nodeHasContent(primary.id) ?? false)
+  lastEvent.value = primary ? `select — ${primary.id} (${primary.text})` : 'select — null'
 }
 
 const openSettings = () => { lastEvent.value = 'canvas-settings' }
@@ -358,6 +367,15 @@ onBeforeUnmount(() => {
           <h2>History</h2>
           <button data-testid="op-undo" :disabled="!canUndo" @click="act('undo', () => mmRef?.undo())">undo</button>
           <button data-testid="op-redo" :disabled="!canRedo" @click="act('redo', () => mmRef?.redo())">redo</button>
+        </section>
+
+        <section>
+          <h2>Multi-select</h2>
+          <small data-testid="sel-count">已选 <b>{{ selectedIds.length }}</b> 个节点</small>
+          <button data-testid="op-copy" :disabled="selectedIds.length === 0" @click="act('copyNodes', () => mmRef?.copyNodes(selectedIds))">copyNodes</button>
+          <button data-testid="op-cut" :disabled="selectedIds.length === 0" @click="act('cutNodes', () => mmRef?.cutNodes(selectedIds))">cutNodes</button>
+          <button data-testid="op-paste" :disabled="!selectedId" @click="act('pasteNodes', () => mmRef?.pasteNodes(selectedId))">pasteNodes → 选中</button>
+          <button data-testid="op-paste-root" @click="act('pasteNodes(root)', () => mmRef?.pasteNodes(null))">pasteNodes → root</button>
         </section>
 
         <section>

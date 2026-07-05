@@ -209,9 +209,29 @@ export function duplicateNode(root: MindMapNode, nodeId: string): MindMapNode | 
   return copy
 }
 
-function reassignIds(n: MindMapNode) {
+export function reassignIds(n: MindMapNode) {
   n.id = uid()
   for (const c of n.children) reassignIds(c)
+}
+
+/** Deep-clone a subtree rooted at `nodeId`, reassigning all ids so
+ *  the copy can be re-inserted into the tree without id collisions.
+ *  Returns null if the node isn't found or is the root. */
+export function cloneSubtree(root: MindMapNode, nodeId: string): MindMapNode | null {
+  const n = findNode(root, nodeId)
+  if (!n || n.id === root.id) return null
+  const copy = clone(n)
+  reassignIds(copy)
+  return copy
+}
+
+/** True iff a node with `descendantId` lives anywhere under
+ *  `rootId` in the tree (rootId itself counts). Used by the
+ *  clipboard paste cycle guard. */
+export function hasDescendant(root: MindMapNode, rootId: string, descendantId: string): boolean {
+  const n = findNode(root, rootId)
+  if (!n) return false
+  return !!findNode(n, descendantId)
 }
 
 export function countDescendants(n: MindMapNode): number {

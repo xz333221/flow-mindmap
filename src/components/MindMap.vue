@@ -19,6 +19,8 @@ import {
   findParent,
   duplicateNode,
   clone,
+  cloneSubtree,
+  reassignIds,
   DEFAULT_NEW_NODE_TEXT,
   markdownToMindMap,
   mindMapToMarkdown,
@@ -83,7 +85,12 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'change', data: MindMapNode): void
-  (e: 'select', node: MindMapNode | null): void
+  /** Fires on every selection change. The payload is the full set of
+   *  selected data nodes — never empty; null means "nothing selected".
+   *  Hosts should treat this as the source of truth for "what's picked
+   *  right now"; the [0] entry is the primary selection for one-target
+   *  actions (toolbar buttons, drawer, etc). */
+  (e: 'select', nodes: MindMapNode[] | null): void
   /** Fired when the user clicks a node's note icon or picks
    *  "添加笔记" / "编辑笔记" from the right-click menu.  The
    *  parent is expected to open the right-side note drawer
@@ -108,7 +115,16 @@ const emit = defineEmits<{
 const wrapperRef = ref<HTMLElement | null>(null)
 const editingId = ref<string | null>(null)
 const editText = ref('')
-const selectedId = ref<string | null>(null)
+// Multi-select model: a Set of node ids.  `selectedId` is a
+// computed view of the set's first entry — kept for backward-compat
+// reads (template's `selectedId === n.id` checks, single-id toolbar
+// gating, image-control v-if).  The first id is the "primary"
+// selection — toolbar buttons (add child / sibling) operate on it.
+const selectedIds = ref<Set<string>>(new Set())
+const selectedId = computed<string | null>(() => {
+  const first = selectedIds.value.values().next().value
+  return first ?? null
+})
 const collapsedIds = ref<Set<string>>(new Set())
 // True when the cursor is over the canvas.  In preview mode the
 // bottom toolbar fades in on hover; in non-preview mode this is
@@ -130,6 +146,17 @@ const dragState = ref<{
 } | null>(null)
 const dragGhostX = ref(0)
 const dragGhostY = ref(0)
+
+// Clipboard buffer.  Holds a list of cloned subtrees (with fresh
+// ids) ready to paste, plus the originals' pre-clone ids so the
+// cycle guard can detect "target was a descendant of the copied
+// subtree".  Per-instance — multi-instance MindMaps in the same
+// page each have their own buffer.
+interface ClipboardBuffer {
+  nodes: MindMapNode[]
+  originalIds: Set<string>
+}
+const clipboard = ref<ClipboardBuffer | null>(null)
 
 // Text-overflow tooltip: shows the full text of a node whose label
 // is truncated by `max-width: 200px`.  We use text length as the
@@ -180,7 +207,7 @@ watch(
     const parsed = markdownToMindMap(md || '')
     suppressMarkdownEmit = true
     dataRef.value = clone(parsed)
-    selectedId.value = null
+    selectedIds.value = new Set()
     collapsedIds.value = new Set()
     triggerRef()
     nextTick(() => {
@@ -473,8 +500,8 @@ function onNodeContextMenu(e: MouseEvent, n: LayoutNode) {
   // Selecting the node is implicit — right-clicking a different
   // node should move the selection to it so the menu actions
   // operate on the right node.  If it's the same node, no-op.
-  selectedId.value = n.id
-  emit('select', findNode(dataRef.value, n.id))
+  selectedIds.value = new Set([n.id])
+  emitSelection()
   contextMenu.value = { nodeId: n.id, x: e.clientX, y: e.clientY }
 }
 function closeContextMenu() {
@@ -767,8 +794,8 @@ function onResizeEnd() {
   // the canvas's click handler will fire next and deselect.  Re-
   // select the node so the resize handle and remove button stay
   // visible after the user lets go of the handle.
-  selectedId.value = s.nodeId
-  emit('select', n)
+  selectedIds.value = new Set([s.nodeId])
+  emitSelection()
   // Suppress the very next canvas click — even after re-selecting,
   // the canvas's click handler runs synchronously and would clear
   // the selection we just set.  The flag is checked once and
@@ -838,9 +865,14 @@ const balanced = ref(false)
  *  change; undo() / redo() then swap dataRef with a previous snapshot. */
 const history = useHistory(100)
 
-/** Snapshot the current tree so the next mutation can be undone. */
+/** Snapshot the current tree so the next mutation can be undone.
+ *  Selection is recorded too so undo / redo restores both the
+ *  data and the highlight ring the user was looking at. */
 function record() {
-  history.record({ data: dataRef.value })
+  history.record({
+    data: dataRef.value,
+    selectedIds: [...selectedIds.value],
+  })
 }
 
 /** Apply a new tree, push to emit, refresh layout.  Used by mutations
@@ -849,8 +881,8 @@ function applyData(next: MindMapNode, opts: { resetCollapsed?: boolean; resetSel
   dataRef.value = clone(next)
   if (opts.resetCollapsed) collapsedIds.value = new Set()
   if (opts.resetSelection) {
-    selectedId.value = null
-    emit('select', null)
+    selectedIds.value = new Set()
+    emitSelection()
   }
   triggerRef()
   emit('change', dataRef.value)
@@ -1219,7 +1251,7 @@ useKeyboard({
   isEditing: () => editingId.value !== null,
   isReadonly: () => props.previewMode,
   getSelectedId: () => selectedId.value,
-  getRootId: () => dataRef.value.id,
+  getSelectedIds: () => [...selectedIds.value],
   // If nothing is selected, default Tab/Enter to the root so the user
   // can build a tree from scratch without first clicking somewhere.
   defaultTargetId: () => dataRef.value.id,
@@ -1229,17 +1261,19 @@ useKeyboard({
   onRemove: doRemove,
   onStartEdit: startEdit,
   onClearSelection: () => {
-    selectedId.value = null
-    emit('select', null)
+    selectedIds.value = new Set()
+    emitSelection()
   },
   onDuplicate: doDuplicate,
+  onCopy: doCopy,
+  onCut: doCut,
+  onPaste: doPaste,
   onUndo: doUndo,
   onRedo: doRedo,
   onNavigate: doNavigate,
   onSelectRoot: () => {
-    selectedId.value = dataRef.value.id
-    const n = findNode(dataRef.value, dataRef.value.id)
-    if (n) emit('select', n)
+    selectedIds.value = new Set([dataRef.value.id])
+    emitSelection()
   },
 })
 
@@ -1461,18 +1495,121 @@ function doDuplicate(nodeId: string) {
   const n = duplicateNode(dataRef.value, nodeId)
   if (n) {
     record()
-    selectedId.value = n.id
+    selectedIds.value = new Set([n.id])
+    emitSelection()
     emit('change', dataRef.value)
     triggerRef()
   }
+}
+
+// ── Clipboard (Ctrl+C / Ctrl+X / Ctrl+V) ─────────────────────
+//
+// Per-instance clipboard — copying in one MindMap doesn't leak
+// into another on the same page.  The buffer holds a list of
+// cloned subtrees (with fresh ids) plus the originals' pre-clone
+// ids so the cycle guard in paste can detect "target is a
+// descendant of one of the copied subtrees".
+
+/** Filter a list of ids to those that are valid copy/cut targets
+ *  (not the root, still in the tree).  Preserves the input order
+ *  so the caller can keep its preorder semantics. */
+function clipboardableIds(ids: string[]): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const id of ids) {
+    if (id === dataRef.value.id) continue
+    if (seen.has(id)) continue
+    if (!findNode(dataRef.value, id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
+}
+
+/** Reorder ids to preorder (root-first, depth-first) so paste
+ *  produces a visually predictable insertion order. */
+function preorderIds(ids: string[]): string[] {
+  const want = new Set(ids)
+  const out: string[] = []
+  const walk = (n: MindMapNode) => {
+    if (want.has(n.id)) out.push(n.id)
+    for (const c of n.children) walk(c)
+  }
+  walk(dataRef.value)
+  return out
+}
+
+function doCopy(ids: string[]) {
+  const clean = preorderIds(clipboardableIds(ids))
+  if (clean.length === 0) return
+  const subs: MindMapNode[] = []
+  for (const id of clean) {
+    const sub = cloneSubtree(dataRef.value, id)
+    if (sub) subs.push(sub)
+  }
+  if (subs.length === 0) return
+  clipboard.value = { nodes: subs, originalIds: new Set(clean) }
+  triggerRef()
+}
+
+function doCut(ids: string[]) {
+  const clean = preorderIds(clipboardableIds(ids))
+  if (clean.length === 0) return
+  const subs: MindMapNode[] = []
+  for (const id of clean) {
+    const sub = cloneSubtree(dataRef.value, id)
+    if (sub) subs.push(sub)
+  }
+  if (subs.length === 0) return
+  record()
+  // Immediate-delete semantics: remove originals now, drop the
+  // selection.  Undo restores both via the history snapshot.
+  for (const id of clean) removeNode(dataRef.value, id)
+  selectedIds.value = new Set()
+  emitSelection()
+  clipboard.value = { nodes: subs, originalIds: new Set(clean) }
+  triggerRef()
+  emit('change', dataRef.value)
+}
+
+function doPaste(targetId: string | null) {
+  const buf = clipboard.value
+  if (!buf || buf.nodes.length === 0) return
+  const tid = targetId ?? dataRef.value.id
+  const target = findNode(dataRef.value, tid)
+  if (!target) return
+  // Cycle guard — only meaningful when the original subtrees are
+  // still in the tree (copy case).  In the cut case the originals
+  // have been removed from `dataRef`, so no node can be a
+  // descendant of them and the cycle is impossible.  Walk the
+  // live tree from each original id and refuse if `tid` lives
+  // underneath it.
+  for (const origId of buf.originalIds) {
+    const origNode = findNode(dataRef.value, origId)
+    if (origNode && findNode(origNode, tid)) return
+  }
+  record()
+  for (const sub of buf.nodes) {
+    const fresh = clone(sub)
+    reassignIds(fresh)
+    target.children.push(fresh)
+  }
+  // Consume the buffer — paste is a single-shot operation.
+  // Subsequent Ctrl+V is a no-op until the user copies / cuts
+  // again.
+  clipboard.value = null
+  triggerRef()
+  emit('change', dataRef.value)
 }
 
 function doUndo() {
   const restored = history.undo()
   if (restored) {
     dataRef.value = restored.data
-    selectedId.value = null
-    emit('select', null)
+    // Restore selection from history when present (older
+    // snapshots without it default to empty).
+    selectedIds.value = new Set(restored.selectedIds ?? [])
+    emitSelection()
     triggerRef()
     emit('change', dataRef.value)
   }
@@ -1482,11 +1619,24 @@ function doRedo() {
   const restored = history.redo()
   if (restored) {
     dataRef.value = restored.data
-    selectedId.value = null
-    emit('select', null)
+    selectedIds.value = new Set(restored.selectedIds ?? [])
+    emitSelection()
     triggerRef()
     emit('change', dataRef.value)
   }
+}
+
+/** Resolve the current `selectedIds` Set into a concrete array of
+ *  MindMapNode references (filtered to nodes that still exist),
+ *  then emit `select`.  Empty selection → null.  Hosts read this
+ *  to keep their drawer / outline / status panel in sync. */
+function emitSelection() {
+  const arr: MindMapNode[] = []
+  for (const id of selectedIds.value) {
+    const n = findNode(dataRef.value, id)
+    if (n) arr.push(n)
+  }
+  emit('select', arr.length > 0 ? arr : null)
 }
 
 function doNavigate(dx: number, dy: number) {
@@ -1517,9 +1667,8 @@ function doNavigate(dx: number, dy: number) {
     if (node.children.length > 0) nextId = node.children[0].id
   }
   if (nextId) {
-    selectedId.value = nextId
-    const next = findNode(dataRef.value, nextId)
-    if (next) emit('select', next)
+    selectedIds.value = new Set([nextId])
+    emitSelection()
   }
 }
 
@@ -1550,7 +1699,13 @@ function doRemove(nodeId: string) {
   if (nodeId === dataRef.value.id) return
   if (removeNode(dataRef.value, nodeId)) {
     record()
-    if (selectedId.value === nodeId) selectedId.value = null
+    // If the removed node was in the selection set, drop it.
+    if (selectedIds.value.has(nodeId)) {
+      const next = new Set(selectedIds.value)
+      next.delete(nodeId)
+      selectedIds.value = next
+      emitSelection()
+    }
     triggerRef()
     emit('change', dataRef.value)
   }
@@ -1632,9 +1787,20 @@ function doMove(srcId: string, targetId: string, position: 'before' | 'after' | 
 
 function onNodeClick(e: MouseEvent, n: LayoutNode) {
   e.stopPropagation()
-  selectedId.value = n.id
-  const data = findNode(dataRef.value, n.id)
-  emit('select', data)
+  // Shift+click toggles membership in the multi-select set; plain
+  // click replaces the set with just this node.  Note: the
+  // pointerdown handler does NOT touch selection anymore (see
+  // `onNodePointerDown` comment), so a plain click-without-drag
+  // path is `pointerdown (no-op) → click (this handler)`.
+  if (e.shiftKey) {
+    const next = new Set(selectedIds.value)
+    if (next.has(n.id)) next.delete(n.id)
+    else next.add(n.id)
+    selectedIds.value = next
+  } else {
+    selectedIds.value = new Set([n.id])
+  }
+  emitSelection()
 }
 
 // --------------------------------------------------------------------
@@ -1677,14 +1843,14 @@ function onNodePointerDown(e: PointerEvent, n: LayoutNode) {
   if (target?.closest('.zm-img-resize-handle')) return
   e.stopPropagation()
 
-  // Auto-select on pickup (Figma/Miro convention) — but DO NOT
-  // emit 'select' here.  Emitting on pointerdown causes the
-  // host's note drawer to flash open mid-drag, which is
-  // jarring.  `select` is a user-facing "I picked this node"
-  // signal; drag-pickup is internal.  `onNodeClick` covers the
-  // real selection path; `onDragPointerUp` re-emits after a
-  // successful reparent so the dropped node ends up selected.
-  selectedId.value = n.id
+  // DO NOT touch the selection set here.  Drag-pickup is an
+  // internal gesture — selection only lands on the user's explicit
+  // intent (clean click → `onNodeClick`, successful drop →
+  // `onDragPointerUp`).  Auto-selecting on mousedown made the
+  // blue ring flash before any drag actually started, which felt
+  // jittery.  The drag ghost, source-dimming, and drop-target
+  // outline are all driven by `dragState` below — they appear
+  // immediately without touching selection.
 
   // Resolve pointer offset inside the source box (in wrapper
   // screen coords) so the ghost tracks the grab point, not the
@@ -1740,9 +1906,11 @@ function onDragPointerUp(_e: PointerEvent) {
     // The drag's pointerdown didn't emit 'select' (see
     // onNodePointerDown).  Now that the drop succeeded, broadcast
     // the new selection so the host's right-side drawer /
-    // outline / status bar reflect the moved node.
-    const moved = findNode(dataRef.value, state.srcId)
-    if (moved) emit('select', moved)
+    // outline / status bar reflect the moved node.  Replace any
+    // prior selection with just the moved node — drag is a
+    // single-node gesture.
+    selectedIds.value = new Set([state.srcId])
+    emitSelection()
   }
 
   dragState.value = null
@@ -1768,11 +1936,12 @@ function onCanvasMouseDown(e: MouseEvent) {
   if (e.button !== 0) return
   // Left button: start a marquee (rectangle selection) anchored
   // at the press point. Convert screen → world coords through the
-  // current scale / offset.
+  // current scale / offset.  Pass shiftKey so the end handler can
+  // decide between "extend" and "replace".
   const rect = wrapperRef.value!.getBoundingClientRect()
   const wx = (e.clientX - rect.left - panZoom.offsetX.value) / panZoom.scale.value
   const wy = (e.clientY - rect.top - panZoom.offsetY.value) / panZoom.scale.value
-  panZoom.startMarquee(wx, wy)
+  panZoom.startMarquee(wx, wy, { shift: e.shiftKey })
 }
 
 function onCanvasClick(e: MouseEvent) {
@@ -1794,14 +1963,16 @@ function onCanvasClick(e: MouseEvent) {
   // as a deselect.
   const m = panZoom.marquee
   if (m.width >= 4 || m.height >= 4) return
-  if (selectedId.value !== null) {
-    selectedId.value = null
-    emit('select', null)
+  if (selectedIds.value.size > 0) {
+    selectedIds.value = new Set()
+    emitSelection()
   }
 }
 
 // When a marquee ends, intersect the marquee rectangle with
 // every node's world-space bbox and select all that overlap.
+// Shift held at pickup (m.shiftKey) extends the existing set;
+// otherwise the new hit list REPLACES the prior selection.
 function onMarqueeEnd() {
   const m = panZoom.marquee
   if (m.width < 4 && m.height < 4) {
@@ -1829,13 +2000,13 @@ function onMarqueeEnd() {
       nLeft <= x2 && nRight >= x1 && nTop <= y2 && nBottom >= y1
     if (overlaps) hit.push(n.id)
   }
-  if (hit.length > 0) {
-    // Pick the first hit as the primary selection; downstream code
-    // can use the array via emitted 'select'.
-    selectedId.value = hit[0]
-    const data = findNode(dataRef.value, hit[0])
-    if (data) emit('select', data)
-  }
+  // Replace or extend the selection set per shift state captured
+  // at pickup time.  `m.shiftKey` is on the marquee object itself
+  // (usePanZoom stashes it on startMarquee).
+  selectedIds.value = m.shiftKey
+    ? new Set([...selectedIds.value, ...hit])
+    : new Set(hit)
+  emitSelection()
 }
 
 function isCollapsed(id: string) {
@@ -1974,7 +2145,7 @@ function importData(json: string): boolean {
     if (!parsed.id || !Array.isArray(parsed.children)) return false
     history.reset()
     dataRef.value = clone(parsed)
-    selectedId.value = null
+    selectedIds.value = new Set()
     collapsedIds.value = new Set()
     triggerRef()
     nextTick(() => resetView())
@@ -2030,10 +2201,26 @@ defineExpose<MindMapExpose>({
    *  "selected node has something to edit" instead of opening it
    *  on every selection. */
   nodeHasContent: (id: string): boolean => nodeHasContent(id),
+  /** Currently selected node ids (empty when nothing is picked).
+   *  The first id is the primary selection — toolbar buttons
+   *  (add child / sibling, image controls) act on it.  Hosts
+   *  can also read this to drive a multi-select status panel. */
+  getSelectedIds: (): string[] => [...selectedIds.value],
+  /** Copy the given subtrees into the canvas's clipboard buffer.
+   *  No-op if any id is the root or no longer in the tree. */
+  copyNodes: (ids: string[]): void => doCopy(ids),
+  /** Cut the given subtrees (copy + remove from tree, immediately).
+   *  No-op if any id is the root or no longer in the tree.  Undo
+   *  restores the originals. */
+  cutNodes: (ids: string[]): void => doCut(ids),
+  /** Paste the clipboard buffer under `targetId` (or root when
+   *  null).  Single-shot: the buffer is consumed, subsequent
+   *  calls are no-ops until copy / cut again. */
+  pasteNodes: (targetId: string | null): void => doPaste(targetId),
   setData: (d) => {
     history.reset()
     dataRef.value = clone(d)
-    selectedId.value = null
+    selectedIds.value = new Set()
     collapsedIds.value = new Set()
     triggerRef()
     // Record the new data as the undoable baseline so the first edit
@@ -2057,7 +2244,7 @@ defineExpose<MindMapExpose>({
     suppressMarkdownEmit = !emitMarkdownChange
     history.reset()
     dataRef.value = clone(parsed)
-    selectedId.value = null
+    selectedIds.value = new Set()
     collapsedIds.value = new Set()
     triggerRef()
     record()
@@ -2252,6 +2439,7 @@ onMounted(() => {
           :class="{
             'is-root': n.isRoot,
             'is-selected': selectedId === n.id,
+            'is-selected-secondary': selectedId !== n.id && selectedIds.has(n.id),
             'is-editing': editingId === n.id,
             'has-image': !!n.image,
             'is-resizing': resizingId === n.id,
@@ -2753,6 +2941,14 @@ body.is-dragging { cursor: grabbing !important; user-select: none; }
   outline: 2px solid #3b82f6;
   outline-offset: 2px;
   z-index: 3;
+}
+/* Multi-select "secondary" ring — softer than the primary so the
+ * user can still tell at a glance which node is the primary
+ * (the loud blue) while seeing every other picked node. */
+.zm-node.is-selected-secondary {
+  outline: 2px solid #bfdbfe;
+  outline-offset: 2px;
+  z-index: 2;
 }
 .zm-text {
   /* The text span now hosts the text label + inline link/note

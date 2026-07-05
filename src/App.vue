@@ -438,9 +438,13 @@ function onChange(next: MindMapNode) {
   data.value = next
 }
 
-function onSelect(node: MindMapNode | null) {
-  selectedNode.value = node
-  if (node) {
+function onSelect(nodes: MindMapNode[] | null) {
+  // The library always emits an array (even when only one node
+  // is selected).  Use the first element as the "primary"
+  // selection — that's the node the right-side drawer edits.
+  const primary = nodes && nodes.length > 0 ? nodes[0] : null
+  selectedNode.value = primary
+  if (primary) {
     // A node was just selected — open the note drawer so the
     // user can see / edit the note in context.  We do NOT bump
     // the focus tick here: stealing focus from the canvas on
@@ -454,7 +458,7 @@ function onSelect(node: MindMapNode | null) {
     // for the chrome.  A node has content if it carries note /
     // link / image / rich body.  We mirror MindMap's helper so
     // the rule lives in one place (the package's expose() API).
-    if (!showNote.value && mindMapRef.value?.nodeHasContent(node.id)) {
+    if (!showNote.value && mindMapRef.value?.nodeHasContent(primary.id)) {
       showData.value = false
       showMarkdown.value = false
       showNote.value = true

@@ -205,6 +205,19 @@ export interface MindMapExpose {
    *  false.  Hosts use this to gate the right-side inspector so
    *  it only opens for nodes with something to edit. */
   nodeHasContent: (id: string) => boolean
+  /** Currently selected node ids (empty when nothing is selected).
+   *  The first id is the "primary" — toolbar buttons (add child /
+   *  sibling, image controls) act on it. */
+  getSelectedIds: () => string[]
+  /** Copy the given subtrees into the canvas's clipboard buffer.
+   *  No-op if any id is the root. */
+  copyNodes: (ids: string[]) => void
+  /** Cut the given subtrees (copy + remove from tree, immediately).
+   *  No-op if any id is the root. */
+  cutNodes: (ids: string[]) => void
+  /** Paste the clipboard buffer under `targetId` (or root when null).
+   *  No-op when the buffer is empty. */
+  pasteNodes: (targetId: string | null) => void
   setData: (data: MindMapNode) => void
   resetView: () => void
   exportData: () => string

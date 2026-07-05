@@ -12,6 +12,13 @@ export interface MarqueeRect {
   y: number
   width: number
   height: number
+  /**
+   * Captured at the start of the marquee gesture. `true` when the
+   * user held Shift while pressing the mouse — the consumer
+   * (`onMarqueeEnd`) uses this to decide between extending the
+   * existing selection set (shift) and replacing it (no shift).
+   */
+  shiftKey?: boolean
 }
 
 export function usePanZoom(opts: PanZoomOptions) {
@@ -40,7 +47,12 @@ export function usePanZoom(opts: PanZoomOptions) {
   // on the empty canvas, cleared when the pointer goes back up.
   const isMarquee = ref(false)
   const marqueeStart = reactive<{ x: number; y: number }>({ x: 0, y: 0 })
-  const marquee = reactive<MarqueeRect>({ x: 0, y: 0, width: 0, height: 0 })
+  const marquee = reactive<MarqueeRect & { shiftKey?: boolean }>({
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  })
   const marqueeVersion = ref(0) // bump so templates can watch marquee
   // Optional callback fired when a marquee ends. Caller sets this
   // to apply their own selection logic on the final rect.
@@ -104,7 +116,7 @@ export function usePanZoom(opts: PanZoomOptions) {
   // marquee rect in real time; when the user releases, the
   // caller reads marquee.value and intersects it against node
   // bboxes to select nodes.
-  function startMarquee(worldX: number, worldY: number) {
+  function startMarquee(worldX: number, worldY: number, opts?: { shift?: boolean }) {
     isMarquee.value = true
     marqueeStart.x = worldX
     marqueeStart.y = worldY
@@ -112,6 +124,11 @@ export function usePanZoom(opts: PanZoomOptions) {
     marquee.y = worldY
     marquee.width = 0
     marquee.height = 0
+    // Captured at pickup so `onMarqueeEnd` can decide whether to
+    // extend the existing selection set or replace it.  Live
+    // mouse events don't carry shiftKey state by the time the
+    // gesture ends, so we stash it here.
+    marquee.shiftKey = !!opts?.shift
     marqueeVersion.value++
     window.addEventListener('mousemove', onMarqueeMove)
     window.addEventListener('mouseup', endMarquee)
