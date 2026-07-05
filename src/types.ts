@@ -200,6 +200,11 @@ export interface MindMapExpose {
    *  move would create a cycle or hit another invalid case. */
   moveNode: (srcId: string, targetId: string, position: 'before' | 'after' | 'child') => boolean
   getData: () => MindMapNode
+  /** Does this node carry any of the drawer-editable extras
+   *  (note / link / image / rich body)?  Plain text nodes return
+   *  false.  Hosts use this to gate the right-side inspector so
+   *  it only opens for nodes with something to edit. */
+  nodeHasContent: (id: string) => boolean
   setData: (data: MindMapNode) => void
   resetView: () => void
   exportData: () => string

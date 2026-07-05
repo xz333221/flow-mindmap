@@ -115,6 +115,22 @@ const collapsedIds = ref<Set<string>>(new Set())
 // ignored (the toolbar stays put).
 const canvasHovered = ref(false)
 
+// Drag-to-reparent state.  Set on pointerdown over a non-root
+// node, cleared on pointerup.  pointerOffset is the cursor's
+// position relative to the source node's screen-space centre, so
+// the ghost doesn't snap-to-center but tracks the grab point.
+// srcText is captured at pickup time so the ghost can render
+// without re-running findNode on every pointermove.
+const dragState = ref<{
+  srcId: string
+  srcText: string
+  pointerOffsetX: number
+  pointerOffsetY: number
+  currentTargetId: string | null
+} | null>(null)
+const dragGhostX = ref(0)
+const dragGhostY = ref(0)
+
 // Text-overflow tooltip: shows the full text of a node whose label
 // is truncated by `max-width: 200px`.  We use text length as the
 // gate (DOM measurement via scrollWidth works but fights Vue's
@@ -1633,6 +1649,120 @@ function onNodeClick(e: MouseEvent, n: LayoutNode) {
   emit('select', data)
 }
 
+// --------------------------------------------------------------------
+// Drag-to-reparent (edit mode only).  pointerdown on a non-root
+// node starts a drag; the source node is auto-selected, and a
+// small ghost chip follows the pointer.  Releasing over another
+// node reparents the source under that target via doMove (which
+// already handles undo + change event).  Releasing over empty
+// canvas or the source itself is a no-op.  Preview mode disables
+// the gesture entirely; root is never draggable.
+// --------------------------------------------------------------------
+
+/** Find the topmost node under a world-space pointer position.
+ *  Iterates in render order (root-first) and returns the LAST
+ *  hit so overlapping nodes resolve to the visually-topmost
+ *  sibling.  Skips `excludeId` (the drag source). */
+function getNodeAtPointer(wx: number, wy: number, excludeId: string | null): LayoutNode | null {
+  let hit: LayoutNode | null = null
+  for (const n of allNodes.value) {
+    if (n.id === excludeId) continue
+    const halfW = n.width / 2
+    const halfH = n.height / 2
+    if (
+      wx >= n.x - halfW && wx <= n.x + halfW &&
+      wy >= n.y - halfH && wy <= n.y + halfH
+    ) {
+      hit = n
+    }
+  }
+  return hit
+}
+
+function onNodePointerDown(e: PointerEvent, n: LayoutNode) {
+  if (props.previewMode) return
+  if (n.isRoot) return
+  if (e.button !== 0) return
+  // The resize handle is a child of .zm-node; bail so the user
+  // can drag the corner handle without reparenting.
+  const target = e.target as HTMLElement | null
+  if (target?.closest('.zm-img-resize-handle')) return
+  e.stopPropagation()
+
+  // Auto-select on pickup (Figma/Miro convention) — but DO NOT
+  // emit 'select' here.  Emitting on pointerdown causes the
+  // host's note drawer to flash open mid-drag, which is
+  // jarring.  `select` is a user-facing "I picked this node"
+  // signal; drag-pickup is internal.  `onNodeClick` covers the
+  // real selection path; `onDragPointerUp` re-emits after a
+  // successful reparent so the dropped node ends up selected.
+  selectedId.value = n.id
+
+  // Resolve pointer offset inside the source box (in wrapper
+  // screen coords) so the ghost tracks the grab point, not the
+  // node centre.
+  const wrapperRect = wrapperRef.value!.getBoundingClientRect()
+  const sourceScreenX = n.x * panZoom.scale.value + panZoom.offsetX.value
+  const sourceScreenY = n.y * panZoom.scale.value + panZoom.offsetY.value
+  const pointerOffsetX = e.clientX - wrapperRect.left - sourceScreenX
+  const pointerOffsetY = e.clientY - wrapperRect.top - sourceScreenY
+
+  dragState.value = {
+    srcId: n.id,
+    srcText: n.text,
+    pointerOffsetX,
+    pointerOffsetY,
+    currentTargetId: null,
+  }
+  dragGhostX.value = e.clientX - wrapperRect.left - pointerOffsetX
+  dragGhostY.value = e.clientY - wrapperRect.top - pointerOffsetY
+  document.body.classList.add('is-dragging')
+
+  // Listen on window so we catch move/up regardless of which DOM
+  // element the pointer is over (incl. the empty canvas).  Using
+  // setPointerCapture would be nicer but it's flaky on touch.
+  window.addEventListener('pointermove', onDragPointerMove)
+  window.addEventListener('pointerup', onDragPointerUp)
+  window.addEventListener('pointercancel', onDragPointerUp)
+}
+
+function onDragPointerMove(e: PointerEvent) {
+  const state = dragState.value
+  if (!state) return
+  const wrapperRect = wrapperRef.value!.getBoundingClientRect()
+  dragGhostX.value = e.clientX - wrapperRect.left - state.pointerOffsetX
+  dragGhostY.value = e.clientY - wrapperRect.top - state.pointerOffsetY
+
+  // Screen → world for hit-testing against the layout.
+  const wx = (e.clientX - wrapperRect.left - panZoom.offsetX.value) / panZoom.scale.value
+  const wy = (e.clientY - wrapperRect.top - panZoom.offsetY.value) / panZoom.scale.value
+  const hit = getNodeAtPointer(wx, wy, state.srcId)
+  state.currentTargetId = hit?.id ?? null
+}
+
+function onDragPointerUp(_e: PointerEvent) {
+  const state = dragState.value
+  if (!state) return
+  window.removeEventListener('pointermove', onDragPointerMove)
+  window.removeEventListener('pointerup', onDragPointerUp)
+  window.removeEventListener('pointercancel', onDragPointerUp)
+
+  if (state.currentTargetId) {
+    doMove(state.srcId, state.currentTargetId, 'child')
+    // The drag's pointerdown didn't emit 'select' (see
+    // onNodePointerDown).  Now that the drop succeeded, broadcast
+    // the new selection so the host's right-side drawer /
+    // outline / status bar reflect the moved node.
+    const moved = findNode(dataRef.value, state.srcId)
+    if (moved) emit('select', moved)
+  }
+
+  dragState.value = null
+  dragGhostX.value = 0
+  dragGhostY.value = 0
+  document.body.classList.remove('is-dragging')
+}
+
 /** Click on the canvas background (not on a node) — clear the
  *  current selection and tell the parent. */
 function onCanvasMouseDown(e: MouseEvent) {
@@ -1834,6 +1964,22 @@ function exportData(): string {
   return JSON.stringify(dataRef.value, null, 2)
 }
 
+/** True when the node carries any of the "extra" content fields
+ *  the right-side drawer edits — note, link, image, or rich body
+ *  (code / table / list / paragraph).  Plain nodes (just text +
+ *  children) return false, so a host can use this to gate the
+ *  drawer / inspector on "the user picked a node with something
+ *  to edit" rather than "the user picked any node at all". */
+function nodeHasContent(id: string): boolean {
+  const n = findNode(dataRef.value, id)
+  if (!n) return false
+  if (n.note && n.note.text) return true
+  if (n.link && n.link.url) return true
+  if (n.image && n.image.src) return true
+  if (n.richContent && n.richContent.raw) return true
+  return false
+}
+
 function importData(json: string): boolean {
   try {
     const parsed = JSON.parse(json) as MindMapNode
@@ -1890,6 +2036,12 @@ defineExpose<MindMapExpose>({
   lineWidthForDepth,
   endWidthForDepth,
   getData: () => dataRef.value,
+  /** Does this node carry any of the drawer-editable extras
+   *  (note / link / image / rich body)?  Plain text nodes return
+   *  false.  Lets hosts gate the right-side inspector on
+   *  "selected node has something to edit" instead of opening it
+   *  on every selection. */
+  nodeHasContent: (id: string): boolean => nodeHasContent(id),
   setData: (d) => {
     history.reset()
     dataRef.value = clone(d)
@@ -2085,6 +2237,19 @@ onMounted(() => {
         }"
       />
 
+      <!-- Drag ghost — follows the pointer, scaled to match the
+           canvas so it stays visually consistent as the user zooms. -->
+      <div
+        v-if="dragState"
+        class="zm-drag-ghost"
+        :style="{
+          left: dragGhostX + 'px',
+          top: dragGhostY + 'px',
+          transform: `scale(${panZoom.scale.value})`,
+          transformOrigin: 'top left',
+        }"
+      >{{ dragState.srcText }}</div>
+
       <div
         class="zm-world"
         :style="{
@@ -2102,6 +2267,8 @@ onMounted(() => {
             'is-editing': editingId === n.id,
             'has-image': !!n.image,
             'is-resizing': resizingId === n.id,
+            'is-dragging-source': dragState?.srcId === n.id,
+            'is-drop-target': dragState?.currentTargetId === n.id,
           }"
           :style="{
             left: n.x + 'px',
@@ -2123,6 +2290,7 @@ onMounted(() => {
             transform: `translate(-50%, -50%)`,
           }"
           @click="(e) => onNodeClick(e, n)"
+          @pointerdown="(e) => onNodePointerDown(e, n)"
           @dblclick="(e) => { e.stopPropagation(); if (!previewMode) startEdit(n.id) }"
           @contextmenu="(e) => onNodeContextMenu(e, n)"
           @mouseenter="(e) => { onNodeMouseEnter(n.id); onNodeTextHover(e, n) }"
@@ -2561,6 +2729,36 @@ onMounted(() => {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   z-index: 2;
 }
+
+/* Drag-to-reparent: editable nodes invite a grab cursor;
+   the dragged source dims out; the hovered target picks up
+   a green outline.  Root stays at default cursor. */
+.zm-node:not(.is-root):not(.is-editing) { cursor: grab; }
+.zm-node.is-root { cursor: default; }
+.zm-node.is-dragging-source { opacity: 0.4; cursor: grabbing; }
+.zm-node.is-drop-target {
+  outline: 2px solid #4caf50;
+  outline-offset: 2px;
+  transition: outline-color 0.1s ease;
+}
+.zm-drag-ghost {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10000;
+  padding: 4px 10px;
+  background: #fff;
+  border: 1px solid #4caf50;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  font-size: 13px;
+  color: #333;
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  will-change: transform, left, top;
+}
+body.is-dragging { cursor: grabbing !important; user-select: none; }
 .zm-node.is-root {
   font-weight: 600;
 }

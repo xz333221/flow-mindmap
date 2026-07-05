@@ -2,10 +2,18 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "flow-mindmap",
+      "name": "flow-mindmap-dev",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["vite", "--port", "7852", "--strictPort"],
-      "port": 7852
+      "runtimeArgs": ["vite"],
+      "port": 7851,
+      "autoPort": true
+    },
+    {
+      "name": "flow-mindmap-demo",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--config", "demo/vite.config.ts"],
+      "port": 7860,
+      "autoPort": true
     }
   ]
 }

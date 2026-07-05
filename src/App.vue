@@ -448,7 +448,13 @@ function onSelect(node: MindMapNode | null) {
     // working (the keydown listener skips events whose target
     // is an INPUT / TEXTAREA).  Focus only happens when the
     // user explicitly asks — see `onEditNote`.
-    if (!showNote.value) {
+    //
+    // Gated on `nodeHasContent` so plain text-only nodes don't
+    // pop the drawer at all — clicking a leaf should be a no-op
+    // for the chrome.  A node has content if it carries note /
+    // link / image / rich body.  We mirror MindMap's helper so
+    // the rule lives in one place (the package's expose() API).
+    if (!showNote.value && mindMapRef.value?.nodeHasContent(node.id)) {
       showData.value = false
       showMarkdown.value = false
       showNote.value = true

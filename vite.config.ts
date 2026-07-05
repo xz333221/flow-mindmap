@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 7851,
-      strictPort: true,
+      strictPort: false,
       host: '0.0.0.0',
     },
     build: isLib

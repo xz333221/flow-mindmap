@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 7860 consumer demo. 库 0.3.1 只导出 <MindMap>,demo 侧自己拼按钮和状态栏。
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
-import { MindMap, Outline } from 'flow-mindmap'
+import { MindMap, Outline, Drawer, NotePanel } from 'flow-mindmap'
 import 'flow-mindmap/style.css'
 import type {
   MindMapNode,
@@ -48,6 +48,12 @@ const lastEvent = ref<string>('(none)')
 const previewMode = ref(false)
 const showOutline = ref(false)
 const outlineCollapsed = ref(new Set<string>())
+// Note drawer — opens on node select / 右键"添加笔记"; reads + writes
+// the selected node's note/link/image/code/table via the library's
+// <NotePanel>.  noteFocusTick++ tells NotePanel to focus its textarea
+// after the drawer has been toggled open.
+const showNote = ref(false)
+const noteFocusTick = ref(0)
 const theme = reactive({
   rootBg: '#0f172a',
   rootText: '#ffffff',
@@ -91,6 +97,18 @@ const onChange = (d: MindMapNode) => {
 }
 const onSelect = (n: MindMapNode | null) => {
   selectedId.value = n?.id ?? null
+  // Mirror the library's built-in App: clicking a node opens the
+  // note drawer; clicking empty canvas closes it.  We ALSO gate
+  // the open on `nodeHasContent` so plain text nodes don't pop
+  // the drawer at all — clicking a leaf should stay
+  // non-destructive.  The right-side drawer is only useful when
+  // the node has note / link / image / rich body to edit.
+  // `nodeHasContent` is exposed on the MindMap instance so the
+  // source of truth is the data tree (which the library just
+  // updated), not a stale snapshot.
+  // previewMode also closes the drawer — gated on the Drawer's
+  // :open expression so we don't need to do anything special here.
+  showNote.value = !!n && (mmRef.value?.nodeHasContent(n.id) ?? false)
   lastEvent.value = n ? `select — ${n.id} (${n.text})` : 'select — null'
 }
 
@@ -99,6 +117,14 @@ const openDataDrawer = () => { lastEvent.value = 'canvas-data' }
 const openImport = (_mode: 'markdown' | 'json' | 'txt') => { lastEvent.value = 'canvas-import' }
 
 const onEditNote = (id: string) => {
+  // MindMap 的右键菜单走的路径可能比 `select` 先到,做一次 lookup 兜底
+  // 让 NotePanel 立刻显示正确的节点内容。
+  if (!selectedId.value || selectedId.value !== id) {
+    const n = findNode(data.value, id)
+    if (n) selectedId.value = id
+  }
+  showNote.value = true
+  noteFocusTick.value++
   lastEvent.value = `edit-note — ${id}`
 }
 const onMarkdownChange = (md: string) => {
@@ -109,6 +135,29 @@ const onMarkdownChange = (md: string) => {
 function applyMarkdown() {
   mmRef.value?.setMarkdown(markdownInput.value, false)
   lastEvent.value = `setMarkdown — ${markdownInput.value.length} chars`
+}
+
+// NotePanel → MindMap mutations.  Each is a one-liner that forwards
+// to the corresponding expose() method on the MindMap instance.
+function onNoteApply(text: string) {
+  if (!selectedId.value) return
+  mmRef.value?.applyNodeNote(selectedId.value, text)
+}
+function onNoteRemove() {
+  if (!selectedId.value) return
+  mmRef.value?.removeNodeNote(selectedId.value)
+}
+function onLinkSet(url: string) {
+  if (!selectedId.value) return
+  mmRef.value?.applyNodeLink(selectedId.value, url)
+}
+function onImageSet(src: string) {
+  if (!selectedId.value) return
+  mmRef.value?.applyNodeImageByUrl(selectedId.value, src)
+}
+function onRichSet(payload: { kind: 'code' | 'table'; raw: string; lang?: string } | null) {
+  if (!selectedId.value) return
+  mmRef.value?.applyNodeRichContent(selectedId.value, payload)
 }
 
 const lineColorsList = computed<string[]>(() => {
@@ -367,6 +416,29 @@ onBeforeUnmount(() => {
           @markdown-change="onMarkdownChange"
           style="width: 100%; height: 100%"
         />
+
+        <!-- Right-side note drawer.  scope="canvas" anchors it to
+             .demo-canvas with a backdrop overlay — zero layout
+             surgery.  previewMode also closes it via the :open
+             expression. -->
+        <Drawer
+          side="right"
+          scope="canvas"
+          :width="360"
+          :open="showNote && !previewMode"
+          title="节点内容"
+          @update:open="(v) => (showNote = v)"
+        >
+          <NotePanel
+            :selected-node="selectedNode"
+            :focus-tick="noteFocusTick"
+            @apply="onNoteApply"
+            @remove="onNoteRemove"
+            @set-link="onLinkSet"
+            @set-image="onImageSet"
+            @set-rich="onRichSet"
+          />
+        </Drawer>
       </section>
 
 
