@@ -19,6 +19,8 @@ const emit = defineEmits<{
   (e: 'openSettings'): void
   (e: 'openData'): void
   (e: 'openImport', mode: 'markdown' | 'json' | 'txt'): void
+  (e: 'exportPNG'): void
+  (e: 'exportSVG'): void
   (e: 'close'): void
 }>()
 
@@ -35,7 +37,7 @@ const clamped = computed<ClampedPos>(() => {
     // The main menu grows with content; 160 is enough for the
     // three items including the caret on the middle one.
     const menuWidth = 160
-    const menuHeight = 4 + 3 * 28
+    const menuHeight = 4 + 5 * 28
     if (left + menuWidth > rect.right) {
       left = Math.max(rect.left + 4, props.x - menuWidth - 2)
     }
@@ -192,6 +194,9 @@ function run(handler: () => void) {
       </div>
     </div>
     <button class="zm-canvas-menu-item" @click.stop="run(() => emit('openSettings'))"><Icon name="settings" :size="13" :stroke="1.6" /><span>设置</span></button>
+    <div class="zm-canvas-menu-divider" />
+    <button class="zm-canvas-menu-item" @click.stop="run(() => emit('exportPNG'))"><Icon name="image" :size="13" :stroke="1.6" /><span>导出 PNG</span></button>
+    <button class="zm-canvas-menu-item" @click.stop="run(() => emit('exportSVG'))"><Icon name="svg-export" :size="13" :stroke="1.6" /><span>导出 SVG</span></button>
   </div>
 </template>
 
@@ -269,6 +274,11 @@ function run(handler: () => void) {
   display: inline-flex;
   align-items: center;
   /* The caret is 8x8 -- small and balanced with the 13px icons. */
+}
+.zm-canvas-menu-divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 2px 4px;
 }
 .zm-canvas-submenu {
   /* Anchored to the right of the parent item, aligned with its

@@ -703,21 +703,18 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKeydown)
 })
 
-/** Global keydown for Ctrl+F (search toggle).  Separate from
- *  useKeyboard because search is a view operation available in
- *  preview mode too, and useKeyboard's handler bails on
- *  isReadonly. */
+/** Global keydown for Ctrl+F — opens the outline drawer (which
+ *  contains the search input).  Separate from useKeyboard because
+ *  search is a view operation available in preview mode too. */
 function onGlobalKeydown(e: KeyboardEvent) {
   const mod = e.metaKey || e.ctrlKey
   if (mod && (e.key === 'f' || e.key === 'F')) {
     const tgt = e.target as HTMLElement | null
     if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable)) {
-      // If already in the search input, let it through
-      if (tgt.classList.contains('zm-tb-search-input')) return
+      return
     }
     e.preventDefault()
-    searchVisible.value = true
-    nextTick(() => searchInputRef.value?.focus())
+    emit('canvas-outline')
   }
 }
 
@@ -2279,8 +2276,6 @@ function exportToFile() {
 const searchQuery = ref('')
 const searchResults = ref<string[]>([])
 const searchIndex = ref(-1)
-const searchInputRef = ref<HTMLInputElement | null>(null)
-const searchVisible = ref(false)
 
 function performSearch(query: string) {
   searchQuery.value = query
@@ -2327,27 +2322,6 @@ function clearSearch() {
   searchQuery.value = ''
   searchResults.value = []
   searchIndex.value = -1
-}
-
-function toggleSearch() {
-  searchVisible.value = !searchVisible.value
-  if (searchVisible.value) {
-    nextTick(() => searchInputRef.value?.focus())
-  } else {
-    clearSearch()
-  }
-}
-
-function onSearchKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter') {
-    e.preventDefault()
-    if (e.shiftKey) searchPrev()
-    else searchNext()
-  } else if (e.key === 'Escape') {
-    e.preventDefault()
-    clearSearch()
-    searchVisible.value = false
-  }
 }
 
 function isSearchHit(id: string): boolean {
@@ -2693,15 +2667,27 @@ function exportPNGFile(pngScale = 2) {
     ctx.fillRect(0, 0, canvas.width, canvas.height)
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
     URL.revokeObjectURL(svgUrl)
-    canvas.toBlob((blob) => {
-      if (!blob) return
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${dataRef.value.text || 'mindmap'}.png`
-      a.click()
-      URL.revokeObjectURL(url)
-    }, 'image/png')
+    try {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          // toBlob returned null — fall back to SVG
+          exportSVGFile()
+          return
+        }
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${dataRef.value.text || 'mindmap'}.png`
+        a.click()
+        URL.revokeObjectURL(url)
+      }, 'image/png')
+    } catch (err) {
+      // SecurityError: tainted canvas (foreignObject with external
+      // resources can trigger this in Chrome).  Fall back to SVG
+      // download so the user still gets a file.
+      console.warn('PNG export failed (tainted canvas), falling back to SVG:', err)
+      exportSVGFile()
+    }
   }
   img.onerror = () => {
     URL.revokeObjectURL(svgUrl)
@@ -3266,6 +3252,8 @@ onMounted(() => {
         @open-settings="menuOpenSettings"
         @open-data="menuOpenData"
         @open-import="menuOpenImport"
+        @export-png="exportPNGFile"
+        @export-svg="exportSVGFile"
         @close="closeCanvasMenu"
       />
 
@@ -3345,62 +3333,10 @@ onMounted(() => {
       </button>
       <span class="zm-tb-divider" />
 
-      <!-- Search toggle + bar: always visible (search is a view
-           operation, not an edit).  The input expands inline when
-           the search button is clicked. -->
-      <button
-        class="zm-tb-btn"
-        :class="{ active: searchVisible }"
-        title="搜索节点 (Ctrl+F)"
-        @click="toggleSearch"
-      >
-        <Icon name="search" />
-      </button>
-      <div v-if="searchVisible" class="zm-tb-search">
-        <input
-          ref="searchInputRef"
-          v-model="searchQuery"
-          type="text"
-          class="zm-tb-search-input"
-          placeholder="搜索…"
-          @input="performSearch(searchQuery)"
-          @keydown="onSearchKeydown"
-        />
-        <span v-if="searchResults.length > 0" class="zm-tb-search-count">
-          {{ searchIndex + 1 }}/{{ searchResults.length }}
-        </span>
-        <span v-else-if="searchQuery.trim()" class="zm-tb-search-count">无结果</span>
-        <button
-          v-if="searchResults.length > 0"
-          class="zm-tb-search-btn"
-          title="上一个 (Shift+Enter)"
-          @click="searchPrev"
-        >‹</button>
-        <button
-          v-if="searchResults.length > 0"
-          class="zm-tb-search-btn"
-          title="下一个 (Enter)"
-          @click="searchNext"
-        >›</button>
-        <button
-          class="zm-tb-search-btn zm-tb-search-close"
-          title="关闭搜索 (Esc)"
-          @click="toggleSearch"
-        >×</button>
-      </div>
-
-      <span class="zm-tb-divider" />
-
-      <!-- Export: JSON (always), PNG + SVG (always — just serializes
-           the canvas, doesn't mutate data). -->
+      <!-- Export: JSON only on the toolbar.  PNG / SVG live in the
+           canvas right-click menu so the toolbar stays clean. -->
       <button class="zm-tb-btn" title="导出 JSON" @click="exportToFile">
         <Icon name="export" />
-      </button>
-      <button class="zm-tb-btn" title="导出 PNG 图片" @click="exportPNGFile()">
-        <Icon name="image" />
-      </button>
-      <button class="zm-tb-btn" title="导出 SVG 矢量图" @click="exportSVGFile">
-        <Icon name="svg-export" />
       </button>
 
       <!-- Non-preview-only: edit + layout + import.  These mutate
@@ -4179,59 +4115,6 @@ body.is-dragging { cursor: grabbing !important; user-select: none; }
   color: #64748b;
   min-width: 38px;
   text-align: center;
-}
-
-/* ── Search bar ────────────────────────────────────── */
-.zm-tb-search {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 4px;
-}
-.zm-tb-search-input {
-  width: 140px;
-  padding: 4px 8px;
-  font: inherit;
-  font-size: 12px;
-  color: #1e293b;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  outline: none;
-  box-sizing: border-box;
-}
-.zm-tb-search-input:focus {
-  border-color: #3b82f6;
-  background: #ffffff;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
-}
-.zm-tb-search-count {
-  font-size: 11px;
-  color: #94a3b8;
-  white-space: nowrap;
-  min-width: 36px;
-  text-align: center;
-}
-.zm-tb-search-btn {
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  border-radius: 4px;
-  cursor: pointer;
-  color: #64748b;
-  font-size: 14px;
-  line-height: 1;
-}
-.zm-tb-search-btn:hover {
-  background: #f1f5f9;
-  color: #1e293b;
-}
-.zm-tb-search-close {
-  font-size: 16px;
 }
 
 /* ── Search highlight / dim ──────────────────────────

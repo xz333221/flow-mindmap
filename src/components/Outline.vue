@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, nextTick, onBeforeUnmount } from 'vue'
+import { computed, ref, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import type { MindMapNode } from '../types'
 // Vite ?url gives a stable asset URL we can pass to <img src=…>.
 // The buttons stay styled by .zm-outline-row-action, the image
@@ -46,11 +46,76 @@ interface FlatRow {
   node: MindMapNode
 }
 
+// --------------------------------------------------------------------
+// Search — walks the FULL data tree (ignoring collapse state) to find
+// matches.  When a query is active, matching rows and their ancestors
+// are shown regardless of collapse state.  The search input auto-
+// focuses on mount so Ctrl+F (which opens the outline drawer) puts
+// the cursor in the search box immediately.
+// --------------------------------------------------------------------
+const searchQuery = ref('')
+const searchInputRef = ref<HTMLInputElement | null>(null)
+const searchIndex = ref(-1)
+
+/** All node ids in the full tree that match the current query. */
+const searchMatchIds = computed<Set<string>>(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return new Set()
+  const ids = new Set<string>()
+  const walk = (n: MindMapNode) => {
+    if (
+      n.text.toLowerCase().includes(q) ||
+      (n.note?.text && n.note.text.toLowerCase().includes(q))
+    ) {
+      ids.add(n.id)
+    }
+    for (const c of n.children) walk(c)
+  }
+  walk(props.data)
+  return ids
+})
+
+/** When searching, also include ancestor ids of matches so the
+ *  outline can show the full path to each match. */
+const searchVisibleIds = computed<Set<string>>(() => {
+  if (searchMatchIds.value.size === 0) return new Set()
+  const visible = new Set<string>()
+  const walk = (n: MindMapNode): boolean => {
+    let hasMatch = searchMatchIds.value.has(n.id)
+    for (const c of n.children) {
+      if (walk(c)) hasMatch = true
+    }
+    if (hasMatch) visible.add(n.id)
+    return hasMatch
+  }
+  walk(props.data)
+  return visible
+})
+
+/** Ordered list of matching ids for prev/next navigation. */
+const searchMatchList = computed<string[]>(() => {
+  const list: string[] = []
+  const walk = (n: MindMapNode) => {
+    if (searchMatchIds.value.has(n.id)) list.push(n.id)
+    for (const c of n.children) walk(c)
+  }
+  walk(props.data)
+  return list
+})
+
+const hasSearch = computed(() => searchQuery.value.trim().length > 0)
+
 const rows = computed<FlatRow[]>(() => {
   const out: FlatRow[] = []
+  const visSet = searchVisibleIds.value
   const walk = (n: MindMapNode, depth: number, siblingIndex: number) => {
+    // When searching, skip nodes that aren't matches or ancestors
+    // of matches.
+    if (hasSearch.value && !visSet.has(n.id)) return
     const hasChildren = n.children.length > 0
-    const collapsed = props.collapsedIds.has(n.id)
+    // When searching, treat all ancestors as expanded so matches
+    // are visible.
+    const collapsed = hasSearch.value ? false : props.collapsedIds.has(n.id)
     out.push({
       id: n.id,
       text: n.text || '(无标题)',
@@ -66,6 +131,59 @@ const rows = computed<FlatRow[]>(() => {
   }
   walk(props.data, 0, 0)
   return out
+})
+
+function onSearchInput() {
+  searchIndex.value = searchMatchList.value.length > 0 ? 0 : -1
+}
+
+function searchNext() {
+  const list = searchMatchList.value
+  if (list.length === 0) return
+  searchIndex.value = (searchIndex.value + 1) % list.length
+  jumpToMatch(searchIndex.value)
+}
+
+function searchPrev() {
+  const list = searchMatchList.value
+  if (list.length === 0) return
+  searchIndex.value = (searchIndex.value - 1 + list.length) % list.length
+  jumpToMatch(searchIndex.value)
+}
+
+function onSearchKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    if (e.shiftKey) searchPrev()
+    else searchNext()
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    searchQuery.value = ''
+    searchIndex.value = -1
+  }
+}
+
+function jumpToMatch(idx: number) {
+  const id = searchMatchList.value[idx]
+  if (!id) return
+  const row = rows.value.find((r) => r.id === id)
+  if (row) emit('select', row.node)
+  // Scroll the row into view in the outline list.
+  nextTick(() => {
+    const el = document.querySelector(`[data-outline-id="${id}"]`) as HTMLElement | null
+    el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  })
+}
+
+function clearSearch() {
+  searchQuery.value = ''
+  searchIndex.value = -1
+}
+
+onMounted(() => {
+  // Auto-focus the search input so Ctrl+F → drawer opens → cursor
+  // is ready to type.
+  nextTick(() => searchInputRef.value?.focus())
 })
 
 // --------------------------------------------------------------------
@@ -240,6 +358,37 @@ async function copyOutline() {
 
 <template>
   <div class="zm-outline-root">
+    <!-- Search bar — sits at the top of the outline drawer.  When
+         the drawer opens (via Ctrl+F or the outline button), this
+         input auto-focuses so the user can start typing immediately.
+         Matches are highlighted in the list below; Enter jumps to
+         the next match (Shift+Enter for previous). -->
+    <div class="zm-outline-search">
+      <svg class="zm-outline-search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="7" />
+        <line x1="20" y1="20" x2="16" y2="16" />
+      </svg>
+      <input
+        ref="searchInputRef"
+        v-model="searchQuery"
+        type="text"
+        class="zm-outline-search-input"
+        placeholder="搜索节点… (Enter 下一个, Shift+Enter 上一个)"
+        @input="onSearchInput"
+        @keydown="onSearchKeydown"
+      />
+      <span v-if="searchMatchList.length > 0" class="zm-outline-search-count">
+        {{ searchIndex + 1 }}/{{ searchMatchList.length }}
+      </span>
+      <span v-else-if="hasSearch" class="zm-outline-search-count zm-outline-search-empty">无结果</span>
+      <button
+        v-if="searchQuery"
+        class="zm-outline-search-clear"
+        title="清除搜索"
+        @click="clearSearch"
+      >×</button>
+    </div>
+
     <div class="zm-outline-actions">
       <button
         class="zm-outline-action-btn"
@@ -259,11 +408,14 @@ async function copyOutline() {
       <li
         v-for="row in rows"
         :key="row.id"
+        :data-outline-id="row.id"
         class="zm-outline-row"
         :class="{
           'is-selected': row.id === selectedId,
           'is-root': row.depth === 0,
           'is-editing': editingId === row.id,
+          'is-search-hit': searchMatchIds.has(row.id),
+          'is-search-current': searchMatchList[searchIndex] === row.id,
           'is-drag-over-before': dragOverId === row.id && dragOverPos === 'before',
           'is-drag-over-after': dragOverId === row.id && dragOverPos === 'after',
           'is-drag-over-child': dragOverId === row.id && dragOverPos === 'child',
@@ -339,10 +491,76 @@ async function copyOutline() {
   flex-direction: column;
   height: 100%;
 }
+
+/* ── Search bar ─────────────────────────────────────── */
+.zm-outline-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 4px;
+  flex-shrink: 0;
+}
+.zm-outline-search-icon {
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+.zm-outline-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: #1e293b;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  outline: none;
+  box-sizing: border-box;
+}
+.zm-outline-search-input:focus {
+  border-color: #3b82f6;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
+}
+.zm-outline-search-input::placeholder {
+  color: #94a3b8;
+  font-size: 11px;
+}
+.zm-outline-search-count {
+  font-size: 11px;
+  color: #64748b;
+  white-space: nowrap;
+  min-width: 36px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.zm-outline-search-empty {
+  color: #ef4444;
+}
+.zm-outline-search-clear {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #94a3b8;
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.zm-outline-search-clear:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
 .zm-outline-actions {
   display: flex;
   justify-content: flex-end;
-  padding: 8px 10px 4px;
+  padding: 4px 10px 4px;
   flex-shrink: 0;
 }
 .zm-outline-action-btn {
@@ -416,6 +634,19 @@ async function copyOutline() {
 .zm-outline-row.is-selected .zm-outline-row-action {
   color: #1d4ed8;
 }
+
+/* Search highlight: matching rows get an orange inset shadow on the
+ * left edge, the current match gets a brighter background.  Using
+ * box-shadow instead of border-left so the row layout isn't shifted. */
+.zm-outline-row.is-search-hit {
+  background: #fffbeb;
+  box-shadow: inset 3px 0 0 #f59e0b;
+}
+.zm-outline-row.is-search-current {
+  background: #fef3c7;
+  box-shadow: inset 3px 0 0 #f97316, inset 0 0 0 1px rgba(249, 115, 22, 0.3);
+}
+
 .zm-outline-row.is-drag-over-before::before,
 .zm-outline-row.is-drag-over-after::after {
   content: '';
