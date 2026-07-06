@@ -94,7 +94,7 @@ import type { MindMapNode, MindMapImage, RichContent } from '../types'
 // tighter spacing curve so the canvas reads as a clear hierarchy
 // (root > topic > sub-topic > leaf) rather than a uniform decay.
 // Index 0 = root, 1 = top branch, 2 = sub-branch, 3+ = leaf tier.
-const NODE_FONTS = [18, 15, 13, 12]
+const NODE_FONTS = [22, 15, 13, 12]
 const NODE_FONT_WEIGHTS = [700, 600, 500, 400]
 const NODE_HEIGHTS = [52, 40, 32, 28]
 const NODE_MIN_W = [120, 80, 60, 44]

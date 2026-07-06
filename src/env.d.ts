@@ -10,3 +10,5 @@ declare module '*?url' {
   const src: string
   export default src
 }
+
+declare const __PKG_VERSION__: string

@@ -1,14 +1,19 @@
 <script setup lang="ts">
-// 7860 consumer demo. 库 0.3.1 只导出 <MindMap>,demo 侧自己拼按钮和状态栏。
+// Consumer demo — verifies the published flow-mindmap package.
+// With builtInDrawers (default true), MindMap renders its own
+// Drawer + Panel components for settings / data / markdown / note
+// / outline — no manual event wiring needed.
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
-import { MindMap, Outline, Drawer, NotePanel } from 'flow-mindmap'
+import { MindMap, VERSION } from 'flow-mindmap'
 import 'flow-mindmap/style.css'
-import type {
-  MindMapNode,
-  MindMapSettings,
-  NodeStyle,
-  BranchPalette,
-} from 'flow-mindmap'
+import type { MindMapNode, MindMapSettings } from 'flow-mindmap'
+
+// =====================================================================
+// i18n — minimal zh/en dictionary for the left debug panel.
+// =====================================================================
+const lang = ref<'zh' | 'en'>('zh')
+function setLang(l: 'zh' | 'en') { lang.value = l }
+const t = (zh: string, en: string) => (lang.value === 'zh' ? zh : en)
 
 // =====================================================================
 // Initial data — used for "reset" and as the default tree.
@@ -44,20 +49,10 @@ const initialData: MindMapNode = {
 const data = ref<MindMapNode>(initialData)
 const mmRef = ref<InstanceType<typeof MindMap> | null>(null)
 const selectedId = ref<string | null>(null)
-// Multi-select: every id currently picked (primary + secondary).
-// Read from the library's expose API on every render so the
-// left panel always reflects the live canvas state.
 const selectedIds = computed<string[]>(() => mmRef.value?.getSelectedIds() ?? [])
 const lastEvent = ref<string>('(none)')
 const previewMode = ref(false)
-const showOutline = ref(false)
-const outlineCollapsed = ref(new Set<string>())
-// Note drawer — opens on node select / 右键"添加笔记"; reads + writes
-// the selected node's note/link/image/code/table via the library's
-// <NotePanel>.  noteFocusTick++ tells NotePanel to focus its textarea
-// after the drawer has been toggled open.
-const showNote = ref(false)
-const noteFocusTick = ref(0)
+
 const theme = reactive({
   rootBg: '#0f172a',
   rootText: '#ffffff',
@@ -94,49 +89,36 @@ function refreshHistoryFlags() {
   canRedo.value = mmRef.value?.canRedo() ?? false
 }
 
-const onChange = (d: MindMapNode) => {
+// Collapsible section state — each section can be toggled open/closed.
+const collapsedSections = ref(new Set<string>())
+function toggleSection(id: string) {
+  const next = new Set(collapsedSections.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  collapsedSections.value = next
+}
+function isSectionOpen(id: string) {
+  return !collapsedSections.value.has(id)
+}
+
+// =====================================================================
+// Event handlers — only for the debug panel.  The built-in drawers
+// (settings / data / markdown / note / outline) are handled entirely
+// inside MindMap via the builtInDrawers prop (default true).
+// =====================================================================
+function onChange(d: MindMapNode) {
   data.value = d
   refreshHistoryFlags()
   lastEvent.value = `change — ${countNodes(d)} 节点`
 }
-const onSelect = (nodes: MindMapNode[] | null) => {
-  // The library always emits an array; take the first as the
-  // primary selection.  Demo treats single + multi the same —
-  // the drawer opens for the primary node when it has content,
-  // and the left panel reflects the count of all selected ids.
+
+function onSelect(nodes: MindMapNode[] | null) {
   const primary = nodes && nodes.length > 0 ? nodes[0] : null
   selectedId.value = primary?.id ?? null
-  // Mirror the library's built-in App: clicking a node opens the
-  // note drawer; clicking empty canvas closes it.  We ALSO gate
-  // the open on `nodeHasContent` so plain text nodes don't pop
-  // the drawer at all — clicking a leaf should stay
-  // non-destructive.  The right-side drawer is only useful when
-  // the node has note / link / image / rich body to edit.
-  // `nodeHasContent` is exposed on the MindMap instance so the
-  // source of truth is the data tree (which the library just
-  // updated), not a stale snapshot.
-  // previewMode also closes the drawer — gated on the Drawer's
-  // :open expression so we don't need to do anything special here.
-  showNote.value = !!primary && (mmRef.value?.nodeHasContent(primary.id) ?? false)
   lastEvent.value = primary ? `select — ${primary.id} (${primary.text})` : 'select — null'
 }
 
-const openSettings = () => { lastEvent.value = 'canvas-settings' }
-const openDataDrawer = () => { lastEvent.value = 'canvas-data' }
-const openImport = (_mode: 'markdown' | 'json' | 'txt') => { lastEvent.value = 'canvas-import' }
-
-const onEditNote = (id: string) => {
-  // MindMap 的右键菜单走的路径可能比 `select` 先到,做一次 lookup 兜底
-  // 让 NotePanel 立刻显示正确的节点内容。
-  if (!selectedId.value || selectedId.value !== id) {
-    const n = findNode(data.value, id)
-    if (n) selectedId.value = id
-  }
-  showNote.value = true
-  noteFocusTick.value++
-  lastEvent.value = `edit-note — ${id}`
-}
-const onMarkdownChange = (md: string) => {
+function onMarkdownChange(md: string) {
   lastMarkdownEmitted.value = md
   lastEvent.value = `markdownChange — ${md.length} chars`
 }
@@ -144,29 +126,6 @@ const onMarkdownChange = (md: string) => {
 function applyMarkdown() {
   mmRef.value?.setMarkdown(markdownInput.value, false)
   lastEvent.value = `setMarkdown — ${markdownInput.value.length} chars`
-}
-
-// NotePanel → MindMap mutations.  Each is a one-liner that forwards
-// to the corresponding expose() method on the MindMap instance.
-function onNoteApply(text: string) {
-  if (!selectedId.value) return
-  mmRef.value?.applyNodeNote(selectedId.value, text)
-}
-function onNoteRemove() {
-  if (!selectedId.value) return
-  mmRef.value?.removeNodeNote(selectedId.value)
-}
-function onLinkSet(url: string) {
-  if (!selectedId.value) return
-  mmRef.value?.applyNodeLink(selectedId.value, url)
-}
-function onImageSet(src: string) {
-  if (!selectedId.value) return
-  mmRef.value?.applyNodeImageByUrl(selectedId.value, src)
-}
-function onRichSet(payload: { kind: 'code' | 'table'; raw: string; lang?: string } | null) {
-  if (!selectedId.value) return
-  mmRef.value?.applyNodeRichContent(selectedId.value, payload)
 }
 
 const lineColorsList = computed<string[]>(() => {
@@ -216,8 +175,6 @@ function findNode(root: MindMapNode, id: string): MindMapNode | null {
   return null
 }
 
-// 手动选中根节点:画布上根节点的点击库有时不会 emit select,
-// 留这个按钮可以快速验证整条 expose 链路。
 function selectRoot() {
   selectedId.value = 'root'
   lastEvent.value = 'selectRoot (manual)'
@@ -227,8 +184,6 @@ onMounted(() => {
   mmRef.value?.applySettings(settings)
   refreshHistoryFlags()
 
-  // 旁路 DOM 选中检测:无论库 emit 与否,只要画布上有
-  // .is-selected 类的节点,就把 selectedId 同步过去。
   const canvas = document.querySelector('.demo-canvas')
   if (canvas) {
     const mo = new MutationObserver(() => {
@@ -238,7 +193,6 @@ onMounted(() => {
         selectedId.value = id
         lastEvent.value = `select — ${id} (DOM)`
       } else if (id === null && selectedId.value !== null) {
-        // 取消选中时不要清掉手动选中的 root
         if (selectedId.value === 'root') return
         selectedId.value = null
         lastEvent.value = 'select — null (DOM)'
@@ -266,8 +220,9 @@ onMounted(() => {
     setMarkdownEcho: (md: string) => mmRef.value?.setMarkdown(md, true),
   }
 })
+
 onBeforeUnmount(() => {
-  ;(window as unknown as Record<string, unknown>).__mo?.disconnect?.()
+  ;(window as unknown as { __mo?: { disconnect?: () => void } }).__mo?.disconnect?.()
   delete (window as unknown as Record<string, unknown>).__mo
   delete (window as unknown as Record<string, unknown>).__demo
 })
@@ -276,146 +231,241 @@ onBeforeUnmount(() => {
 <template>
   <div class="demo">
     <header class="demo-header">
-      <h1>flow-mindmap consumer demo</h1>
-      <span class="demo-status">
-        节点: <b data-testid="total-nodes">{{ totalNodes }}</b> ·
-        选中: <b data-testid="selected-id">{{ selectedId ?? '∅' }}</b> ·
-        最后事件: <b data-testid="last-event">{{ lastEvent }}</b>
-      </span>
+      <div class="demo-header-left">
+        <h1>flow-mindmap</h1>
+        <span class="demo-version">v{{ VERSION }}</span>
+      </div>
+      <div class="demo-header-right">
+        <span class="demo-status">
+          {{ t('节点', 'Nodes') }}: <b data-testid="total-nodes">{{ totalNodes }}</b> ·
+          {{ t('选中', 'Sel') }}: <b data-testid="selected-id">{{ selectedId ?? '∅' }}</b> ·
+          {{ t('最后事件', 'Last') }}: <b data-testid="last-event">{{ lastEvent }}</b>
+        </span>
+        <div class="demo-lang-toggle">
+          <button :class="{ active: lang === 'zh' }" @click="setLang('zh')">中</button>
+          <button :class="{ active: lang === 'en' }" @click="setLang('en')">EN</button>
+        </div>
+      </div>
     </header>
 
     <main class="demo-main">
+      <!-- ============ Left debug panel ============ -->
       <aside class="demo-panel">
-        <section>
-          <h2>Props</h2>
-          <label>
-            <input type="checkbox" v-model="previewMode" data-testid="prop-preview" />
-            previewMode(隐藏库顶栏,禁用编辑)
-          </label>
-        </section>
+        <!-- Props -->
+        <details class="demo-section" open>
+          <summary class="demo-section-title" @click.prevent="toggleSection('props')">
+            <svg class="demo-section-chevron" :class="{ 'is-collapsed': !isSectionOpen('props') }" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5 3 5 6 7.5 3" /></svg>
+            {{ t('属性', 'Props') }}
+          </summary>
+          <div v-if="isSectionOpen('props')" class="demo-section-body">
+            <label class="demo-toggle">
+              <input type="checkbox" v-model="previewMode" data-testid="prop-preview" />
+              <span>previewMode ({{ t('隐藏画布工具栏,禁用编辑', 'hide canvas toolbar, disable editing') }})</span>
+            </label>
+          </div>
+        </details>
 
-        <section>
-          <h2>Settings</h2>
-          <label>
-            layoutMode:
-            <select v-model="settings.layoutMode" data-testid="set-layoutmode" @change="mmRef?.applySettings({ layoutMode: settings.layoutMode })">
-              <option value="mindmap">mindmap</option>
-              <option value="tree">tree</option>
-              <option value="org">org</option>
-            </select>
-          </label>
-          <label>
-            lineStyle:
-            <select v-model="settings.lineStyle" data-testid="set-linestyle" @change="mmRef?.applySettings({ lineStyle: settings.lineStyle })">
-              <option value="curve">curve</option>
-              <option value="straight">straight</option>
-            </select>
-          </label>
-          <label>
-            <input type="checkbox" v-model="settings.rainbowBranch" data-testid="set-rainbow" @change="mmRef?.applySettings({ rainbowBranch: settings.rainbowBranch })" />
-            rainbowBranch
-          </label>
-          <label>
-            <input type="checkbox" v-model="settings.taperedEdge" data-testid="set-tapered" @change="mmRef?.applySettings({ taperedEdge: settings.taperedEdge })" />
-            taperedEdge
-          </label>
-          <label>
-            <input type="checkbox" v-model="settings.showOrderBadge" data-testid="set-orderbadge" @change="mmRef?.applySettings({ showOrderBadge: settings.showOrderBadge })" />
-            showOrderBadge
-          </label>
-          <label>
-            branchPaletteId:
-            <select :value="settings.branchPaletteId" data-testid="set-palette" @change="(e) => { settings.branchPaletteId = (e.target as HTMLSelectElement).value; mmRef?.setBranchPalette(settings.branchPaletteId) }">
-              <option value="default">default</option>
-              <option value="classic">classic</option>
-              <option value="vivid">vivid</option>
-              <option value="dev">dev</option>
-              <option value="mint">mint</option>
-            </select>
-          </label>
-        </section>
+        <!-- Settings -->
+        <details class="demo-section" open>
+          <summary class="demo-section-title" @click.prevent="toggleSection('settings')">
+            <svg class="demo-section-chevron" :class="{ 'is-collapsed': !isSectionOpen('settings') }" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5 3 5 6 7.5 3" /></svg>
+            {{ t('设置', 'Settings') }}
+          </summary>
+          <div v-if="isSectionOpen('settings')" class="demo-section-body">
+            <label class="demo-field">
+              <span class="demo-field-label">layoutMode</span>
+              <select v-model="settings.layoutMode" data-testid="set-layoutmode" @change="mmRef?.applySettings({ layoutMode: settings.layoutMode })">
+                <option value="mindmap">mindmap</option>
+                <option value="tree">tree</option>
+                <option value="org">org</option>
+              </select>
+            </label>
+            <label class="demo-field">
+              <span class="demo-field-label">lineStyle</span>
+              <select v-model="settings.lineStyle" data-testid="set-linestyle" @change="mmRef?.applySettings({ lineStyle: settings.lineStyle })">
+                <option value="curve">curve</option>
+                <option value="straight">straight</option>
+              </select>
+            </label>
+            <label class="demo-toggle">
+              <input type="checkbox" v-model="settings.rainbowBranch" data-testid="set-rainbow" @change="mmRef?.applySettings({ rainbowBranch: settings.rainbowBranch })" />
+              <span>rainbowBranch</span>
+            </label>
+            <label class="demo-toggle">
+              <input type="checkbox" v-model="settings.taperedEdge" data-testid="set-tapered" @change="mmRef?.applySettings({ taperedEdge: settings.taperedEdge })" />
+              <span>taperedEdge</span>
+            </label>
+            <label class="demo-toggle">
+              <input type="checkbox" v-model="settings.showOrderBadge" data-testid="set-orderbadge" @change="mmRef?.applySettings({ showOrderBadge: settings.showOrderBadge })" />
+              <span>showOrderBadge</span>
+            </label>
+            <label class="demo-field">
+              <span class="demo-field-label">palette</span>
+              <select :value="settings.branchPaletteId" data-testid="set-palette" @change="(e) => { settings.branchPaletteId = (e.target as HTMLSelectElement).value; mmRef?.setBranchPalette(settings.branchPaletteId) }">
+                <option value="default">default</option>
+                <option value="classic">classic</option>
+                <option value="vivid">vivid</option>
+                <option value="dev">dev</option>
+                <option value="mint">mint</option>
+              </select>
+            </label>
+          </div>
+        </details>
 
-        <section>
-          <h2>Node ops (expose)</h2>
-          <button data-testid="op-select-root" @click="selectRoot">selectRoot(手动)</button>
-          <button data-testid="op-addchild" :disabled="!selectedId" @click="act('addChild', () => { if (selectedId) mmRef?.addChild(selectedId) })">addChild(选中)</button>
-          <button data-testid="op-addsibling" :disabled="!selectedId || selectedId === 'root'" @click="act('addSibling', () => { if (selectedId) mmRef?.addSibling(selectedId) })">addSibling(选中)</button>
-          <button data-testid="op-remove" :disabled="!selectedId || selectedId === 'root'" @click="act('removeNode', () => { if (selectedId) mmRef?.removeNode(selectedId) })">removeNode(选中)</button>
-          <button data-testid="op-duplicate" :disabled="!selectedId" @click="act('duplicateNode', () => { if (selectedId) mmRef?.duplicateNode(selectedId) })">duplicateNode(选中)</button>
-          <button data-testid="op-settext" :disabled="!selectedId" @click="act('setNodeText', () => { if (selectedId) mmRef?.setNodeText(selectedId, `编辑于 ${Date.now() % 10000}`) })">setNodeText(选中)</button>
-          <button data-testid="op-move" :disabled="!selectedNode" @click="act('moveNode → root child', () => { if (selectedId && selectedId !== 'root') mmRef?.moveNode(selectedId, 'root', 'child') })">moveNode(选中 → root 子)</button>
-        </section>
+        <!-- Node ops -->
+        <details class="demo-section" open>
+          <summary class="demo-section-title" @click.prevent="toggleSection('nodeops')">
+            <svg class="demo-section-chevron" :class="{ 'is-collapsed': !isSectionOpen('nodeops') }" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5 3 5 6 7.5 3" /></svg>
+            {{ t('节点操作', 'Node ops') }}
+          </summary>
+          <div v-if="isSectionOpen('nodeops')" class="demo-section-body">
+            <div class="demo-btn-grid">
+              <button data-testid="op-select-root" @click="selectRoot">selectRoot</button>
+              <button data-testid="op-addchild" :disabled="!selectedId" @click="act('addChild', () => { if (selectedId) mmRef?.addChild(selectedId) })">addChild</button>
+              <button data-testid="op-addsibling" :disabled="!selectedId || selectedId === 'root'" @click="act('addSibling', () => { if (selectedId) mmRef?.addSibling(selectedId) })">addSibling</button>
+              <button data-testid="op-remove" :disabled="!selectedId || selectedId === 'root'" @click="act('removeNode', () => { if (selectedId) mmRef?.removeNode(selectedId) })">removeNode</button>
+              <button data-testid="op-duplicate" :disabled="!selectedId" @click="act('duplicateNode', () => { if (selectedId) mmRef?.duplicateNode(selectedId) })">duplicateNode</button>
+              <button data-testid="op-settext" :disabled="!selectedId" @click="act('setNodeText', () => { if (selectedId) mmRef?.setNodeText(selectedId, `编辑于 ${Date.now() % 10000}`) })">setNodeText</button>
+            </div>
+            <button class="demo-btn demo-btn--full" data-testid="op-move" :disabled="!selectedNode" @click="act('moveNode', () => { if (selectedId && selectedId !== 'root') mmRef?.moveNode(selectedId, 'root', 'child') })">{{ t('移动到根节点子级', 'moveNode → root child') }}</button>
+          </div>
+        </details>
 
-        <section>
-          <h2>Node extension</h2>
-          <button data-testid="op-style" :disabled="!selectedId" @click="act('applyNodeStyle', () => { if (selectedId) mmRef?.applyNodeStyle(selectedId, { bg: '#fef08a', borderColor: '#ca8a04', fontWeight: 600 }) })">applyNodeStyle(高亮)</button>
-          <button data-testid="op-style-clear" :disabled="!selectedId" @click="act('applyNodeStyle(clear)', () => { if (selectedId) mmRef?.applyNodeStyle(selectedId, {}) })">applyNodeStyle(清除)</button>
-          <button data-testid="op-link" :disabled="!selectedId" @click="act('applyNodeLink', () => { if (selectedId) mmRef?.applyNodeLink(selectedId, 'https://example.com') })">applyNodeLink</button>
-          <button data-testid="op-link-clear" :disabled="!selectedId" @click="act('removeNodeLink', () => { if (selectedId) mmRef?.removeNodeLink(selectedId) })">removeNodeLink</button>
-          <button data-testid="op-note" :disabled="!selectedId" @click="act('applyNodeNote', () => { if (selectedId) mmRef?.applyNodeNote(selectedId, 'demo note text') })">applyNodeNote</button>
-          <button data-testid="op-note-clear" :disabled="!selectedId" @click="act('removeNodeNote', () => { if (selectedId) mmRef?.removeNodeNote(selectedId) })">removeNodeNote</button>
-        </section>
+        <!-- Node extension -->
+        <details class="demo-section" open>
+          <summary class="demo-section-title" @click.prevent="toggleSection('nodeext')">
+            <svg class="demo-section-chevron" :class="{ 'is-collapsed': !isSectionOpen('nodeext') }" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5 3 5 6 7.5 3" /></svg>
+            {{ t('节点扩展', 'Node extension') }}
+          </summary>
+          <div v-if="isSectionOpen('nodeext')" class="demo-section-body">
+            <div class="demo-btn-grid">
+              <button data-testid="op-style" :disabled="!selectedId" @click="act('applyNodeStyle', () => { if (selectedId) mmRef?.applyNodeStyle(selectedId, { bg: '#fef08a', borderColor: '#ca8a04', fontWeight: 600 }) })">{{ t('高亮样式', 'Style highlight') }}</button>
+              <button data-testid="op-style-clear" :disabled="!selectedId" @click="act('clearStyle', () => { if (selectedId) mmRef?.applyNodeStyle(selectedId, {}) })">{{ t('清除样式', 'Clear style') }}</button>
+              <button data-testid="op-link" :disabled="!selectedId" @click="act('applyNodeLink', () => { if (selectedId) mmRef?.applyNodeLink(selectedId, 'https://example.com') })">{{ t('设置链接', 'setLink') }}</button>
+              <button data-testid="op-link-clear" :disabled="!selectedId" @click="act('removeLink', () => { if (selectedId) mmRef?.removeNodeLink(selectedId) })">{{ t('清除链接', 'clearLink') }}</button>
+              <button data-testid="op-note" :disabled="!selectedId" @click="act('applyNodeNote', () => { if (selectedId) mmRef?.applyNodeNote(selectedId, 'demo note text') })">{{ t('设置笔记', 'setNote') }}</button>
+              <button data-testid="op-note-clear" :disabled="!selectedId" @click="act('removeNote', () => { if (selectedId) mmRef?.removeNodeNote(selectedId) })">{{ t('清除笔记', 'clearNote') }}</button>
+            </div>
+          </div>
+        </details>
 
-        <section>
-          <h2>View</h2>
-          <button data-testid="op-resetview" @click="act('resetView', () => mmRef?.resetView())">resetView()</button>
-          <button data-testid="op-getdata" @click="actGet('getData', () => { const d = mmRef?.getData(); return { nodes: d ? countNodes(d) : 0 } })">getData()</button>
-          <button data-testid="op-setdata" @click="act('setData(initialData)', () => mmRef?.setData(initialData))">setData(initial)</button>
-        </section>
+        <!-- View & Data -->
+        <details class="demo-section">
+          <summary class="demo-section-title" @click.prevent="toggleSection('view')">
+            <svg class="demo-section-chevron" :class="{ 'is-collapsed': !isSectionOpen('view') }" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5 3 5 6 7.5 3" /></svg>
+            {{ t('视图与数据', 'View & Data') }}
+          </summary>
+          <div v-if="isSectionOpen('view')" class="demo-section-body">
+            <div class="demo-btn-grid">
+              <button data-testid="op-resetview" @click="act('resetView', () => mmRef?.resetView())">resetView</button>
+              <button data-testid="op-getdata" @click="actGet('getData', () => { const d = mmRef?.getData(); return { nodes: d ? countNodes(d) : 0 } })">getData</button>
+            </div>
+            <button class="demo-btn demo-btn--full" data-testid="op-setdata" @click="act('setData', () => mmRef?.setData(initialData))">{{ t('重置数据', 'setData(initial)') }}</button>
+          </div>
+        </details>
 
-        <section>
-          <h2>History</h2>
-          <button data-testid="op-undo" :disabled="!canUndo" @click="act('undo', () => mmRef?.undo())">undo</button>
-          <button data-testid="op-redo" :disabled="!canRedo" @click="act('redo', () => mmRef?.redo())">redo</button>
-        </section>
+        <!-- History -->
+        <details class="demo-section">
+          <summary class="demo-section-title" @click.prevent="toggleSection('history')">
+            <svg class="demo-section-chevron" :class="{ 'is-collapsed': !isSectionOpen('history') }" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5 3 5 6 7.5 3" /></svg>
+            {{ t('历史', 'History') }}
+          </summary>
+          <div v-if="isSectionOpen('history')" class="demo-section-body">
+            <div class="demo-btn-grid">
+              <button data-testid="op-undo" :disabled="!canUndo" @click="act('undo', () => mmRef?.undo())">undo</button>
+              <button data-testid="op-redo" :disabled="!canRedo" @click="act('redo', () => mmRef?.redo())">redo</button>
+            </div>
+          </div>
+        </details>
 
-        <section>
-          <h2>Multi-select</h2>
-          <small data-testid="sel-count">已选 <b>{{ selectedIds.length }}</b> 个节点</small>
-          <button data-testid="op-copy" :disabled="selectedIds.length === 0" @click="act('copyNodes', () => mmRef?.copyNodes(selectedIds))">copyNodes</button>
-          <button data-testid="op-cut" :disabled="selectedIds.length === 0" @click="act('cutNodes', () => mmRef?.cutNodes(selectedIds))">cutNodes</button>
-          <button data-testid="op-paste" :disabled="!selectedId" @click="act('pasteNodes', () => mmRef?.pasteNodes(selectedId))">pasteNodes → 选中</button>
-          <button data-testid="op-paste-root" @click="act('pasteNodes(root)', () => mmRef?.pasteNodes(null))">pasteNodes → root</button>
-        </section>
+        <!-- Multi-select -->
+        <details class="demo-section">
+          <summary class="demo-section-title" @click.prevent="toggleSection('multi')">
+            <svg class="demo-section-chevron" :class="{ 'is-collapsed': !isSectionOpen('multi') }" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5 3 5 6 7.5 3" /></svg>
+            {{ t('多选', 'Multi-select') }}
+            <span v-if="selectedIds.length" class="demo-badge">{{ selectedIds.length }}</span>
+          </summary>
+          <div v-if="isSectionOpen('multi')" class="demo-section-body">
+            <small data-testid="sel-count" class="demo-hint">{{ t('已选', 'Selected') }} <b>{{ selectedIds.length }}</b> {{ t('个节点', 'node(s)') }}</small>
+            <div class="demo-btn-grid">
+              <button data-testid="op-copy" :disabled="selectedIds.length === 0" @click="act('copyNodes', () => mmRef?.copyNodes(selectedIds))">{{ t('复制', 'copy') }}</button>
+              <button data-testid="op-cut" :disabled="selectedIds.length === 0" @click="act('cutNodes', () => mmRef?.cutNodes(selectedIds))">{{ t('剪切', 'cut') }}</button>
+              <button data-testid="op-paste" :disabled="!selectedId" @click="act('pasteNodes', () => mmRef?.pasteNodes(selectedId))">{{ t('粘贴→选中', 'paste → sel') }}</button>
+              <button data-testid="op-paste-root" @click="act('pasteNodes', () => mmRef?.pasteNodes(null))">{{ t('粘贴→根', 'paste → root') }}</button>
+            </div>
+          </div>
+        </details>
 
-        <section>
-          <h2>Import/Export</h2>
-          <button data-testid="op-export" @click="actGet('exportData', () => mmRef?.exportData()?.slice(0, 80))">exportData()</button>
-          <button data-testid="op-import" @click="act('importData', () => { const ok = mmRef?.importData(mmRef?.exportData() ?? '{}'); return ok })">importData(exportData)</button>
-        </section>
+        <!-- Import/Export -->
+        <details class="demo-section">
+          <summary class="demo-section-title" @click.prevent="toggleSection('io')">
+            <svg class="demo-section-chevron" :class="{ 'is-collapsed': !isSectionOpen('io') }" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5 3 5 6 7.5 3" /></svg>
+            {{ t('导入 / 导出', 'Import / Export') }}
+          </summary>
+          <div v-if="isSectionOpen('io')" class="demo-section-body">
+            <div class="demo-btn-grid">
+              <button data-testid="op-export" @click="actGet('exportData', () => mmRef?.exportData()?.slice(0, 80))">exportData</button>
+              <button data-testid="op-import" @click="act('importData', () => { const ok = mmRef?.importData(mmRef?.exportData() ?? '{}'); return ok })">importData</button>
+            </div>
+          </div>
+        </details>
 
-        <section>
-          <h2>Theme</h2>
-          <label>fontSize <input data-testid="theme-fontsize" type="number" v-model.number="theme.fontSize" min="10" max="32" /></label>
-          <small style="color:#64748b;font-size:11px">节点大小会按 fontSize/14 等比缩放</small>
-        </section>
+        <!-- Theme -->
+        <details class="demo-section">
+          <summary class="demo-section-title" @click.prevent="toggleSection('theme')">
+            <svg class="demo-section-chevron" :class="{ 'is-collapsed': !isSectionOpen('theme') }" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5 3 5 6 7.5 3" /></svg>
+            {{ t('主题', 'Theme') }}
+          </summary>
+          <div v-if="isSectionOpen('theme')" class="demo-section-body">
+            <label class="demo-field">
+              <span class="demo-field-label">fontSize</span>
+              <input data-testid="theme-fontsize" type="number" v-model.number="theme.fontSize" min="10" max="32" />
+            </label>
+            <p class="demo-hint">{{ t('节点大小按 fontSize/14 等比缩放', 'Node size scales by fontSize/14') }}</p>
+          </div>
+        </details>
 
-        <section>
-          <h2>Markdown</h2>
-          <textarea
-            data-testid="markdown-input"
-            v-model="markdownInput"
-            rows="5"
-            placeholder="粘贴 markdown 内容,点击 setMarkdown 替换数据"
-            style="width:100%;font-family:ui-monospace,monospace;font-size:11px;padding:4px"
-          ></textarea>
-          <button data-testid="op-setmarkdown" @click="applyMarkdown">setMarkdown(textarea)</button>
-          <small style="color:#64748b;font-size:11px">已回传的 markdown: <span data-testid="md-emitted-len">{{ lastMarkdownEmitted.length }}</span> chars</small>
-        </section>
+        <!-- Markdown -->
+        <details class="demo-section">
+          <summary class="demo-section-title" @click.prevent="toggleSection('markdown')">
+            <svg class="demo-section-chevron" :class="{ 'is-collapsed': !isSectionOpen('markdown') }" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5 3 5 6 7.5 3" /></svg>
+            Markdown
+          </summary>
+          <div v-if="isSectionOpen('markdown')" class="demo-section-body">
+            <textarea
+              data-testid="markdown-input"
+              v-model="markdownInput"
+              rows="4"
+              :placeholder="t('粘贴 markdown, 点击 setMarkdown 替换数据', 'Paste markdown, click setMarkdown to replace data')"
+              class="demo-textarea"
+            ></textarea>
+            <button class="demo-btn demo-btn--full" data-testid="op-setmarkdown" @click="applyMarkdown">setMarkdown</button>
+            <p class="demo-hint">{{ t('已回传', 'Emitted') }}: <span data-testid="md-emitted-len">{{ lastMarkdownEmitted.length }}</span> chars</p>
+          </div>
+        </details>
 
-        <section>
-          <h2>lineColors</h2>
-          <textarea
-            data-testid="linecolors-input"
-            v-model="lineColorsInput"
-            rows="2"
-            placeholder="逗号或换行分隔:#f87171, #34d399, #60a5fa"
-            style="width:100%;font-family:ui-monospace,monospace;font-size:11px;padding:4px"
-          ></textarea>
-          <small style="color:#64748b;font-size:11px">留空 = 走 palette。优先级: lineColors &gt; branchPaletteId</small>
-        </section>
+        <!-- lineColors -->
+        <details class="demo-section">
+          <summary class="demo-section-title" @click.prevent="toggleSection('linecolors')">
+            <svg class="demo-section-chevron" :class="{ 'is-collapsed': !isSectionOpen('linecolors') }" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5 3 5 6 7.5 3" /></svg>
+            lineColors
+          </summary>
+          <div v-if="isSectionOpen('linecolors')" class="demo-section-body">
+            <textarea
+              data-testid="linecolors-input"
+              v-model="lineColorsInput"
+              rows="2"
+              placeholder="#f87171, #34d399, #60a5fa"
+              class="demo-textarea"
+            ></textarea>
+            <p class="demo-hint">{{ t('留空 = 走 palette。优先级: lineColors > branchPaletteId', 'Empty = use palette. Priority: lineColors > branchPaletteId') }}</p>
+          </div>
+        </details>
       </aside>
 
+      <!-- ============ Canvas — builtInDrawers is true by default,
+           so all drawers (settings/data/markdown/note/outline) are
+           handled internally by MindMap.  No manual event wiring. ============ -->
       <section class="demo-canvas" :class="{ preview: previewMode }">
         <MindMap
           ref="mmRef"
@@ -425,53 +475,11 @@ onBeforeUnmount(() => {
           :line-colors="lineColorsList"
           @change="onChange"
           @select="onSelect"
-          @edit-note="onEditNote"
-            @canvas-settings="openSettings"
-            @canvas-data="openDataDrawer"
-            @canvas-import="openImport"
-            @canvas-toggle-preview="previewMode = !previewMode"
-            @canvas-outline="showOutline = !showOutline"
+          @canvas-toggle-preview="previewMode = !previewMode"
           @markdown-change="onMarkdownChange"
           style="width: 100%; height: 100%"
         />
-
-        <!-- Right-side note drawer.  scope="canvas" anchors it to
-             .demo-canvas with a backdrop overlay — zero layout
-             surgery.  previewMode also closes it via the :open
-             expression. -->
-        <Drawer
-          side="right"
-          scope="canvas"
-          :width="360"
-          :open="showNote && !previewMode"
-          title="节点内容"
-          @update:open="(v) => (showNote = v)"
-        >
-          <NotePanel
-            :selected-node="selectedNode"
-            :focus-tick="noteFocusTick"
-            @apply="onNoteApply"
-            @remove="onNoteRemove"
-            @set-link="onLinkSet"
-            @set-image="onImageSet"
-            @set-rich="onRichSet"
-          />
-        </Drawer>
       </section>
-
-
-      <div v-if="showOutline" class="demo-outline-backdrop" @click="showOutline = false" />
-      <aside v-if="showOutline" class="demo-outline-drawer">
-        <div class="demo-outline-header">
-          <span class="demo-outline-title">大纲</span>
-          <button class="demo-outline-close" title="关闭" @click="showOutline = false">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6 L18 18 M18 6 L6 18" /></svg>
-          </button>
-        </div>
-        <div class="demo-outline-body">
-          <Outline :data="data" :selected-id="selectedId" :collapsed-ids="outlineCollapsed" readonly />
-        </div>
-      </aside>
     </main>
   </div>
 </template>
@@ -479,76 +487,180 @@ onBeforeUnmount(() => {
 <style>
 html, body, #app { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; }
 .demo { display: flex; flex-direction: column; height: 100%; }
-.demo-header { padding: 8px 14px; background: #0f172a; color: #f1f5f9; display: flex; gap: 16px; align-items: center; }
-.demo-header h1 { font-size: 14px; margin: 0; font-weight: 600; }
-.demo-status { font-size: 12px; color: #cbd5e1; }
-.demo-status b { color: #f8fafc; font-weight: 600; margin-right: 6px; }
-.demo-main { display: flex; flex: 1; min-height: 0; }
-.demo-panel { width: 320px; border-right: 1px solid #e2e8f0; background: #ffffff; overflow-y: auto; padding: 8px 12px 24px; flex-shrink: 0; }
-.demo-panel h2 { font-size: 12px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: 0.04em; margin: 14px 0 6px; }
-.demo-panel section + section { border-top: 1px dashed #e2e8f0; }
-.demo-panel label { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 0; }
-.demo-panel select, .demo-panel input[type="number"] { flex: 1; padding: 2px 4px; font: inherit; }
-.demo-panel button { display: block; width: 100%; text-align: left; padding: 4px 8px; margin: 2px 0; font: inherit; font-size: 12px; border: 1px solid #cbd5e1; background: #f8fafc; color: #1e293b; border-radius: 4px; cursor: pointer; }
-.demo-panel button:hover:not(:disabled) { background: #e0e7ff; border-color: #818cf8; }
-.demo-panel button:disabled { opacity: 0.4; cursor: not-allowed; }
-.demo-canvas { flex: 1; position: relative; min-width: 0; background: #f8fafc; }
 
-
-/* Outline drawer (slides in from the left when the user clicks the
- * canvas fab).  Overlay backdrop dims the rest of the page; the
- * drawer holds the read-only <Outline> tree. */
-.demo-outline-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.18);
-  z-index: 50;
-}
-.demo-outline-drawer {
-  position: fixed;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  width: 320px;
-  max-width: 90vw;
-  background: #ffffff;
-  border-right: 1px solid #e2e8f0;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+/* Header */
+.demo-header {
+  padding: 8px 16px;
+  background: #0f172a;
+  color: #f1f5f9;
   display: flex;
-  flex-direction: column;
-  z-index: 51;
-  font-size: 13px;
-}
-.demo-outline-header {
-  display: flex;
+  gap: 16px;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  border-bottom: 1px solid #e2e8f0;
 }
-.demo-outline-title {
+.demo-header-left { display: flex; align-items: center; gap: 8px; }
+.demo-header h1 { font-size: 14px; margin: 0; font-weight: 700; }
+.demo-version {
+  font-size: 10px;
   font-weight: 600;
-  color: #1e293b;
+  color: #818cf8;
+  background: rgba(99, 102, 241, 0.15);
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
 }
-.demo-outline-close {
+.demo-header-right { display: flex; align-items: center; gap: 12px; }
+.demo-status { font-size: 11px; color: #94a3b8; }
+.demo-status b { color: #f8fafc; font-weight: 600; margin-right: 4px; }
+
+/* Language toggle */
+.demo-lang-toggle {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.demo-lang-toggle button {
   border: none;
   background: transparent;
-  border-radius: 4px;
-  color: #64748b;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
   cursor: pointer;
+  transition: all 0.1s;
 }
-.demo-outline-close:hover {
-  background: #f1f5f9;
-  color: #1e293b;
+.demo-lang-toggle button.active {
+  background: #6366f1;
+  color: #ffffff;
 }
-.demo-outline-body {
-  flex: 1;
-  overflow: auto;
+.demo-lang-toggle button:not(.active):hover {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+
+/* Layout */
+.demo-main { display: flex; flex: 1; min-height: 0; }
+
+/* Left panel */
+.demo-panel {
+  width: 280px;
+  border-right: 1px solid #e2e8f0;
+  background: #f8fafc;
+  overflow-y: auto;
+  flex-shrink: 0;
   padding: 6px 0;
 }
+
+/* Collapsible section */
+.demo-section { border-bottom: 1px solid #eef0f3; }
+.demo-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  transition: background 0.1s;
+}
+.demo-section-title::-webkit-details-marker { display: none; }
+.demo-section-title:hover { background: #eef2ff; }
+.demo-section-chevron { flex-shrink: 0; color: #94a3b8; transition: transform 0.15s; }
+.demo-section-chevron.is-collapsed { transform: rotate(-90deg); }
+.demo-section-body { padding: 4px 14px 10px; display: flex; flex-direction: column; gap: 6px; }
+
+/* Badge */
+.demo-badge {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  color: #4f46e5;
+  background: #e0e7ff;
+  padding: 1px 7px;
+  border-radius: 999px;
+  line-height: 1.4;
+}
+
+/* Form fields */
+.demo-field { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #475569; }
+.demo-field-label { flex-shrink: 0; width: 70px; font-weight: 500; }
+.demo-field select,
+.demo-field input[type="number"] {
+  flex: 1;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 11px;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #1e293b;
+  outline: none;
+  transition: border-color 0.1s;
+}
+.demo-field select:focus,
+.demo-field input[type="number"]:focus { border-color: #6366f1; }
+
+/* Toggle (checkbox + label) */
+.demo-toggle { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #475569; cursor: pointer; padding: 2px 0; }
+.demo-toggle input { accent-color: #6366f1; }
+
+/* Hint */
+.demo-hint { font-size: 10px; color: #94a3b8; line-height: 1.5; margin: 2px 0; }
+.demo-hint b { color: #64748b; }
+
+/* Textarea */
+.demo-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  padding: 5px 6px;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #1e293b;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.1s;
+}
+.demo-textarea:focus { border-color: #6366f1; }
+
+/* Buttons */
+.demo-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #334155;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.demo-btn:hover:not(:disabled) { background: #eef2ff; border-color: #818cf8; color: #4f46e5; }
+.demo-btn:active:not(:disabled) { transform: scale(0.97); }
+.demo-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.demo-btn--full { width: 100%; margin-top: 2px; }
+
+/* Button grid — 2 columns */
+.demo-btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.demo-btn-grid .demo-btn { width: 100%; }
+
+/* Canvas */
+.demo-canvas { flex: 1; position: relative; min-width: 0; background: #f8fafc; }
+
+/* Scrollbar */
+.demo-panel::-webkit-scrollbar { width: 5px; }
+.demo-panel::-webkit-scrollbar-track { background: transparent; }
+.demo-panel::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+.demo-panel::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 </style>

@@ -546,6 +546,7 @@ const selectedId = computed(() => selectedNode.value?.id ?? null)
           ref="mindMapRef"
           :data="data"
           :preview-mode="previewMode"
+          :built-in-drawers="false"
           @change="onChange"
           @select="onSelect"
           @edit-note="onEditNote"

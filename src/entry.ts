@@ -17,6 +17,9 @@ export { MindMap, Outline, Drawer, DataPanel, MarkdownPanel, SettingsPanel, Note
 export { uid, clone, findNode, findParent, removeNode, addChild, addSibling, markdownToMindMap, mindMapToMarkdown, markdownToRichMindMap, richBlockToMarkdown }
 export { MARKER_LIB, markerSvg, markerLabel, markerDef, tagColor }
 
+/** Package version, injected at build time from package.json. */
+export const VERSION = __PKG_VERSION__
+
 const plugin = {
   install(app: App) {
     app.component('FlowMindMap', MindMap)

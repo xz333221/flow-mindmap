@@ -31,6 +31,13 @@ import { useKeyboard } from '../composables/useKeyboard'
 import { useHistory } from '../composables/useHistory'
 import NodeContextMenu from './NodeContextMenu.vue'
 import CanvasContextMenu from './CanvasContextMenu.vue'
+// Built-in drawer components — only used when `builtInDrawers` prop is true.
+import Drawer from './Drawer.vue'
+import Outline from './Outline.vue'
+import DataPanel from './DataPanel.vue'
+import MarkdownPanel from './MarkdownPanel.vue'
+import SettingsPanel from './SettingsPanel.vue'
+import NotePanel from './NotePanel.vue'
 import {
   codeLang,
   highlightCode,
@@ -80,8 +87,17 @@ const props = withDefaults(
      * UI.
      */
     hideCanvasActions?: boolean
+    /**
+     * When true (default), MindMap renders its own Drawer + Panel
+     * components for settings / data / markdown / note / outline —
+     * the same experience as the library's built-in MindMapApp.
+     * Consumers who want full control can set this to false and
+     * wire up the canvas-settings / canvas-data / canvas-import /
+     * canvas-outline / edit-note events themselves.
+     */
+    builtInDrawers?: boolean
   }>(),
-  { previewMode: false, hideCanvasActions: false }
+  { previewMode: false, hideCanvasActions: false, builtInDrawers: true }
 )
 
 const emit = defineEmits<{
@@ -536,15 +552,166 @@ function closeCanvasMenu() {
 }
 function menuOpenSettings() {
   closeCanvasMenu()
+  if (props.builtInDrawers) {
+    _closeRightDrawers()
+    _showSettings.value = true
+  }
   emit('canvas-settings')
 }
 function menuOpenData() {
   closeCanvasMenu()
+  if (props.builtInDrawers) {
+    _closeRightDrawers()
+    _showData.value = true
+  }
   emit('canvas-data')
 }
 function menuOpenImport(mode: 'markdown' | 'json' | 'txt') {
   closeCanvasMenu()
+  if (props.builtInDrawers) {
+    _closeRightDrawers()
+    _pendingImportMode.value = mode
+    _showData.value = true
+  }
   emit('canvas-import', mode)
+}
+
+// ---------------------------------------------------------------------------
+// Built-in drawer state — only active when `builtInDrawers` prop is true.
+// Mirrors the package's App.vue so the MindMap is fully self-contained.
+// ---------------------------------------------------------------------------
+const _showOutline = ref(false)
+const _showData = ref(false)
+const _showMarkdown = ref(false)
+const _showNote = ref(false)
+const _showSettings = ref(false)
+const _noteFocusTick = ref(0)
+const _pendingImportMode = ref<'json' | 'markdown' | 'txt' | null>(null)
+const _outlineCollapsed = ref(new Set<string>())
+
+function _closeRightDrawers() {
+  _showData.value = false
+  _showMarkdown.value = false
+  _showNote.value = false
+  _showSettings.value = false
+}
+
+// Computed: the primary selected node for built-in drawers.
+const _selectedNode = computed<MindMapNode | null>(() => {
+  const id = selectedId.value
+  if (!id) return null
+  return findNode(dataRef.value, id) ?? null
+})
+
+const _currentNodeStyle = computed<NodeStyle>(() => {
+  if (!_selectedNode.value) return {}
+  return getNodeStyle(_selectedNode.value.id)
+})
+
+function _onSettingsChange(s: Partial<MindMapSettings>) {
+  if (s.autoBalanceOnChange !== undefined) settings.autoBalanceOnChange = s.autoBalanceOnChange
+  if (s.lineWidthStart !== undefined) settings.lineWidthStart = Math.max(0.5, Math.min(20, s.lineWidthStart))
+  if (s.lineWidthEnd !== undefined) settings.lineWidthEnd = Math.max(0.3, Math.min(10, s.lineWidthEnd))
+  if (s.rainbowBranch !== undefined) settings.rainbowBranch = s.rainbowBranch
+  if (s.branchPaletteId !== undefined) settings.branchPaletteId = s.branchPaletteId
+  if (s.customPalettes !== undefined) settings.customPalettes = s.customPalettes
+  if (s.lineStyle !== undefined) settings.lineStyle = s.lineStyle
+  if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
+  if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
+  if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
+}
+
+function _onNodeStyleChange(style: NodeStyle) {
+  if (!_selectedNode.value) return
+  applyNodeStyle(_selectedNode.value.id, style)
+}
+
+function _resetSettings() {
+  const defaults: MindMapSettings = {
+    autoBalanceOnChange: true,
+    lineWidthStart: 12.0,
+    lineWidthEnd: 0.6,
+    rainbowBranch: true,
+    branchPaletteId: 'default',
+    customPalettes: [],
+    lineStyle: 'curve',
+    layoutMode: 'mindmap',
+    taperedEdge: true,
+    showOrderBadge: false,
+    canvasBg: undefined,
+  }
+  settings.autoBalanceOnChange = defaults.autoBalanceOnChange
+  settings.lineWidthStart = defaults.lineWidthStart
+  settings.lineWidthEnd = defaults.lineWidthEnd
+  settings.rainbowBranch = defaults.rainbowBranch
+  settings.branchPaletteId = defaults.branchPaletteId
+  settings.customPalettes = defaults.customPalettes
+  settings.lineStyle = defaults.lineStyle
+  settings.layoutMode = defaults.layoutMode
+  settings.taperedEdge = defaults.taperedEdge
+  settings.showOrderBadge = defaults.showOrderBadge
+  settings.canvasBg = defaults.canvasBg
+}
+
+function _onDataConsumedMode() {
+  _pendingImportMode.value = null
+}
+
+function _onNoteApply(text: string) {
+  const id = selectedId.value
+  if (!id) return
+  applyNodeNote(id, text)
+}
+function _onNoteRemove() {
+  const id = selectedId.value
+  if (!id) return
+  removeNodeNote(id)
+}
+function _onLinkSet(url: string) {
+  const id = selectedId.value
+  if (!id) return
+  applyNodeLink(id, url)
+}
+function _onImageSet(src: string) {
+  const id = selectedId.value
+  if (!id) return
+  applyNodeImageByUrl(id, src)
+}
+function _onRichSet(payload: { kind: 'code' | 'table'; raw: string; lang?: string } | null) {
+  const id = selectedId.value
+  if (!id) return
+  applyNodeRichContent(id, payload)
+}
+
+function _onOutlineSelect(node: MindMapNode) {
+  const el = document.querySelector(`[data-node-id="${node.id}"]`) as HTMLElement | null
+  if (el) el.click()
+}
+function _onOutlineEdit(payload: { id: string; text: string }) {
+  doSetText(payload.id, payload.text)
+}
+function _onOutlineAddChild(id: string) {
+  doAddChild(id)
+}
+function _onOutlineAddSibling(id: string) {
+  doAddSibling(id)
+}
+function _onOutlineMove(payload: { srcId: string; targetId: string; position: 'before' | 'after' | 'child' }) {
+  doMove(payload.srcId, payload.targetId, payload.position)
+}
+function _toggleCollapse(id: string) {
+  const next = new Set(_outlineCollapsed.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  _outlineCollapsed.value = next
+}
+
+// Override the canvas outline FAB to also toggle the built-in drawer.
+function _onCanvasOutline() {
+  if (props.builtInDrawers) {
+    _showOutline.value = !_showOutline.value
+  }
+  emit('canvas-outline')
 }
 
 function menuPickImage() {
@@ -643,6 +810,11 @@ function menuRemoveTable() {
  *  drawer auto-focuses its textarea on open. */
 function emitEditNote(id: string) {
   if (props.previewMode) return
+  if (props.builtInDrawers) {
+    _closeRightDrawers()
+    _showNote.value = true
+    _noteFocusTick.value++
+  }
   emit('edit-note', id)
 }
 
@@ -1252,12 +1424,17 @@ function nodeBorder(n: LayoutNode): string {
 }
 function nodeFontWeight(n: LayoutNode): number {
 const s = getNodeStyle(n.id)
-return s.fontWeight ?? (n.isRoot ? 600 : 400)
+// Match layout.ts NODE_FONT_WEIGHTS = [700, 600, 500, 400] by tier.
+if (s.fontWeight) return s.fontWeight
+if (n.isRoot) return 700
+if (n.depth <= 1) return 600
+if (n.depth === 2) return 500
+return 400
 }
 
 function nodeFontSize(n: LayoutNode): number {
 const s = getNodeStyle(n.id)
-return s.fontSize ?? theme.value.fontSize
+return s.fontSize ?? n.fontSize ?? theme.value.fontSize
 }
 
 function hexWithAlpha(hex: string, alpha: number): string {
@@ -1672,6 +1849,17 @@ function emitSelection() {
   for (const id of selectedIds.value) {
     const n = findNode(dataRef.value, id)
     if (n) arr.push(n)
+  }
+  // Built-in drawer auto-open: when a node with content is selected,
+  // open the note drawer (mirrors the package's App.vue behavior).
+  if (props.builtInDrawers && !props.previewMode && arr.length > 0) {
+    const primary = arr[0]
+    if (!_showNote.value && nodeHasContent(primary.id)) {
+      _closeRightDrawers()
+      _showNote.value = true
+    }
+  } else if (props.builtInDrawers && arr.length === 0) {
+    _showNote.value = false
   }
   emit('select', arr.length > 0 ? arr : null)
 }
@@ -3575,7 +3763,7 @@ onMounted(() => {
       <button
         :class="fabOutlineClass"
         title="显示大纲视图"
-        @click="emit('canvas-outline')"
+        @click="_onCanvasOutline"
       >
         <Icon name="outline" :size="16" />
       </button>
@@ -3700,6 +3888,106 @@ onMounted(() => {
       </template>
     </div>
     </div>
+
+    <!-- Built-in drawers — rendered when `builtInDrawers` prop is true.
+         These mirror the package's App.vue, giving consumers a
+         zero-config experience: right-click → settings / data / import
+         just works without wiring up events. -->
+    <template v-if="props.builtInDrawers">
+      <!-- Outline (left) -->
+      <Drawer
+        side="left"
+        scope="canvas"
+        :width="300"
+        :open="_showOutline && !previewMode"
+        title="大纲"
+        @update:open="(v) => (_showOutline = v)"
+      >
+        <Outline
+          :data="dataRef"
+          :selected-id="selectedId"
+          :collapsed-ids="_outlineCollapsed"
+          @select="_onOutlineSelect"
+          @toggle-collapse="_toggleCollapse"
+          @edit="_onOutlineEdit"
+          @add-child="_onOutlineAddChild"
+          @add-sibling="_onOutlineAddSibling"
+          @move="_onOutlineMove"
+        />
+      </Drawer>
+
+      <!-- Data (right) -->
+      <Drawer
+        side="right"
+        scope="canvas"
+        :width="360"
+        :open="_showData && !previewMode"
+        title="数据"
+        @update:open="(v) => (_showData = v)"
+      >
+        <DataPanel
+          :data="dataRef"
+          :pending-mode="_pendingImportMode"
+          @import="(d) => (dataRef = d)"
+          @consumed-mode="_onDataConsumedMode"
+        />
+      </Drawer>
+
+      <!-- Markdown (right) -->
+      <Drawer
+        side="right"
+        scope="canvas"
+        :width="420"
+        :open="_showMarkdown && !previewMode"
+        title="Markdown"
+        @update:open="(v) => (_showMarkdown = v)"
+      >
+        <MarkdownPanel
+          :data="dataRef"
+          @import="(d) => (dataRef = d)"
+        />
+      </Drawer>
+
+      <!-- Note (right) -->
+      <Drawer
+        side="right"
+        scope="canvas"
+        :width="360"
+        :open="_showNote && !previewMode"
+        title="节点内容"
+        @update:open="(v) => (_showNote = v)"
+      >
+        <NotePanel
+          :selected-node="_selectedNode"
+          :focus-tick="_noteFocusTick"
+          @apply="_onNoteApply"
+          @remove="_onNoteRemove"
+          @set-link="_onLinkSet"
+          @set-image="_onImageSet"
+          @set-rich="_onRichSet"
+        />
+      </Drawer>
+
+      <!-- Settings (right) -->
+      <Drawer
+        side="right"
+        scope="canvas"
+        :width="340"
+        :open="_showSettings && !previewMode"
+        title="设置"
+        @update:open="(v) => (_showSettings = v)"
+      >
+        <SettingsPanel
+          :settings="settings"
+          :has-selection="selectedId !== null"
+          :selected-node-text="_selectedNode?.text"
+          :node-style="_currentNodeStyle"
+          @update:settings="_onSettingsChange"
+          @update:node-style="_onNodeStyleChange"
+          @reset="_resetSettings"
+        />
+      </Drawer>
+    </template>
   </div>
 </template>
 
