@@ -244,12 +244,13 @@ const showOrderBadge = computed(() => settings.showOrderBadge === true)
 const nodeStylesRef = ref<Map<string, NodeStyle>>(new Map())
 const nodeStyles = nodeStylesRef.value
 function applyNodeStyle(id: string, style: NodeStyle) {
-  // shallow copy to keep the public surface pure
-  const cleaned: NodeStyle = {}
-  if (style.bg) cleaned.bg = style.bg
-  if (style.textColor) cleaned.textColor = style.textColor
-  if (style.borderColor) cleaned.borderColor = style.borderColor
-  if (style.fontWeight) cleaned.fontWeight = style.fontWeight
+// shallow copy to keep the public surface pure
+const cleaned: NodeStyle = {}
+if (style.bg) cleaned.bg = style.bg
+if (style.textColor) cleaned.textColor = style.textColor
+if (style.borderColor) cleaned.borderColor = style.borderColor
+if (style.fontWeight) cleaned.fontWeight = style.fontWeight
+if (style.fontSize) cleaned.fontSize = style.fontSize
   if (Object.keys(cleaned).length === 0) {
     nodeStyles.delete(id)
   } else {
@@ -1007,17 +1008,19 @@ function measureRichBodies() {
 }
 
 const theme = computed<Required<MindMapTheme>>(() => ({
-  rootBg: props.theme?.rootBg ?? '#1f2937',
-  rootText: props.theme?.rootText ?? '#ffffff',
-  branchBg: props.theme?.branchBg ?? '#ffffff',
-  branchText: props.theme?.branchText ?? '#1f2937',
-  lineColor: props.theme?.lineColor ?? '#94a3b8',
-  bgColor: props.theme?.bgColor ?? '#f8fafc',
-  fontSize: props.theme?.fontSize ?? 14,
-  lineWidthStart: props.theme?.lineWidthStart ?? 2.2,
-  lineWidthEnd: props.theme?.lineWidthEnd ?? 0.8,
-  rainbowBranch: props.theme?.rainbowBranch ?? false,
+rootBg: props.theme?.rootBg ?? '#1f2937',
+rootText: props.theme?.rootText ?? '#ffffff',
+branchBg: props.theme?.branchBg ?? '#ffffff',
+branchText: props.theme?.branchText ?? '#1f2937',
+lineColor: props.theme?.lineColor ?? '#94a3b8',
+bgColor: props.theme?.bgColor ?? '#f8fafc',
+fontSize: props.theme?.fontSize ?? 14,
+lineWidthStart: props.theme?.lineWidthStart ?? 2.2,
+lineWidthEnd: props.theme?.lineWidthEnd ?? 0.8,
+rainbowBranch: props.theme?.rainbowBranch ?? false,
 }))
+
+const effectiveBg = computed(() => settings.canvasBg || theme.value.bgColor)
 
 // ---------------------------------------------------------------------------
 // User-controllable settings (settings panel / applySettings)
@@ -1033,6 +1036,7 @@ const settings = reactive<MindMapSettings>({
   layoutMode: 'mindmap',
   taperedEdge: true,
   showOrderBadge: false,
+  canvasBg: undefined,
 })
 
 // Two width strategies, selected by `settings.taperedEdge`:
@@ -1247,8 +1251,13 @@ function nodeBorder(n: LayoutNode): string {
   return theme.value.lineColor
 }
 function nodeFontWeight(n: LayoutNode): number {
-  const s = getNodeStyle(n.id)
-  return s.fontWeight ?? (n.isRoot ? 600 : 400)
+const s = getNodeStyle(n.id)
+return s.fontWeight ?? (n.isRoot ? 600 : 400)
+}
+
+function nodeFontSize(n: LayoutNode): number {
+const s = getNodeStyle(n.id)
+return s.fontSize ?? theme.value.fontSize
 }
 
 function hexWithAlpha(hex: string, alpha: number): string {
@@ -2521,7 +2530,7 @@ function buildExportSVG(): SVGSVGElement {
   bg.setAttribute('y', String(r.vbY))
   bg.setAttribute('width', String(r.vbW))
   bg.setAttribute('height', String(r.vbH))
-  bg.setAttribute('fill', theme.value.bgColor)
+  bg.setAttribute('fill', effectiveBg.value)
   svgEl.appendChild(bg)
 
   // Edges
@@ -2870,7 +2879,7 @@ function buildExportSVG(): SVGSVGElement {
     text.setAttribute('text-anchor', 'middle')
     text.setAttribute('dominant-baseline', 'central')
     text.setAttribute('fill', nodeFg(n))
-    text.setAttribute('font-size', String(n.fontSize))
+    text.setAttribute('font-size', String(nodeFontSize(n)))
     text.setAttribute('font-weight', String(nodeFontWeight(n)))
     text.setAttribute('font-family', FONT_FAMILY)
     text.textContent = n.text
@@ -2959,7 +2968,7 @@ function exportPNGFile(pngScale = 2) {
       URL.revokeObjectURL(svgUrl)
       return
     }
-    ctx.fillStyle = theme.value.bgColor
+    ctx.fillStyle = effectiveBg.value
     ctx.fillRect(0, 0, canvas.width, canvas.height)
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
     URL.revokeObjectURL(svgUrl)
@@ -3116,6 +3125,7 @@ defineExpose<MindMapExpose>({
     if (s.lineStyle !== undefined) settings.lineStyle = s.lineStyle
     if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
     if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
+    if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
   },
   getSettings: (): MindMapSettings => ({
     autoBalanceOnChange: settings.autoBalanceOnChange,
@@ -3128,6 +3138,7 @@ defineExpose<MindMapExpose>({
     layoutMode: settings.layoutMode,
     taperedEdge: settings.taperedEdge,
     showOrderBadge: settings.showOrderBadge,
+    canvasBg: settings.canvasBg,
   }),
   setBranchPalette: (id) => {
     if (!id) return
@@ -3174,7 +3185,7 @@ onMounted(() => {
 <template>
   <div
     class="zm-mindmap"
-    :style="{ background: theme.bgColor, fontSize: theme.fontSize + 'px' }"
+    :style="{ background: effectiveBg, fontSize: theme.fontSize + 'px' }"
   >
     <div
       ref="wrapperRef"
@@ -3285,7 +3296,7 @@ onMounted(() => {
             width: n.width + 'px',
             minWidth: n.width + 'px',
             height: n.height + 'px',
-            fontSize: n.fontSize + 'px',
+            fontSize: nodeFontSize(n) + 'px',
             background: nodeBg(n),
             color: nodeFg(n),
             borderColor: nodeBorder(n),

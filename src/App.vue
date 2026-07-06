@@ -7,7 +7,7 @@ import DataPanel from './components/DataPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import MarkdownPanel from './components/MarkdownPanel.vue'
 import NotePanel from './components/NotePanel.vue'
-import type { MindMapNode, MindMapSettings } from './types'
+import type { MindMapNode, MindMapSettings, NodeStyle } from './types'
 
 // Sample data — same shape the user can pass in production.
 const initialData: MindMapNode = {
@@ -362,6 +362,14 @@ const settings = reactive<MindMapSettings>({
   layoutMode: 'mindmap',
   taperedEdge: true,
   showOrderBadge: false,
+  canvasBg: undefined,
+})
+
+// Read the live per-node style from the canvas so the settings
+// panel can reflect the current state (immediate-apply model).
+const currentNodeStyle = computed<NodeStyle>(() => {
+  if (!selectedNode.value) return {}
+  return mindMapRef.value?.getNodeStyle(selectedNode.value.id) ?? {}
 })
 
 function onSettingsChange(s: Partial<MindMapSettings>) {
@@ -369,7 +377,7 @@ function onSettingsChange(s: Partial<MindMapSettings>) {
   mindMapRef.value?.applySettings(s)
 }
 
-function onNodeStyleChange(style: { bg?: string; textColor?: string; borderColor?: string; fontWeight?: 400 | 600 }) {
+function onNodeStyleChange(style: NodeStyle) {
   if (!selectedNode.value) return
   mindMapRef.value?.applyNodeStyle(selectedNode.value.id, style)
 }
@@ -386,20 +394,15 @@ function resetSettings() {
     layoutMode: 'mindmap',
     taperedEdge: true,
     showOrderBadge: false,
+    canvasBg: undefined,
   }
   Object.assign(settings, defaults)
   mindMapRef.value?.applySettings(defaults)
 }
 
-// Close the settings popover on outside click or Escape.
-function onDocClick(e: MouseEvent) {
-  if (!showSettings.value) return
-  const target = e.target as HTMLElement | null
-  // clicks inside the popover or on its toggle button don't close
-  if (target && target.closest('.zm-settings-popover')) return
-  if (target && target.closest('.zm-app-icon-btn[title="显示设置"]')) return
-  showSettings.value = false
-}
+// Close the settings drawer on Escape (Drawer has its own close
+// button, but Escape is a convenience).  Outside-click is handled
+// by the Drawer's backdrop.
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     if (showSettings.value) {
@@ -414,7 +417,6 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 onMounted(() => {
-  document.addEventListener('click', onDocClick)
   document.addEventListener('keydown', onKeydown)
   window.addEventListener('hashchange', syncHashData)
   // Push initial settings to the MindMap so the rainbow / line-width
@@ -429,7 +431,6 @@ onMounted(() => {
   })
 })
 onBeforeUnmount(() => {
-  document.removeEventListener('click', onDocClick)
   document.removeEventListener('keydown', onKeydown)
   window.removeEventListener('hashchange', syncHashData)
 })
@@ -653,7 +654,7 @@ const totalNodes = computed(() => countNodes(data.value))
           v-if="props.showSettingsBtn && !showSettings"
           class="zm-app-icon-btn"
           title="显示设置"
-          @click="showSettings = true"
+          @click="showSettings = true; showData = false; showMarkdown = false; showNote = false"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3" />
@@ -769,28 +770,26 @@ const totalNodes = computed(() => countNodes(data.value))
       />
     </Drawer>
 
-    <!-- Settings: floating popover anchored at the toolbar, toggled by
-         the gear button.  Sits above the canvas so it doesn't compete
-         with the persistent side drawers. -->
-    <div v-if="showSettings && !previewMode" class="zm-settings-backdrop" @click="showSettings = false" />
-    <div v-if="showSettings && !previewMode" class="zm-settings-popover" @click.stop>
-      <div class="zm-settings-popover-header">
-        <span class="zm-settings-popover-title">设置</span>
-        <button class="zm-settings-close" @click="showSettings = false" title="关闭">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-            <path d="M6 6 L18 18 M18 6 L6 18" />
-          </svg>
-        </button>
-      </div>
+    <!-- Settings drawer — same right-side slide-in as the other
+         panels.  Mutually exclusive with data / markdown / note
+         drawers so the canvas isn't squeezed. -->
+    <Drawer
+      side="right"
+      :width="340"
+      :open="showSettings && !previewMode"
+      title="设置"
+      @update:open="(v) => (showSettings = v)"
+    >
       <SettingsPanel
         :settings="settings"
         :has-selection="selectedNode !== null"
         :selected-node-text="selectedNode?.text"
+        :node-style="currentNodeStyle"
         @update:settings="onSettingsChange"
         @update:node-style="onNodeStyleChange"
         @reset="resetSettings"
       />
-    </div>
+    </Drawer>
   </div>
 </template>
 
@@ -875,68 +874,5 @@ const totalNodes = computed(() => countNodes(data.value))
   flex: 1;
   position: relative;
   min-height: 0;
-}
-
-/* Settings popover — modal-style: a dimmed backdrop covers the
-   canvas, the popover floats in the top-right corner.  Clicking the
-   backdrop closes the popover. */
-.zm-settings-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.15);
-  z-index: 49;
-  /* visual dim only — let clicks pass through to the canvas */
-  pointer-events: none;
-}
-.zm-settings-popover {
-  position: absolute;
-  top: 50px;
-  right: 16px;
-  width: 320px;
-  max-height: calc(100% - 64px);
-  z-index: 50;
-  display: flex;
-  flex-direction: column;
-}
-.zm-settings-popover > * {
-  pointer-events: auto;
-}
-.zm-settings-popover .zm-settings-popover-header,
-.zm-settings-popover .zm-settings-panel {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.12);
-  overflow: auto;
-}
-.zm-settings-popover .zm-settings-popover-header {
-  display: flex;
-  align-items: center;
-  padding: 8px 10px 8px 14px;
-  border-bottom: 1px solid #f1f5f9;
-  flex-shrink: 0;
-}
-.zm-settings-popover-title {
-  flex: 1;
-  font-size: 13px;
-  font-weight: 600;
-  color: #1e293b;
-  letter-spacing: 0.02em;
-}
-.zm-settings-close {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: #94a3b8;
-  border-radius: 4px;
-  cursor: pointer;
-}
-.zm-settings-close:hover {
-  background: #f1f5f9;
-  color: #1e293b;
 }
 </style>

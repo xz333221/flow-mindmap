@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive } from 'vue'
-import type { MindMapSettings, LineStyle, BranchPalette } from '../types'
+import type { MindMapSettings, LineStyle, BranchPalette, NodeStyle } from '../types'
 import { BUILTIN_PALETTES, parsePaletteInput } from '../core/palettes'
 
 const props = defineProps<{
@@ -8,6 +8,9 @@ const props = defineProps<{
   /** true when a node is selected — the per-node panel is shown too. */
   hasSelection: boolean
   selectedNodeText?: string
+  /** Current per-node style, read from the canvas so the panel
+   *  reflects the live state (immediate-apply model). */
+  nodeStyle?: NodeStyle
 }>()
 
 const emit = defineEmits<{
@@ -16,42 +19,9 @@ const emit = defineEmits<{
   (e: 'reset'): void
 }>()
 
-/** Style overrides for a single node.  Stored externally (App.vue
- *  holds the map) so the per-node state is preserved across
- *  selection changes. */
-export interface NodeStyle {
-  /** Background colour.  undefined = fall back to theme/branch. */
-  bg?: string
-  /** Text colour. */
-  textColor?: string
-  /** Border colour. */
-  borderColor?: string
-  /** Font weight: 400 / 600.  undefined = inherit. */
-  fontWeight?: 400 | 600
-}
-
 function set<K extends keyof MindMapSettings>(key: K, value: MindMapSettings[K]) {
   emit('update:settings', { [key]: value })
 }
-
-const startLabel = computed(() => {
-  // Kept for backward compat with anything still subscribing; the
-  // settings row no longer shows the qualitative label, it shows
-  // an editable number input.
-  const w = props.settings.lineWidthStart
-  if (w < 1.2) return '细'
-  if (w < 2.5) return '中'
-  if (w < 4) return '粗'
-  return '极粗'
-})
-
-const endLabel = computed(() => {
-  const w = props.settings.lineWidthEnd
-  if (w < 0.6) return '极细'
-  if (w < 1.2) return '细'
-  if (w < 2.0) return '中'
-  return '粗'
-})
 
 /** Line style picker options. The icon shows the line shape; the
  *  label is the Chinese name. */
@@ -60,40 +30,37 @@ const LINE_STYLE_OPTIONS: { value: LineStyle; label: string; viewBox: string }[]
   { value: 'straight', label: '直线', viewBox: '0 0 28 14' },
 ]
 
-// local node-style form state — not bound to props; user types here,
-// then "应用" commits via emit.  This keeps the panel simple while
-// still letting the user preview their choice in the swatch.
-const localStyle = reactive<NodeStyle>({ fontWeight: 400 })
+// Font weight options for the per-node select.
+const FONT_WEIGHT_OPTIONS = [
+  { value: 100, label: '100' },
+  { value: 200, label: '200' },
+  { value: 300, label: '300' },
+  { value: 400, label: '400 (常规)' },
+  { value: 500, label: '500' },
+  { value: 600, label: '600 (半粗)' },
+  { value: 700, label: '700 (粗体)' },
+  { value: 800, label: '800' },
+  { value: 900, label: '900' },
+]
 
-function applyStyle() {
-  emit('update:nodeStyle', { ...localStyle })
-}
-
-function resetStyle() {
-  localStyle.bg = undefined
-  localStyle.textColor = undefined
-  localStyle.borderColor = undefined
-  localStyle.fontWeight = 400
-  emit('update:nodeStyle', { ...localStyle })
+/** Immediate-apply: emit the style delta right away so the canvas
+ *  updates without a separate "apply" button.  Pass `undefined` to
+ *  clear a field. */
+function applyNodeStyleDelta(delta: Partial<NodeStyle>) {
+  emit('update:nodeStyle', delta)
 }
 
 // =====================================================================
-// Palette picker
+// Palette picker — now a dropdown <select>
 // =====================================================================
-//
-// All palettes (built-in + user-defined custom) — fed by
-// `props.settings.customPalettes` and the BUILTIN_PALETTES export.
-// The active palette id is `props.settings.branchPaletteId`.  This
-// view is purely derived; mutations are sent back through the
-// existing `update:settings` emit so the parent (App.vue) can
-// persist and re-feed via `applySettings` — same round-trip the
-// other settings use.
 
-// Editable textarea mirror for each custom palette.  Keyed by
-// palette id so the input survives across re-renders.  We hold the
-// text separately from the canonical `colors` array so the user
-// can paste-then-tweak-then-commit without the canvas live-rendering
-// malformed hex strings.
+const allPalettes = computed<BranchPalette[]>(() => [
+  ...BUILTIN_PALETTES,
+  ...props.settings.customPalettes,
+])
+
+// Custom palette draft management (same as before — textarea for
+// editing hex codes, save commits).
 const customDrafts = reactive<Record<string, string>>({})
 
 function draftFor(p: BranchPalette): string {
@@ -107,8 +74,6 @@ function commitCustomPalette(p: BranchPalette) {
   const draft = customDrafts[p.id] ?? ''
   const colors = parsePaletteInput(draft)
   if (colors.length === 0) {
-    // Reject the empty save — restore the draft to the palette's
-    // current colors so the user sees a working state and can fix.
     customDrafts[p.id] = p.colors.join('\n')
     return
   }
@@ -119,13 +84,10 @@ function commitCustomPalette(p: BranchPalette) {
 }
 
 function addCustomPalette() {
-  // Seed the new palette from the currently active scheme so it
-  // visually matches what the user has on canvas right now.
   const active = allPalettes.value.find(
     (p) => p.id === props.settings.branchPaletteId
   )
   const seed = active ? [...active.colors] : [...BUILTIN_PALETTES[0].colors]
-  // Avoid id collisions with built-ins or existing customs.
   const baseId = 'custom-'
   let id = baseId + (props.settings.customPalettes.length + 1)
   while (
@@ -143,13 +105,11 @@ function addCustomPalette() {
     customPalettes: [...props.settings.customPalettes, palette],
     branchPaletteId: id,
   })
-  // Pre-fill the draft with the seed so the textarea isn't empty.
   customDrafts[id] = seed.join('\n')
 }
 
 function deleteCustomPalette(p: BranchPalette) {
   const next = props.settings.customPalettes.filter((q) => q.id !== p.id)
-  // If the deleted palette was active, fall back to 'default'.
   const active = props.settings.branchPaletteId === p.id
     ? 'default'
     : props.settings.branchPaletteId
@@ -160,29 +120,14 @@ function deleteCustomPalette(p: BranchPalette) {
   delete customDrafts[p.id]
 }
 
-const allPalettes = computed<BranchPalette[]>(() => [
-  ...BUILTIN_PALETTES,
-  ...props.settings.customPalettes,
-])
-
-// simple preset palette for the swatch buttons
+// Swatch palette for node bg/text color buttons
 const PALETTE = ['#f87171', '#fb923c', '#fbbf24', '#a3e635', '#34d399', '#22d3ee', '#818cf8', '#c084fc', '#1e2937', '#f8fafc', '#94a3b8']
 
-/** Build a tiny 4-line preview that mirrors the canvas taper.
- *  The shape depends on `taperedEdge`:
- *  - taperedEdge = true (default): each line is a discrete ribbon
- *    (parent-side width depends on tier, child side is `lineWidthEnd`).
- *    The lines look independent, like the canvas.
- *  - taperedEdge = false: widths interpolate continuously from
- *    `lineWidthStart` (root) to `lineWidthEnd` (leaf), so all four
- *    lines form a single tapered band.
- *  In both modes, `lineWidthStart` is the absolute width of the
- *  parent end of the first line so the user can see what they're
- *  dialing.  The preview lives at the top of the popover. */
+// Canvas background color presets
+const CANVAS_BG_PRESETS = ['#f8fafc', '#ffffff', '#e2e8f0', '#1e2937', '#0f172a', '#fef3c7', '#dbeafe', '#dcfce7', '#fce7f3', '#f1f5f9']
+
+/** Build a tiny 4-line preview that mirrors the canvas taper. */
 const PREVIEW_DEPTHS = [0, 1, 2, 3] as const
-// Preview swatch colors are sourced from the active palette when
-// rainbow is on (so the user sees the scheme they're committing
-// to) and from the line color otherwise.
 const PREVIEW_PALETTE = ['#f87171', '#fb923c', '#34d399', '#818cf8']
 function widthAt(depth: number, total: number, start: number, end: number): number {
   if (total <= 1) return start
@@ -202,8 +147,6 @@ const previewLines = computed(() => {
   const total = PREVIEW_DEPTHS.length
   const left = 8
   const right = 192
-  // When the user has rainbow on, sample the active palette so the
-  // preview line tint tracks the selected scheme.
   const active = allPalettes.value.find(
     (p) => p.id === props.settings.branchPaletteId
   )
@@ -217,8 +160,6 @@ const previewLines = computed(() => {
       y1: y,
       x2: right,
       y2: y,
-      // Render the FULL width as a fat stroke so the user sees the
-      // band, not just a thin centerline.
       w: tapered ? taperedParentW(d, start, end) : widthAt(d, total, start, end),
       color: props.settings.rainbowBranch
         ? colors[i % colors.length]
@@ -231,13 +172,48 @@ const previewLines = computed(() => {
 <template>
   <div class="zm-settings-panel">
     <!-- ============================================================
-         CANVAS / GLOBAL settings — visible when no node is selected
+         CANVAS / GLOBAL settings
          ============================================================ -->
-    <section v-if="!hasSelection" class="zm-settings-section">
+    <section class="zm-settings-section">
       <h4 class="zm-settings-section-title">画布</h4>
 
-      <div class="zm-settings-row">
-        <span class="zm-settings-label">线条粗端(根部)</span>
+      <!-- Canvas background color -->
+      <div class="zm-settings-field">
+        <span class="zm-settings-label">画布背景色</span>
+        <div class="zm-settings-control">
+          <label class="zm-color-input-wrap">
+            <input
+              type="color"
+              class="zm-color-input"
+              :value="settings.canvasBg || '#f8fafc'"
+              @input="(e) => set('canvasBg', (e.target as HTMLInputElement).value)"
+            />
+            <span class="zm-color-input-text">{{ settings.canvasBg || '默认' }}</span>
+          </label>
+        </div>
+      </div>
+      <div class="zm-swatch-row zm-swatch-row--compact">
+        <button
+          v-for="c in CANVAS_BG_PRESETS"
+          :key="'cbg-' + c"
+          class="zm-swatch"
+          :class="{ 'is-active': (settings.canvasBg || '#f8fafc') === c }"
+          :style="{ background: c }"
+          :title="c"
+          @click="set('canvasBg', c)"
+        />
+        <button
+          class="zm-swatch is-reset"
+          title="恢复默认"
+          @click="set('canvasBg', undefined)"
+        >∅</button>
+      </div>
+
+      <div class="zm-settings-divider" />
+
+      <!-- Line width start (root) -->
+      <div class="zm-settings-field">
+        <span class="zm-settings-label">线条粗端 (根部)</span>
         <input
           class="zm-settings-number"
           type="number"
@@ -247,6 +223,7 @@ const previewLines = computed(() => {
         />
       </div>
       <div class="zm-slider">
+        <div class="zm-slider-track" />
         <input
           type="range"
           min="0.4"
@@ -257,8 +234,9 @@ const previewLines = computed(() => {
         />
       </div>
 
-      <div class="zm-settings-row">
-        <span class="zm-settings-label">线条细端(子端)</span>
+      <!-- Line width end (leaf) -->
+      <div class="zm-settings-field">
+        <span class="zm-settings-label">线条细端 (子端)</span>
         <input
           class="zm-settings-number"
           type="number"
@@ -268,6 +246,7 @@ const previewLines = computed(() => {
         />
       </div>
       <div class="zm-slider">
+        <div class="zm-slider-track" />
         <input
           type="range"
           min="0.2"
@@ -278,7 +257,10 @@ const previewLines = computed(() => {
         />
       </div>
 
-      <div class="zm-settings-row">
+      <div class="zm-settings-divider" />
+
+      <!-- Line style -->
+      <div class="zm-settings-field">
         <span class="zm-settings-label">线条类型</span>
         <div class="zm-line-style-group">
           <button
@@ -311,7 +293,8 @@ const previewLines = computed(() => {
         </div>
       </div>
 
-      <label class="zm-settings-row">
+      <!-- Rainbow branches -->
+      <div class="zm-settings-field">
         <span class="zm-settings-label">一级分支彩虹色</span>
         <button
           class="zm-toggle"
@@ -320,83 +303,67 @@ const previewLines = computed(() => {
         >
           <span class="zm-toggle-knob" />
         </button>
-      </label>
-      <p class="zm-settings-hint">关闭时所有线条使用统一的 lineColor。</p>
+      </div>
 
-      <div v-if="settings.rainbowBranch" class="zm-palette-picker">
-        <h5 class="zm-palette-picker-title">配色方案</h5>
-
-        <!-- Built-in palettes — the user picks one by clicking the
-             card.  Active card gets a highlighted border. -->
-        <div class="zm-palette-grid">
-          <button
-            v-for="p in BUILTIN_PALETTES"
-            :key="p.id"
-            type="button"
-            class="zm-palette-card"
-            :class="{ 'is-active': settings.branchPaletteId === p.id }"
-            :title="p.name"
-            @click="set('branchPaletteId', p.id)"
+      <!-- Palette dropdown -->
+      <div v-if="settings.rainbowBranch" class="zm-palette-dropdown">
+        <div class="zm-settings-field">
+          <span class="zm-settings-label">配色方案</span>
+          <select
+            class="zm-select"
+            :value="settings.branchPaletteId"
+            @change="(e) => set('branchPaletteId', (e.target as HTMLSelectElement).value as any)"
           >
-            <span class="zm-palette-card-name">{{ p.name }}</span>
-            <span class="zm-palette-card-swatches">
-              <span
-                v-for="(c, i) in p.colors"
-                :key="i"
-                class="zm-palette-card-swatch"
-                :style="{ background: c }"
-              />
-            </span>
-          </button>
+            <optgroup label="内置配色">
+              <option v-for="p in BUILTIN_PALETTES" :key="p.id" :value="p.id">
+                {{ p.name }}
+              </option>
+            </optgroup>
+            <optgroup v-if="settings.customPalettes.length" label="自定义">
+              <option v-for="p in settings.customPalettes" :key="p.id" :value="p.id">
+                {{ p.name }}
+              </option>
+            </optgroup>
+          </select>
         </div>
 
-        <!-- Custom palettes — same clickable card, plus an inline
-             textarea for editing colors.  Save commits; the canvas
-             doesn't re-render until the user clicks "保存", so a
-             half-typed color string doesn't paint garbage. -->
-        <div v-if="settings.customPalettes.length" class="zm-palette-customs">
-          <div
-            v-for="p in settings.customPalettes"
-            :key="p.id"
-            class="zm-palette-custom"
-          >
+        <!-- Color swatch preview of the active palette -->
+        <div
+          v-if="allPalettes.find(p => p.id === settings.branchPaletteId)"
+          class="zm-palette-preview-bar"
+        >
+          <span
+            v-for="(c, i) in allPalettes.find(p => p.id === settings.branchPaletteId)?.colors"
+            :key="i"
+            class="zm-palette-preview-swatch"
+            :style="{ background: c }"
+          />
+        </div>
+
+        <!-- Custom palette editor (only show when a custom palette is active) -->
+        <div
+          v-if="settings.customPalettes.find(p => p.id === settings.branchPaletteId)"
+          class="zm-palette-custom-editor"
+        >
+          <textarea
+            class="zm-palette-textarea"
+            rows="3"
+            spellcheck="false"
+            placeholder="一行一个 hex,例如 #f87171"
+            :value="draftFor(settings.customPalettes.find(p => p.id === settings.branchPaletteId)!)"
+            @input="(e) => (customDrafts[settings.customPalettes.find(p => p.id === settings.branchPaletteId)!.id] = (e.target as HTMLTextAreaElement).value)"
+          />
+          <div class="zm-palette-custom-actions">
             <button
               type="button"
-              class="zm-palette-card"
-              :class="{ 'is-active': settings.branchPaletteId === p.id }"
-              :title="p.name"
-              @click="set('branchPaletteId', p.id)"
-            >
-              <span class="zm-palette-card-name">{{ p.name }}</span>
-              <span class="zm-palette-card-swatches">
-                <span
-                  v-for="(c, i) in p.colors"
-                  :key="i"
-                  class="zm-palette-card-swatch"
-                  :style="{ background: c }"
-                />
-              </span>
-            </button>
-            <textarea
-              class="zm-palette-textarea"
-              rows="2"
-              spellcheck="false"
-              placeholder="一行一个 hex,例如 #f87171"
-              :value="draftFor(p)"
-              @input="(e) => (customDrafts[p.id] = (e.target as HTMLTextAreaElement).value)"
-            />
-            <div class="zm-palette-custom-actions">
-              <button
-                type="button"
-                class="zm-data-btn is-primary"
-                @click="commitCustomPalette(p)"
-              >保存</button>
-              <button
-                type="button"
-                class="zm-data-btn"
-                @click="deleteCustomPalette(p)"
-              >删除</button>
-            </div>
+              class="zm-data-btn is-primary"
+              @click="commitCustomPalette(settings.customPalettes.find(p => p.id === settings.branchPaletteId)!)"
+            >保存</button>
+            <button
+              type="button"
+              class="zm-data-btn"
+              @click="deleteCustomPalette(settings.customPalettes.find(p => p.id === settings.branchPaletteId)!)"
+            >删除</button>
           </div>
         </div>
 
@@ -407,7 +374,10 @@ const previewLines = computed(() => {
         >+ 新建配色</button>
       </div>
 
-      <label class="zm-settings-row">
+      <div class="zm-settings-divider" />
+
+      <!-- Tapered edge -->
+      <div class="zm-settings-field">
         <span class="zm-settings-label">每条连线独立渐变</span>
         <button
           class="zm-toggle"
@@ -416,13 +386,10 @@ const previewLines = computed(() => {
         >
           <span class="zm-toggle-knob" />
         </button>
-      </label>
-      <p class="zm-settings-hint">
-        开启时每条边都从根部粗端收回到细端子端,父子边之间可能形成粗细跳变;
-        关闭时整棵树从最粗平滑过渡到最细,所有边连成一条带子。
-      </p>
+      </div>
 
-      <label class="zm-settings-row">
+      <!-- Order badge -->
+      <div class="zm-settings-field">
         <span class="zm-settings-label">显示节点序号</span>
         <button
           class="zm-toggle"
@@ -431,12 +398,9 @@ const previewLines = computed(() => {
         >
           <span class="zm-toggle-knob" />
         </button>
-      </label>
-      <p class="zm-settings-hint">
-        在每个节点右上角标注它是同级中的第几个 (1, 2, 3, ...),
-        方便对比画布位置与数据顺序。
-      </p>
+      </div>
 
+      <!-- Preview -->
       <div class="zm-settings-preview">
         <svg viewBox="0 0 200 70" width="100%" height="70" preserveAspectRatio="none">
           <line
@@ -458,99 +422,118 @@ const previewLines = computed(() => {
     </section>
 
     <!-- ============================================================
-         CANVAS / GLOBAL settings — read-only summary when a node is
-         selected.  Users can still see and tweak the canvas-level
-         rules from here; the node style section is appended below.
-         ============================================================ -->
-    <section v-else class="zm-settings-section">
-      <h4 class="zm-settings-section-title">画布</h4>
-      <div class="zm-settings-row">
-        <span class="zm-settings-label">线条粗端</span>
-        <span class="zm-settings-value-tag">{{ settings.lineWidthStart.toFixed(1) }}</span>
-      </div>
-      <div class="zm-settings-row">
-        <span class="zm-settings-label">线条细端</span>
-        <span class="zm-settings-value-tag">{{ settings.lineWidthEnd.toFixed(1) }}</span>
-      </div>
-      <div class="zm-settings-row">
-        <span class="zm-settings-label">线条类型</span>
-        <span class="zm-settings-value-tag">{{ settings.lineStyle === 'curve' ? '圆弧' : '直线' }}</span>
-      </div>
-      <label class="zm-settings-row">
-        <span class="zm-settings-label">一级分支彩虹色</span>
-        <button
-          class="zm-toggle"
-          :class="{ 'is-on': settings.rainbowBranch }"
-          @click="set('rainbowBranch', !settings.rainbowBranch)"
-        >
-          <span class="zm-toggle-knob" />
-        </button>
-      </label>
-      <p class="zm-settings-hint">画布级别的设置会影响整张图。</p>
-    </section>
-
-    <!-- ============================================================
          NODE-LEVEL overrides — only when a node is selected.
-         These DO NOT propagate down the subtree; the per-node style
-         applies to just this node so children keep the canvas theme.
+         Immediate-apply: every control emits on change.
          ============================================================ -->
     <section v-if="hasSelection" class="zm-settings-section">
       <h4 class="zm-settings-section-title">
         节点
-        <span v-if="selectedNodeText" class="zm-settings-section-sub">“{{ selectedNodeText }}”</span>
+        <span v-if="selectedNodeText" class="zm-settings-section-sub">"{{ selectedNodeText }}"</span>
       </h4>
 
-      <div class="zm-settings-row">
+      <!-- Background color -->
+      <div class="zm-settings-field">
         <span class="zm-settings-label">背景颜色</span>
-        <span class="zm-settings-value-tag">{{ localStyle.bg || '默认' }}</span>
+        <span class="zm-settings-value-tag">{{ nodeStyle?.bg || '默认' }}</span>
       </div>
       <div class="zm-swatch-row">
         <button
           v-for="c in PALETTE"
           :key="'bg-' + c"
           class="zm-swatch"
+          :class="{ 'is-active': nodeStyle?.bg === c }"
           :style="{ background: c }"
           :title="c"
-          @click="localStyle.bg = c"
+          @click="applyNodeStyleDelta({ bg: c })"
         />
-        <button class="zm-swatch is-reset" title="清除" @click="localStyle.bg = undefined">∅</button>
+        <label class="zm-swatch zm-swatch--custom" title="自定义颜色">
+          <input
+            type="color"
+            :value="nodeStyle?.bg || '#ffffff'"
+            @input="(e) => applyNodeStyleDelta({ bg: (e.target as HTMLInputElement).value })"
+          />
+        </label>
+        <button
+          class="zm-swatch is-reset"
+          title="清除"
+          @click="applyNodeStyleDelta({ bg: undefined })"
+        >∅</button>
       </div>
 
-      <div class="zm-settings-row">
+      <!-- Text color -->
+      <div class="zm-settings-field">
         <span class="zm-settings-label">文字颜色</span>
-        <span class="zm-settings-value-tag">{{ localStyle.textColor || '默认' }}</span>
+        <span class="zm-settings-value-tag">{{ nodeStyle?.textColor || '默认' }}</span>
       </div>
       <div class="zm-swatch-row">
         <button
           v-for="c in PALETTE"
           :key="'fg-' + c"
           class="zm-swatch"
+          :class="{ 'is-active': nodeStyle?.textColor === c }"
           :style="{ background: c }"
           :title="c"
-          @click="localStyle.textColor = c"
+          @click="applyNodeStyleDelta({ textColor: c })"
         />
-        <button class="zm-swatch is-reset" title="清除" @click="localStyle.textColor = undefined">∅</button>
-      </div>
-
-      <div class="zm-settings-row">
-        <span class="zm-settings-label">字重</span>
+        <label class="zm-swatch zm-swatch--custom" title="自定义颜色">
+          <input
+            type="color"
+            :value="nodeStyle?.textColor || '#1e2937'"
+            @input="(e) => applyNodeStyleDelta({ textColor: (e.target as HTMLInputElement).value })"
+          />
+        </label>
         <button
-          class="zm-toggle"
-          :class="{ 'is-on': localStyle.fontWeight === 600 }"
-          @click="localStyle.fontWeight = localStyle.fontWeight === 600 ? 400 : 600"
-        >
-          <span class="zm-toggle-knob" />
-        </button>
+          class="zm-swatch is-reset"
+          title="清除"
+          @click="applyNodeStyleDelta({ textColor: undefined })"
+        >∅</button>
       </div>
 
-      <div class="zm-data-paste-actions">
-        <button class="zm-data-btn is-primary" @click="applyStyle">应用到该节点</button>
-        <button class="zm-data-btn" @click="resetStyle">清除该节点样式</button>
+      <div class="zm-settings-divider" />
+
+      <!-- Font weight -->
+      <div class="zm-settings-field">
+        <span class="zm-settings-label">字重</span>
+        <select
+          class="zm-select"
+          :value="nodeStyle?.fontWeight ?? 400"
+          @change="(e) => applyNodeStyleDelta({ fontWeight: parseInt((e.target as HTMLSelectElement).value) })"
+        >
+          <option v-for="opt in FONT_WEIGHT_OPTIONS" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
       </div>
+
+      <!-- Font size -->
+      <div class="zm-settings-field">
+        <span class="zm-settings-label">文字大小</span>
+        <input
+          class="zm-settings-number"
+          type="number"
+          step="1"
+          min="8"
+          max="48"
+          :value="nodeStyle?.fontSize ?? 14"
+          @change="(e) => applyNodeStyleDelta({ fontSize: parseInt((e.target as HTMLInputElement).value) || 14 })"
+        />
+      </div>
+      <div class="zm-slider">
+        <div class="zm-slider-track" />
+        <input
+          type="range"
+          min="8"
+          max="48"
+          step="1"
+          :value="nodeStyle?.fontSize ?? 14"
+          @input="(e) => applyNodeStyleDelta({ fontSize: parseInt((e.target as HTMLInputElement).value) })"
+        />
+      </div>
+
       <p class="zm-settings-hint">仅作用于当前节点,不影响子节点。</p>
     </section>
 
-    <section class="zm-settings-section">
+    <section class="zm-settings-section zm-settings-section--actions">
       <button class="zm-settings-reset" @click="emit('reset')">恢复默认设置</button>
     </section>
   </div>
@@ -560,22 +543,26 @@ const previewLines = computed(() => {
 .zm-settings-panel {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 12px 12px 16px;
+  gap: 12px;
+  padding: 14px 14px 18px;
 }
 .zm-settings-section {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 12px;
+  background: #ffffff;
+  border: 1px solid #eef0f3;
+  border-radius: 10px;
+  padding: 14px;
+}
+.zm-settings-section--actions {
+  background: transparent;
+  border: none;
+  padding: 0;
 }
 .zm-settings-section-title {
-  margin: 0 0 10px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #475569;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: 0.01em;
   display: flex;
   align-items: baseline;
   gap: 6px;
@@ -584,44 +571,51 @@ const previewLines = computed(() => {
   font-size: 11px;
   font-weight: 500;
   color: #64748b;
-  text-transform: none;
-  letter-spacing: 0;
   max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.zm-settings-row {
+
+/* Field row — label on left, control on right */
+.zm-settings-field {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 6px 0;
+  margin: 8px 0;
   font-size: 13px;
   color: #1e293b;
+  min-height: 28px;
 }
 .zm-settings-label {
   flex: 1;
+  color: #334155;
+  font-weight: 500;
 }
 .zm-settings-value-tag {
   font-size: 11px;
   color: #64748b;
-  background: #ffffff;
+  background: #f1f5f9;
   border: 1px solid #e2e8f0;
   border-radius: 4px;
-  padding: 2px 6px;
+  padding: 2px 8px;
   white-space: nowrap;
+  font-family: ui-monospace, monospace;
 }
+
+/* Number input */
 .zm-settings-number {
-  font-size: 11px;
+  font-size: 12px;
   color: #0f172a;
-  background: #ffffff;
+  background: #f8fafc;
   border: 1px solid #e2e8f0;
-  border-radius: 4px;
-  padding: 2px 6px;
-  width: 56px;
+  border-radius: 6px;
+  padding: 4px 8px;
+  width: 64px;
   text-align: right;
   -moz-appearance: textfield;
+  transition: border-color 0.12s;
 }
 .zm-settings-number::-webkit-outer-spin-button,
 .zm-settings-number::-webkit-inner-spin-button {
@@ -630,24 +624,62 @@ const previewLines = computed(() => {
 }
 .zm-settings-number:focus {
   outline: none;
-  border-color: #818cf8;
+  border-color: #6366f1;
+  background: #ffffff;
 }
+
+/* Select dropdown */
+.zm-select {
+  font-size: 12px;
+  font-family: inherit;
+  color: #1e293b;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.12s;
+  min-width: 100px;
+}
+.zm-select:focus,
+.zm-select:hover {
+  border-color: #6366f1;
+}
+.zm-select:focus {
+  background: #ffffff;
+}
+
+/* Hint text */
 .zm-settings-hint {
-  margin: 4px 0 0;
+  margin: 6px 0 0;
   font-size: 11px;
   color: #94a3b8;
   line-height: 1.5;
 }
+
+/* Divider */
+.zm-settings-divider {
+  height: 1px;
+  background: #f1f5f9;
+  margin: 10px 0;
+}
+
+/* Slider — fixed track visibility */
 .zm-slider {
   position: relative;
-  height: 20px;
+  height: 22px;
   display: flex;
   align-items: center;
-  margin: 4px 0 8px;
+  margin: 2px 0 6px;
 }
 .zm-slider-track {
   position: absolute;
-  inset: 8px 0;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 4px;
   background: #e2e8f0;
   border-radius: 999px;
   pointer-events: none;
@@ -659,9 +691,21 @@ const previewLines = computed(() => {
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
-  height: 20px;
+  height: 22px;
   cursor: pointer;
   z-index: 1;
+}
+.zm-slider input[type='range']::-webkit-slider-runnable-track {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: transparent;
+  border-radius: 999px;
+}
+.zm-slider input[type='range']::-moz-range-track {
+  height: 4px;
+  background: transparent;
+  border-radius: 999px;
 }
 .zm-slider input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -670,23 +714,31 @@ const previewLines = computed(() => {
   height: 16px;
   border-radius: 50%;
   background: #ffffff;
-  border: 2px solid #3b82f6;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  border: 2px solid #6366f1;
+  box-shadow: 0 1px 4px rgba(99, 102, 241, 0.25);
   cursor: pointer;
+  margin-top: -6px;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.zm-slider input[type='range']::-webkit-slider-thumb:hover {
+  border-color: #4f46e5;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
 }
 .zm-slider input[type='range']::-moz-range-thumb {
   width: 16px;
   height: 16px;
   border-radius: 50%;
   background: #ffffff;
-  border: 2px solid #3b82f6;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  border: 2px solid #6366f1;
+  box-shadow: 0 1px 4px rgba(99, 102, 241, 0.25);
   cursor: pointer;
 }
+
+/* Toggle switch */
 .zm-toggle {
   position: relative;
-  width: 36px;
-  height: 20px;
+  width: 38px;
+  height: 22px;
   border: none;
   background: #cbd5e1;
   border-radius: 999px;
@@ -696,43 +748,105 @@ const previewLines = computed(() => {
   flex-shrink: 0;
 }
 .zm-toggle.is-on {
-  background: #3b82f6;
+  background: #6366f1;
 }
 .zm-toggle-knob {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   background: #ffffff;
   border-radius: 50%;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
   transition: transform 0.15s;
 }
 .zm-toggle.is-on .zm-toggle-knob {
   transform: translateX(16px);
 }
+
+/* Color swatch row */
 .zm-swatch-row {
   display: flex;
   flex-wrap: wrap;
+  gap: 5px;
+  margin: 4px 0 10px;
+}
+.zm-swatch-row--compact {
   gap: 4px;
-  margin: 4px 0 8px;
+  margin-bottom: 6px;
 }
 .zm-swatch {
   width: 22px;
   height: 22px;
-  border-radius: 4px;
-  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  border: 1.5px solid #e2e8f0;
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
+  transition: transform 0.1s, border-color 0.12s, box-shadow 0.12s;
+}
+.zm-swatch:hover {
+  transform: scale(1.12);
+  border-color: #94a3b8;
+}
+.zm-swatch.is-active {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
 }
 .zm-swatch.is-reset {
   background: #ffffff;
   color: #94a3b8;
   font-size: 12px;
   line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
+.zm-swatch.is-reset:hover {
+  color: #ef4444;
+  border-color: #fca5a5;
+}
+.zm-swatch--custom {
+  position: relative;
+  overflow: hidden;
+  background: conic-gradient(from 0deg, #f87171, #fbbf24, #34d399, #22d3ee, #818cf8, #c084fc, #f87171);
+  border: 1.5px solid #e2e8f0;
+}
+.zm-swatch--custom input[type='color'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+}
+
+/* Color input wrap (for canvas bg) */
+.zm-color-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.zm-color-input {
+  width: 28px;
+  height: 22px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 0;
+  background: none;
+}
+.zm-color-input-text {
+  font-size: 11px;
+  color: #64748b;
+  font-family: ui-monospace, monospace;
+}
+
+/* Line style buttons */
 .zm-line-style-group {
   display: flex;
   gap: 6px;
@@ -742,8 +856,8 @@ const previewLines = computed(() => {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 4px 8px;
-  background: #ffffff;
+  padding: 4px 10px;
+  background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
   cursor: pointer;
@@ -755,22 +869,25 @@ const previewLines = computed(() => {
 .zm-line-style-btn:hover {
   border-color: #cbd5e1;
   color: #475569;
+  background: #ffffff;
 }
 .zm-line-style-btn.is-on {
-  border-color: #3b82f6;
-  background: #eff6ff;
-  color: #3b82f6;
+  border-color: #6366f1;
+  background: #eef2ff;
+  color: #6366f1;
 }
 .zm-line-style-label {
   font-size: 11px;
   font-weight: 500;
 }
+
+/* Preview */
 .zm-settings-preview {
-  margin-top: 8px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  padding: 6px 6px 4px;
+  margin-top: 10px;
+  background: #f8fafc;
+  border: 1px solid #eef0f3;
+  border-radius: 8px;
+  padding: 8px 8px 6px;
 }
 .zm-settings-preview svg {
   display: block;
@@ -780,19 +897,83 @@ const previewLines = computed(() => {
   justify-content: space-between;
   font-size: 10px;
   color: #94a3b8;
-  margin-top: 2px;
+  margin-top: 4px;
   padding: 0 2px;
 }
-.zm-data-paste-actions {
+
+/* Palette dropdown section */
+.zm-palette-dropdown {
+  margin: 8px 0;
+  padding: 10px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #eef0f3;
+}
+.zm-palette-preview-bar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.zm-palette-preview-swatch {
+  flex: 1;
+  height: 100%;
+  min-width: 0;
+}
+.zm-palette-custom-editor {
+  margin-top: 8px;
+}
+.zm-palette-textarea {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 6px 8px;
+  resize: vertical;
+  min-height: 36px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.1s;
+}
+.zm-palette-textarea:focus {
+  border-color: #6366f1;
+}
+.zm-palette-custom-actions {
   display: flex;
   gap: 6px;
   margin-top: 6px;
 }
+.zm-palette-add {
+  margin-top: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  font-weight: 500;
+  color: #6366f1;
+  background: #ffffff;
+  border: 1px dashed #c7d2fe;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.zm-palette-add:hover {
+  background: #eef2ff;
+  border-color: #6366f1;
+}
+
+/* Buttons */
 .zm-data-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 10px;
+  padding: 5px 12px;
   font-size: 12px;
   font-family: inherit;
   color: #475569;
@@ -808,155 +989,31 @@ const previewLines = computed(() => {
   border-color: #cbd5e1;
 }
 .zm-data-btn.is-primary {
-  background: #3b82f6;
+  background: #6366f1;
   color: #ffffff;
-  border-color: #3b82f6;
+  border-color: #6366f1;
 }
 .zm-data-btn.is-primary:hover {
-  background: #2563eb;
-  border-color: #2563eb;
+  background: #4f46e5;
+  border-color: #4f46e5;
   color: #ffffff;
 }
 .zm-settings-reset {
   width: 100%;
-  padding: 6px 10px;
+  padding: 8px 12px;
   font-size: 12px;
   font-family: inherit;
-  color: #475569;
+  font-weight: 500;
+  color: #64748b;
   background: #ffffff;
   border: 1px solid #e2e8f0;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.1s;
 }
 .zm-settings-reset:hover {
-  background: #f1f5f9;
-  color: #1e293b;
-}
-
-/* =====================================================================
-   Palette picker
-   ===================================================================== */
-
-.zm-palette-picker {
-  margin: 6px 0 8px;
-}
-.zm-palette-picker-title {
-  margin: 6px 0 6px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #475569;
-  letter-spacing: 0.02em;
-}
-.zm-palette-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  gap: 6px;
-}
-.zm-palette-card {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-  padding: 6px 6px 8px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  cursor: pointer;
-  font-family: inherit;
-  text-align: left;
-  transition: all 0.12s;
-  min-width: 0;
-}
-.zm-palette-card:hover {
-  border-color: #cbd5e1;
-  background: #f8fafc;
-}
-.zm-palette-card.is-active {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18);
-  background: #eff6ff;
-}
-.zm-palette-card-name {
-  font-size: 11px;
-  font-weight: 500;
-  color: #1e293b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.zm-palette-card.is-active .zm-palette-card-name {
-  color: #1d4ed8;
-}
-.zm-palette-card-swatches {
-  display: flex;
-  gap: 1px;
-  height: 8px;
-  border-radius: 3px;
-  overflow: hidden;
-}
-.zm-palette-card-swatch {
-  flex: 1;
-  height: 100%;
-  min-width: 0;
-}
-.zm-palette-customs {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.zm-palette-custom {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.zm-palette-custom .zm-palette-card {
-  border-style: dashed;
-  background: #f8fafc;
-}
-.zm-palette-textarea {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.5;
-  color: #0f172a;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 4px;
-  padding: 4px 6px;
-  resize: vertical;
-  min-height: 32px;
-  outline: none;
-  transition: border-color 0.1s;
-}
-.zm-palette-textarea:focus {
-  border-color: #3b82f6;
-  background: #ffffff;
-}
-.zm-palette-custom-actions {
-  display: flex;
-  gap: 6px;
-}
-.zm-palette-add {
-  margin-top: 8px;
-  width: 100%;
-  padding: 6px 8px;
-  font-size: 12px;
-  font-family: inherit;
-  color: #475569;
-  background: #ffffff;
-  border: 1px dashed #cbd5e1;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.1s;
-}
-.zm-palette-add:hover {
-  background: #f1f5f9;
-  color: #1e293b;
-  border-color: #94a3b8;
+  background: #fef2f2;
+  color: #ef4444;
+  border-color: #fecaca;
 }
 </style>

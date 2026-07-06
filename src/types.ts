@@ -188,13 +188,17 @@ export interface MindMapSettings {
    *  Default false — useful when verifying the data-tree order
    *  against the visual layout. */
   showOrderBadge: boolean
+  /** Canvas background colour.  Falls back to theme.bgColor when
+   *  undefined.  Set via the settings panel. */
+  canvasBg?: string
 }
 
 export interface NodeStyle {
   bg?: string
   textColor?: string
   borderColor?: string
-  fontWeight?: 400 | 600
+  fontWeight?: number
+  fontSize?: number
 }
 
 export interface MindMapExpose {
