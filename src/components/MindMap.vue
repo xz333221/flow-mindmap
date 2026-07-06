@@ -39,6 +39,7 @@ import {
   tableRows,
   type SortDir,
 } from '../composables/useRichContent'
+import { markerSvg, markerLabel, tagColor, MARKER_LIB } from '../core/markers'
 
 const props = withDefaults(
   defineProps<{
@@ -689,6 +690,7 @@ function onPaste(e: ClipboardEvent) {
 }
 onMounted(() => {
   window.addEventListener('paste', onPaste)
+  window.addEventListener('keydown', onGlobalKeydown)
   // Initial render doesn't go through any data-mutating path, so
   // triggerRef() never fires on mount — but we still need the
   // post-mount rich-body measurement so the layout picks up real
@@ -698,7 +700,26 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   window.removeEventListener('paste', onPaste)
+  window.removeEventListener('keydown', onGlobalKeydown)
 })
+
+/** Global keydown for Ctrl+F (search toggle).  Separate from
+ *  useKeyboard because search is a view operation available in
+ *  preview mode too, and useKeyboard's handler bails on
+ *  isReadonly. */
+function onGlobalKeydown(e: KeyboardEvent) {
+  const mod = e.metaKey || e.ctrlKey
+  if (mod && (e.key === 'f' || e.key === 'F')) {
+    const tgt = e.target as HTMLElement | null
+    if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable)) {
+      // If already in the search input, let it through
+      if (tgt.classList.contains('zm-tb-search-input')) return
+    }
+    e.preventDefault()
+    searchVisible.value = true
+    nextTick(() => searchInputRef.value?.focus())
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Resize handle — tracks the in-flight drag (live width/height before
@@ -2198,6 +2219,8 @@ function nodeHasContent(id: string): boolean {
   if (n.link && n.link.url) return true
   if (n.image && n.image.src) return true
   if (n.richContent && n.richContent.raw) return true
+  if (n.markers && n.markers.length > 0) return true
+  if (n.tags && n.tags.length > 0) return true
   return false
 }
 
@@ -2244,6 +2267,448 @@ function exportToFile() {
   a.download = `${dataRef.value.text || 'mindmap'}.json`
   a.click()
   URL.revokeObjectURL(url)
+}
+
+// ---------------------------------------------------------------------------
+// Search — walk the data tree for nodes whose text or note contains
+// the query (case-insensitive).  Matching node ids are stored in
+// `searchResults`; `searchIndex` tracks the currently-focused match.
+// Collapsed ancestors of matches are auto-expanded so every hit is
+// visible.  The view recenters on the current match.
+// ---------------------------------------------------------------------------
+const searchQuery = ref('')
+const searchResults = ref<string[]>([])
+const searchIndex = ref(-1)
+const searchInputRef = ref<HTMLInputElement | null>(null)
+const searchVisible = ref(false)
+
+function performSearch(query: string) {
+  searchQuery.value = query
+  const trimmed = query.trim()
+  if (!trimmed) {
+    searchResults.value = []
+    searchIndex.value = -1
+    return
+  }
+  const lower = trimmed.toLowerCase()
+  const results: string[] = []
+  const walk = (n: MindMapNode) => {
+    if (
+      n.text.toLowerCase().includes(lower) ||
+      (n.note?.text && n.note.text.toLowerCase().includes(lower))
+    ) {
+      results.push(n.id)
+    }
+    for (const c of n.children) walk(c)
+  }
+  walk(dataRef.value)
+  searchResults.value = results
+  searchIndex.value = results.length > 0 ? 0 : -1
+  if (results.length > 0) {
+    expandAncestorsOfMatches(results)
+    nextTick(() => centerOnMatch(0))
+  }
+}
+
+function searchNext() {
+  if (searchResults.value.length === 0) return
+  searchIndex.value = (searchIndex.value + 1) % searchResults.value.length
+  centerOnMatch(searchIndex.value)
+}
+
+function searchPrev() {
+  if (searchResults.value.length === 0) return
+  searchIndex.value =
+    (searchIndex.value - 1 + searchResults.value.length) % searchResults.value.length
+  centerOnMatch(searchIndex.value)
+}
+
+function clearSearch() {
+  searchQuery.value = ''
+  searchResults.value = []
+  searchIndex.value = -1
+}
+
+function toggleSearch() {
+  searchVisible.value = !searchVisible.value
+  if (searchVisible.value) {
+    nextTick(() => searchInputRef.value?.focus())
+  } else {
+    clearSearch()
+  }
+}
+
+function onSearchKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    if (e.shiftKey) searchPrev()
+    else searchNext()
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    clearSearch()
+    searchVisible.value = false
+  }
+}
+
+function isSearchHit(id: string): boolean {
+  return searchResults.value.includes(id)
+}
+
+function isCurrentSearchHit(id: string): boolean {
+  return searchIndex.value >= 0 && searchResults.value[searchIndex.value] === id
+}
+
+function isSearchDimmed(id: string): boolean {
+  return (
+    searchQuery.value.trim().length > 0 &&
+    searchResults.value.length > 0 &&
+    !searchResults.value.includes(id)
+  )
+}
+
+function expandAncestorsOfMatches(matchIds: string[]) {
+  if (matchIds.length === 0) return
+  const matchSet = new Set(matchIds)
+  const toExpand = new Set<string>()
+  const walk = (n: MindMapNode): boolean => {
+    let hasMatch = matchSet.has(n.id)
+    for (const c of n.children) {
+      if (walk(c)) hasMatch = true
+    }
+    if (hasMatch && n.children.length > 0 && collapsedIds.value.has(n.id)) {
+      toExpand.add(n.id)
+    }
+    return hasMatch
+  }
+  walk(dataRef.value)
+  if (toExpand.size > 0) {
+    for (const id of toExpand) collapsedIds.value.delete(id)
+    triggerRef()
+  }
+}
+
+function centerOnMatch(idx: number) {
+  const id = searchResults.value[idx]
+  if (!id) return
+  const node = allNodes.value.find((n) => n.id === id)
+  if (!node) return
+  selectedIds.value = new Set([id])
+  emitSelection()
+  panZoom.centerOn(node.x, node.y, node.width, node.height)
+}
+
+// ---------------------------------------------------------------------------
+// Markers — add / remove / toggle marker icons on a node.  Markers
+// are stored as `node.markers?: string[]` on the data tree.  Each
+// mutation goes through the standard record → triggerRef → emit
+// pipeline so undo and markdown sync work.
+// ---------------------------------------------------------------------------
+function applyNodeMarker(id: string, marker: string) {
+  const n = findNode(dataRef.value, id)
+  if (!n) return
+  if (!n.markers) n.markers = []
+  if (n.markers.includes(marker)) return
+  n.markers.push(marker)
+  record()
+  triggerRef()
+  emit('change', dataRef.value)
+}
+
+function removeNodeMarkerData(id: string, marker: string) {
+  const n = findNode(dataRef.value, id)
+  if (!n || !n.markers) return
+  const idx = n.markers.indexOf(marker)
+  if (idx < 0) return
+  n.markers.splice(idx, 1)
+  if (n.markers.length === 0) delete n.markers
+  record()
+  triggerRef()
+  emit('change', dataRef.value)
+}
+
+function toggleNodeMarkerData(id: string, marker: string): boolean {
+  const n = findNode(dataRef.value, id)
+  if (!n) return false
+  if (!n.markers) n.markers = []
+  const idx = n.markers.indexOf(marker)
+  if (idx >= 0) {
+    n.markers.splice(idx, 1)
+    if (n.markers.length === 0) delete n.markers
+    record()
+    triggerRef()
+    emit('change', dataRef.value)
+    return false
+  }
+  n.markers.push(marker)
+  record()
+  triggerRef()
+  emit('change', dataRef.value)
+  return true
+}
+
+function getNodeMarkersData(id: string): string[] {
+  const n = findNode(dataRef.value, id)
+  return n?.markers ? [...n.markers] : []
+}
+
+function hasNodeMarker(id: string, marker: string): boolean {
+  const n = findNode(dataRef.value, id)
+  return !!n?.markers?.includes(marker)
+}
+
+// Context-menu bridge: the menu emits marker toggle events; we
+// apply them to the node that was right-clicked.
+function menuToggleMarker(marker: string) {
+  const id = contextMenu.value?.nodeId
+  if (!id) return
+  toggleNodeMarkerData(id, marker)
+  // Don't close the menu — let the user toggle multiple markers.
+}
+
+function menuClearMarkers() {
+  const id = contextMenu.value?.nodeId
+  if (!id) return
+  const n = findNode(dataRef.value, id)
+  if (!n || !n.markers) return
+  delete n.markers
+  record()
+  triggerRef()
+  emit('change', dataRef.value)
+  closeContextMenu()
+}
+
+// ---------------------------------------------------------------------------
+// Tags — set / clear text tags on a node.  Tags are stored as
+// `node.tags?: string[]`.
+// ---------------------------------------------------------------------------
+function setNodeTagsData(id: string, tags: string[]) {
+  const n = findNode(dataRef.value, id)
+  if (!n) return
+  if (tags.length === 0) {
+    if (n.tags) delete n.tags
+  } else {
+    n.tags = [...tags]
+  }
+  record()
+  triggerRef()
+  emit('change', dataRef.value)
+}
+
+function getNodeTagsData(id: string): string[] {
+  const n = findNode(dataRef.value, id)
+  return n?.tags ? [...n.tags] : []
+}
+
+function menuAddTag() {
+  const id = contextMenu.value?.nodeId
+  if (!id) return
+  const n = findNode(dataRef.value, id)
+  const existing = n?.tags?.join(', ') ?? ''
+  const raw = window.prompt('输入标签（多个用逗号分隔）', existing)
+  if (raw === null) return
+  const tags = raw
+    .split(/[,，]/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0)
+  setNodeTagsData(id, tags)
+  closeContextMenu()
+}
+
+function menuRemoveTags() {
+  const id = contextMenu.value?.nodeId
+  if (!id) return
+  setNodeTagsData(id, [])
+  closeContextMenu()
+}
+
+// ---------------------------------------------------------------------------
+// Export PNG / SVG — serialize the canvas into a standalone image.
+//
+// SVG export builds a new <svg> element from the existing edge
+// paths + each node rendered as a <foreignObject> containing an
+// HTML div that mirrors the on-canvas styling.  PNG export draws
+// the SVG onto a <canvas> at the requested pixel density and
+// triggers a download.
+// ---------------------------------------------------------------------------
+function buildExportSVG(): SVGSVGElement {
+  const r = layoutResult.value
+  const svgNS = 'http://www.w3.org/2000/svg'
+  const svgEl = document.createElementNS(svgNS, 'svg')
+  svgEl.setAttribute('xmlns', svgNS)
+  svgEl.setAttribute('viewBox', `${r.vbX} ${r.vbY} ${r.vbW} ${r.vbH}`)
+  svgEl.setAttribute('width', String(r.vbW))
+  svgEl.setAttribute('height', String(r.vbH))
+
+  // Background rect
+  const bg = document.createElementNS(svgNS, 'rect')
+  bg.setAttribute('x', String(r.vbX))
+  bg.setAttribute('y', String(r.vbY))
+  bg.setAttribute('width', String(r.vbW))
+  bg.setAttribute('height', String(r.vbH))
+  bg.setAttribute('fill', theme.value.bgColor)
+  svgEl.appendChild(bg)
+
+  // Edges
+  for (const e of edges.value) {
+    const path = document.createElementNS(svgNS, 'path')
+    path.setAttribute(
+      'd',
+      variableWidthPath(
+        lineAnchor(e.from, 'out', e.to.side, e.to),
+        lineAnchor(e.to, 'in'),
+        lineWidthForDepth(e.from.depth),
+        endWidthForDepth(e.to.depth),
+        32,
+        settings.lineStyle,
+        e.to._dir
+      )
+    )
+    path.setAttribute('fill', lineColorFor(e.from, e.to))
+    path.setAttribute('stroke', 'none')
+    svgEl.appendChild(path)
+  }
+
+  // Nodes as foreignObject — embeds HTML inside SVG so the
+  // node's CSS styling (background, border, text) is preserved.
+  const xmlns = 'http://www.w3.org/1999/xhtml'
+  for (const n of allNodes.value) {
+    const fo = document.createElementNS(svgNS, 'foreignObject')
+    fo.setAttribute('x', String(n.x - n.width / 2))
+    fo.setAttribute('y', String(n.y - n.height / 2))
+    fo.setAttribute('width', String(n.width))
+    fo.setAttribute('height', String(n.height))
+
+    const div = document.createElementNS(xmlns, 'div')
+    div.setAttribute('xmlns', xmlns)
+    div.setAttribute(
+      'style',
+      [
+        'display:flex',
+        'flex-direction:column',
+        'align-items:center',
+        'justify-content:center',
+        'box-sizing:border-box',
+        `width:${n.width}px`,
+        `height:${n.height}px`,
+        `padding:0 ${0.8 * n.fontSize}px`,
+        `border-radius:8px`,
+        `border:1px solid ${nodeBorder(n)}`,
+        `background:${nodeBg(n)}`,
+        `color:${nodeFg(n)}`,
+        `font-weight:${nodeFontWeight(n)}`,
+        `font-size:${n.fontSize}px`,
+        `line-height:1.2`,
+        `font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif`,
+        'white-space:nowrap',
+        'overflow:hidden',
+      ].join(';')
+    )
+
+    // Markers row (inline SVG icons)
+    if (n.markers && n.markers.length > 0) {
+      const markerRow = document.createElementNS(xmlns, 'div')
+      markerRow.setAttribute(
+        'style',
+        'display:flex;align-items:center;gap:2px;margin-right:4px'
+      )
+      for (const mid of n.markers) {
+        const span = document.createElementNS(xmlns, 'span')
+        span.setAttribute(
+          'style',
+          'display:inline-block;width:14px;height:14px;flex-shrink:0'
+        )
+        span.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14">${markerSvg(mid)}</svg>`
+        markerRow.appendChild(span)
+      }
+      div.appendChild(markerRow)
+    }
+
+    // Text label
+    const textSpan = document.createElementNS(xmlns, 'span')
+    textSpan.textContent = n.text
+    textSpan.setAttribute('style', 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px')
+    div.appendChild(textSpan)
+
+    // Tags row
+    if (n.tags && n.tags.length > 0) {
+      const tagRow = document.createElementNS(xmlns, 'div')
+      tagRow.setAttribute('style', 'display:flex;flex-wrap:wrap;gap:3px;margin-top:4px')
+      for (const t of n.tags) {
+        const c = tagColor(t)
+        const pill = document.createElementNS(xmlns, 'span')
+        pill.textContent = t
+        pill.setAttribute(
+          'style',
+          `display:inline-block;padding:1px 6px;border-radius:999px;font-size:10px;line-height:1.4;background:${c.background};border:1px solid ${c.borderColor};color:${c.color}`
+        )
+        tagRow.appendChild(pill)
+      }
+      div.appendChild(tagRow)
+    }
+
+    fo.appendChild(div)
+    svgEl.appendChild(fo)
+  }
+
+  return svgEl
+}
+
+function exportSVGFile() {
+  const svgEl = buildExportSVG()
+  const serializer = new XMLSerializer()
+  let svgStr = serializer.serializeToString(svgEl)
+  if (!svgStr.startsWith('<?xml')) {
+    svgStr = '<?xml version="1.0" encoding="UTF-8"?>\n' + svgStr
+  }
+  const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${dataRef.value.text || 'mindmap'}.svg`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function exportPNGFile(pngScale = 2) {
+  const svgEl = buildExportSVG()
+  const r = layoutResult.value
+  const serializer = new XMLSerializer()
+  let svgStr = serializer.serializeToString(svgEl)
+  if (!svgStr.startsWith('<?xml')) {
+    svgStr = '<?xml version="1.0" encoding="UTF-8"?>\n' + svgStr
+  }
+  const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' })
+  const svgUrl = URL.createObjectURL(svgBlob)
+  const img = new window.Image()
+  img.onload = () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.ceil(r.vbW * pngScale)
+    canvas.height = Math.ceil(r.vbH * pngScale)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      URL.revokeObjectURL(svgUrl)
+      return
+    }
+    ctx.fillStyle = theme.value.bgColor
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+    URL.revokeObjectURL(svgUrl)
+    canvas.toBlob((blob) => {
+      if (!blob) return
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${dataRef.value.text || 'mindmap'}.png`
+      a.click()
+      URL.revokeObjectURL(url)
+    }, 'image/png')
+  }
+  img.onerror = () => {
+    URL.revokeObjectURL(svgUrl)
+    // Fallback: try SVG export instead
+    exportSVGFile()
+  }
+  img.src = svgUrl
 }
 
 defineExpose<MindMapExpose>({
@@ -2340,6 +2805,18 @@ defineExpose<MindMapExpose>({
     id: string,
     content: { kind: 'code' | 'table'; raw: string; lang?: string } | null
   ) => applyNodeRichContent(id, content),
+  addNodeMarker: (nodeId: string, marker: string) => applyNodeMarker(nodeId, marker),
+  removeNodeMarker: (nodeId: string, marker: string) => removeNodeMarkerData(nodeId, marker),
+  toggleNodeMarker: (nodeId: string, marker: string) => toggleNodeMarkerData(nodeId, marker),
+  getNodeMarkers: (nodeId: string) => getNodeMarkersData(nodeId),
+  setNodeTags: (nodeId: string, tags: string[]) => setNodeTagsData(nodeId, tags),
+  getNodeTags: (nodeId: string) => getNodeTagsData(nodeId),
+  exportPNG: (scale?: number) => exportPNGFile(scale),
+  exportSVG: () => exportSVGFile(),
+  searchNodes: (query: string) => {
+    performSearch(query)
+    return [...searchResults.value]
+  },
   undo: () => doUndo(),
   redo: () => doRedo(),
   canUndo: () => history.canUndo(),
@@ -2377,6 +2854,10 @@ defineExpose<MindMapExpose>({
   },
   getBranchPalette: () => settings.branchPaletteId,
   getBranchPalettes: () => [...BUILTIN_PALETTES, ...settings.customPalettes],
+  // Expose search state getters for external consumers (e.g. the
+  // outline panel highlighting matches).  These are read-only.
+  getSearchResults: () => [...searchResults.value],
+  getSearchIndex: () => searchIndex.value,
 })
 
 watch(
@@ -2507,6 +2988,9 @@ onMounted(() => {
             'is-resizing': resizingId === n.id,
             'is-dragging-source': dragState?.srcId === n.id,
             'is-drop-target': dragState?.currentTargetId === n.id,
+            'is-search-hit': isSearchHit(n.id),
+            'is-search-current': isCurrentSearchHit(n.id),
+            'is-search-dimmed': isSearchDimmed(n.id),
           }"
           :style="{
             left: n.x + 'px',
@@ -2611,6 +3095,18 @@ onMounted(() => {
             </template>
           </div>
           <span v-if="editingId !== n.id" class="zm-text">
+            <span
+              v-if="n.markers && n.markers.length > 0"
+              class="zm-node-markers"
+            >
+              <span
+                v-for="mid in n.markers"
+                :key="mid"
+                class="zm-node-marker"
+                :title="markerLabel(mid)"
+                v-html="'<svg viewBox=&quot;0 0 24 24&quot; width=&quot;14&quot; height=&quot;14&quot;>' + markerSvg(mid) + '</svg>'"
+              />
+            </span>
             <span class="zm-text-label">{{ n.text }}</span>
             <a
               v-if="n.link && !editingId"
@@ -2644,6 +3140,19 @@ onMounted(() => {
             @mousedown.stop
             @click.stop
           />
+
+          <!-- Tags — small colored pills below the title. -->
+          <div
+            v-if="n.tags && n.tags.length > 0 && editingId !== n.id"
+            class="zm-node-tags"
+          >
+            <span
+              v-for="tag in n.tags"
+              :key="tag"
+              class="zm-node-tag"
+              :style="tagColor(tag)"
+            >{{ tag }}</span>
+          </div>
 
           <span
             v-if="showOrderBadge"
@@ -2724,6 +3233,8 @@ onMounted(() => {
         :has-note="!!findNode(dataRef, contextMenu.nodeId)?.note"
         :has-code="findNode(dataRef, contextMenu.nodeId)?.richContent?.kind === 'code'"
         :has-table="findNode(dataRef, contextMenu.nodeId)?.richContent?.kind === 'table'"
+        :node-markers="findNode(dataRef, contextMenu.nodeId)?.markers ?? []"
+        :node-tags="findNode(dataRef, contextMenu.nodeId)?.tags ?? []"
         @pick-image="menuPickImage"
         @remove-image="menuRemoveImage"
         @set-link="menuSetLink"
@@ -2736,6 +3247,10 @@ onMounted(() => {
         @add-table="menuAddTable"
         @edit-table="menuAddTable"
         @remove-table="menuRemoveTable"
+        @toggle-marker="menuToggleMarker"
+        @clear-markers="menuClearMarkers"
+        @add-tag="menuAddTag"
+        @remove-tags="menuRemoveTags"
         @close="closeContextMenu"
       />
 
@@ -2830,9 +3345,62 @@ onMounted(() => {
       </button>
       <span class="zm-tb-divider" />
 
-      <!-- 导出: safe in preview (just serializes the current data). -->
+      <!-- Search toggle + bar: always visible (search is a view
+           operation, not an edit).  The input expands inline when
+           the search button is clicked. -->
+      <button
+        class="zm-tb-btn"
+        :class="{ active: searchVisible }"
+        title="搜索节点 (Ctrl+F)"
+        @click="toggleSearch"
+      >
+        <Icon name="search" />
+      </button>
+      <div v-if="searchVisible" class="zm-tb-search">
+        <input
+          ref="searchInputRef"
+          v-model="searchQuery"
+          type="text"
+          class="zm-tb-search-input"
+          placeholder="搜索…"
+          @input="performSearch(searchQuery)"
+          @keydown="onSearchKeydown"
+        />
+        <span v-if="searchResults.length > 0" class="zm-tb-search-count">
+          {{ searchIndex + 1 }}/{{ searchResults.length }}
+        </span>
+        <span v-else-if="searchQuery.trim()" class="zm-tb-search-count">无结果</span>
+        <button
+          v-if="searchResults.length > 0"
+          class="zm-tb-search-btn"
+          title="上一个 (Shift+Enter)"
+          @click="searchPrev"
+        >‹</button>
+        <button
+          v-if="searchResults.length > 0"
+          class="zm-tb-search-btn"
+          title="下一个 (Enter)"
+          @click="searchNext"
+        >›</button>
+        <button
+          class="zm-tb-search-btn zm-tb-search-close"
+          title="关闭搜索 (Esc)"
+          @click="toggleSearch"
+        >×</button>
+      </div>
+
+      <span class="zm-tb-divider" />
+
+      <!-- Export: JSON (always), PNG + SVG (always — just serializes
+           the canvas, doesn't mutate data). -->
       <button class="zm-tb-btn" title="导出 JSON" @click="exportToFile">
         <Icon name="export" />
+      </button>
+      <button class="zm-tb-btn" title="导出 PNG 图片" @click="exportPNGFile()">
+        <Icon name="image" />
+      </button>
+      <button class="zm-tb-btn" title="导出 SVG 矢量图" @click="exportSVGFile">
+        <Icon name="svg-export" />
       </button>
 
       <!-- Non-preview-only: edit + layout + import.  These mutate
@@ -3611,5 +4179,126 @@ body.is-dragging { cursor: grabbing !important; user-select: none; }
   color: #64748b;
   min-width: 38px;
   text-align: center;
+}
+
+/* ── Search bar ────────────────────────────────────── */
+.zm-tb-search {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+}
+.zm-tb-search-input {
+  width: 140px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: #1e293b;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  outline: none;
+  box-sizing: border-box;
+}
+.zm-tb-search-input:focus {
+  border-color: #3b82f6;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
+}
+.zm-tb-search-count {
+  font-size: 11px;
+  color: #94a3b8;
+  white-space: nowrap;
+  min-width: 36px;
+  text-align: center;
+}
+.zm-tb-search-btn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1;
+}
+.zm-tb-search-btn:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+.zm-tb-search-close {
+  font-size: 16px;
+}
+
+/* ── Search highlight / dim ──────────────────────────
+ * Matching nodes get an orange outline; the current match
+ * gets a thicker, brighter outline.  Non-matching nodes
+ * dim to 35% opacity so the eye is drawn to hits. */
+.zm-node.is-search-hit {
+  outline: 2px solid #f59e0b;
+  outline-offset: 2px;
+  z-index: 3;
+}
+.zm-node.is-search-current {
+  outline: 3px solid #f97316;
+  outline-offset: 3px;
+  z-index: 4;
+  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.15);
+}
+.zm-node.is-search-dimmed {
+  opacity: 0.35;
+}
+
+/* ── Markers ─────────────────────────────────────────
+ * Small 14×14 icons sitting to the LEFT of the text label.
+ * The container is a flex row so markers line up horizontally
+ * with a 2px gap.  pointer-events: none so clicks fall
+ * through to the node. */
+.zm-node-markers {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+.zm-node-marker {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.zm-node-marker svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+/* ── Tags ────────────────────────────────────────────
+ * A row of small colored pills below the node title.
+ * Each pill's bg/border/text color is set inline via
+ * tagColor().  The row wraps if it overflows the node
+ * width. */
+.zm-node-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  justify-content: center;
+  margin-top: 3px;
+  max-width: 100%;
+  overflow: hidden;
+}
+.zm-node-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.4;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
 }
 </style>

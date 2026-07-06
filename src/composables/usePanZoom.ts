@@ -195,6 +195,30 @@ export function usePanZoom(opts: PanZoomOptions) {
     offsetY.value = rect.height / 2 - rootY * fit
   }
 
+  /** Center the view on a world-space rectangle (a node's bbox).
+   *  Keeps the current scale unless the node is too small to see
+   *  clearly at the current zoom — then zooms in to 1.0. */
+  function centerOn(
+    worldX: number,
+    worldY: number,
+    nodeW: number,
+    nodeH: number,
+    padding = 80
+  ) {
+    const container = opts.getContainer()
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    // If the node would be smaller than 40px at the current zoom,
+    // bump the zoom so the user can actually see it.
+    let s = scale.value
+    if (nodeW * s < 40 || nodeH * s < 40) {
+      s = Math.min(maxScale, Math.max(1, 60 / Math.min(nodeW, nodeH)))
+    }
+    scale.value = s
+    offsetX.value = rect.width / 2 - worldX * s
+    offsetY.value = rect.height / 2 - worldY * s
+  }
+
   return {
     scale,
     offsetX,
@@ -212,5 +236,6 @@ export function usePanZoom(opts: PanZoomOptions) {
     marqueeVersion,
     setOnMarqueeEnd,
     resetView,
+    centerOn,
   }
 }

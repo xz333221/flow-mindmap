@@ -62,6 +62,12 @@ export interface LayoutNode {
    *  only — the default behaviour, unchanged from before this
    *  field was introduced. */
   richContent?: RichContent
+  /** Mirrored from MindMapNode.markers.  Read by the renderer to
+   *  show small marker icons before the node text. */
+  markers?: string[]
+  /** Mirrored from MindMapNode.tags.  Read by the renderer to show
+   *  small colored pills below the node title. */
+  tags?: string[]
   /** Inset (px) the SVG edge anchor should retreat from the
    *  geometric box edge on the in-side, to land at the visible
    *  content edge instead.  Set to `.zm-node` padding +
@@ -245,7 +251,24 @@ function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number, ri
     const iconCount = (node.link ? 1 : 0) + (node.note ? 1 : 0)
     iconTrayW += ICON_GAP * iconCount
   }
-  const textRowW = textWWithPad + iconTrayW
+  // Marker icons sit to the LEFT of the text label.  Each marker
+  // is 14px wide with a 2px gap between adjacent markers and a 4px
+  // gap before the text label.  The layout reserves this width so
+  // the SVG edge anchor (computed from n.width) doesn't pierce
+  // the marker row.
+  const MARKER_SLOT = 14
+  const MARKER_GAP = 2
+  let markerTrayW = 0
+  if (node.markers && node.markers.length > 0) {
+    markerTrayW = node.markers.length * MARKER_SLOT +
+      (node.markers.length - 1) * MARKER_GAP + ICON_GAP
+  }
+  // Tags render as a row of small pills BELOW the title.  Reserve
+  // vertical space so the box grows to fit them.
+  const TAG_ROW_H = 18
+  const TAG_GAP = 4
+  const tagH = (node.tags && node.tags.length > 0) ? TAG_ROW_H : 0
+  const textRowW = textWWithPad + iconTrayW + markerTrayW
   // When the node has a rich body, force the box to be wide enough
   // to fit the body (max-width 260px) so the title doesn't get
   // squeezed against the body or vice versa.  Without this floor
@@ -305,14 +328,14 @@ function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number, ri
   const richGap = richH > 0 ? 10 : 0
   if (!node.image) {
     const w = Math.max(minW, textRowW)
-    const h = Math.ceil(textH + richGap + richH)
+    const h = Math.ceil(textH + richGap + richH + (tagH > 0 ? TAG_GAP + tagH : 0))
     return { w, h }
   }
   // Has an image: width accommodates the wider of the text row or
   // the image; height stacks the image + gap + text region.
   const imgW = clamp(node.image.width, IMG_MIN_W, IMG_MAX_W)
   const w = Math.max(minW, textRowW, Math.ceil(imgW + pad * 2))
-  const h = Math.ceil(node.image.height + IMG_GAP + textH + richGap + richH)
+  const h = Math.ceil(node.image.height + IMG_GAP + textH + richGap + richH + (tagH > 0 ? TAG_GAP + tagH : 0))
   return { w, h }
 }
 
@@ -642,6 +665,8 @@ function buildLayout(
     link: node.link ? { url: node.link.url } : undefined,
     note: node.note ? { text: node.note.text } : undefined,
     richContent: node.richContent ? { kind: node.richContent.kind, raw: node.richContent.raw, lang: node.richContent.lang } : undefined,
+    markers: node.markers ? [...node.markers] : undefined,
+    tags: node.tags ? [...node.tags] : undefined,
     children: [],
     parent,
   }

@@ -90,10 +90,13 @@ const positions = await page.evaluate(() => {
 console.log('positions after drag:')
 for (const p of positions) console.log(' ', p)
 
-// keyboard: select "技术栈", press Tab to add a child (it should enter
-// edit mode), type some text, press Enter to commit + add a sibling,
+// keyboard: select a branch node, press Tab to add a child (it should
+// enter edit mode), type some text, press Enter to commit + add a sibling,
 // then Ctrl+Z to undo the add-sibling.
-const techNode = page.locator('.zm-node:has-text("技术栈")').first()
+//
+// The default demo loads the "rich" fixture (节点能力一览).  We use
+// "笔记 (note)" as the target branch — it exists in the rich data.
+const techNode = page.locator('.zm-node:has-text("笔记")').first()
 await techNode.click()
 await page.waitForTimeout(150)
 const nodesBefore = await page.locator('.zm-node').count()
@@ -105,6 +108,9 @@ if (nodesAfterTab !== nodesBefore + 1) {
   process.exit(1)
 }
 await page.keyboard.type('Foo')
+await page.keyboard.press('Enter') // commits edit
+await page.waitForTimeout(200)
+// Enter in edit mode only commits; press Enter again to add a sibling
 await page.keyboard.press('Enter')
 await page.waitForTimeout(250)
 const nodesAfterEnter = await page.locator('.zm-node').count()
@@ -127,9 +133,9 @@ if (nodesAfterUndo !== nodesAfterTab) {
 console.log(`Ctrl+Z: ${nodesAfterEnter} → ${nodesAfterUndo} ✓`)
 
 // also test that Shift+Enter adds a sibling BEFORE the current node.
-// Click "Vue 3 + Vite" (first child of 技术栈) and press Shift+Enter —
+// Click "悬浮预览" (first child of 笔记) and press Shift+Enter —
 // a new node should be inserted before it.
-const vueNode = page.locator('.zm-node:has-text("Vue 3 + Vite")').first()
+const vueNode = page.locator('.zm-node:has-text("悬浮预览")').first()
 await vueNode.click()
 await page.waitForTimeout(150)
 const beforeSiblingBefore = await page.locator('.zm-node').count()
@@ -160,7 +166,7 @@ await page.waitForTimeout(250)
 await page.locator('.zm-app-icon-btn[title="显示数据"]').click()
 await page.waitForTimeout(250)
 const outlineRows = await page.locator('.zm-outline-row').count()
-const dataPre = await page.locator('.zm-data-pre').count()
+const dataPre = await page.locator('.zm-data-panel').count()
 console.log(`outline rows: ${outlineRows}, data panels: ${dataPre}`)
 if (outlineRows < 14) {
   console.error(`expected at least 14 outline rows, got ${outlineRows}`)
@@ -175,7 +181,7 @@ if (dataPre !== 1) {
 // (We can't read the system clipboard in headless Chromium without a
 // permission grant, so instead we assert the copy button flips its
 // label/state.)
-await page.locator('.zm-data-btn:has-text("复制 JSON")').click()
+await page.locator('.zm-data-btn:has-text("复制")').click()
 await page.waitForTimeout(200)
 const copyState = await page.locator('.zm-data-btn.is-success').count()
 if (copyState !== 1) {
@@ -187,7 +193,7 @@ if (copyState !== 1) {
 // page.on('download') and assert the filename.
 const [download] = await Promise.all([
   page.waitForEvent('download'),
-  page.locator('.zm-data-btn:has-text("导出文件")').click(),
+  page.locator('.zm-data-btn:has-text("导出")').click(),
 ])
 console.log(`download filename: ${download.suggestedFilename()}`)
 if (!download.suggestedFilename().endsWith('.json')) {

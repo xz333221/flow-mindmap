@@ -52,6 +52,19 @@ export interface MindMapNode {
    * meaningful label.
    */
   richContent?: RichContent
+  /**
+   * Optional marker icons (priority, progress, flag, star, etc.).
+   * Each entry is a marker id like 'priority-1', 'progress-50',
+   * 'flag', 'star', 'smile', 'people', 'arrow'.  Rendered as
+   * small 14px icons before the node text.  Order is preserved.
+   */
+  markers?: string[]
+  /**
+   * Optional text tags rendered as small colored pills below
+   * the node title.  Each entry is a short label string; the
+   * pill color is derived from a hash of the label text.
+   */
+  tags?: string[]
 }
 
 /**
@@ -290,4 +303,40 @@ export interface MindMapExpose {
   /** Stroke width used for the child end of an edge that ends at
    *  a node of the given depth. */
   endWidthForDepth: (depth: number) => number
+  /** Add a marker to a node (no-op if already present).  Marker
+   *  ids follow the convention 'priority-1' … 'priority-9',
+   *  'progress-0' / 'progress-25' / 'progress-50' / 'progress-75'
+   *  / 'progress-100', 'flag', 'star', 'smile', 'people',
+   *  'arrow-up' / 'arrow-down' / 'arrow-left' / 'arrow-right'. */
+  addNodeMarker: (nodeId: string, marker: string) => void
+  /** Remove a specific marker from a node. */
+  removeNodeMarker: (nodeId: string, marker: string) => void
+  /** Toggle a marker on/off.  Returns true if the marker is now
+   *  present, false if it was removed. */
+  toggleNodeMarker: (nodeId: string, marker: string) => boolean
+  /** Read the markers on a node (empty array when none). */
+  getNodeMarkers: (nodeId: string) => string[]
+  /** Set the tags on a node.  Pass an empty array to clear. */
+  setNodeTags: (nodeId: string, tags: string[]) => void
+  /** Read the tags on a node (empty array when none). */
+  getNodeTags: (nodeId: string) => string[]
+  /** Export the current canvas as a PNG image and trigger a
+   *  download.  `scale` (default 2) controls the pixel density. */
+  exportPNG: (scale?: number) => void
+  /** Export the current canvas as an SVG file and trigger a
+   *  download. */
+  exportSVG: () => void
+  /** Search the data tree for nodes whose text or note contains
+   *  the query (case-insensitive).  Returns an array of matching
+   *  node ids in tree-walk order.  Automatically expands any
+   *  collapsed ancestors so matches are visible.  Does NOT
+   *  modify the data tree. */
+  searchNodes: (query: string) => string[]
+  /** Read-only snapshot of the current search result node ids.
+   *  Empty when no search is active.  Useful for external UIs
+   *  (e.g. outline panel) to highlight matches. */
+  getSearchResults: () => string[]
+  /** The zero-based index of the currently focused search match,
+   *  or -1 when no match is focused. */
+  getSearchIndex: () => number
 }

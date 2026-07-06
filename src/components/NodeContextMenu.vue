@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import Icon from './Icon.vue'
+import { MARKER_LIB, markerSvg, markerLabel } from '../core/markers'
 
 const props = withDefaults(
   defineProps<{
@@ -29,8 +30,14 @@ const props = withDefaults(
     /** Whether the node already has a table in its richContent.
      *  Same role as hasCode for the table action. */
     hasTable?: boolean
+    /** Markers currently on the node (ids).  Used to show a
+     *  checkmark on active markers in the picker. */
+    nodeMarkers?: string[]
+    /** Tags currently on the node.  Used to show the
+     *  "移除标签" action when non-empty. */
+    nodeTags?: string[]
   }>(),
-  { hasImage: false, hasLink: false, hasNote: false, hasCode: false, hasTable: false }
+  { hasImage: false, hasLink: false, hasNote: false, hasCode: false, hasTable: false, nodeMarkers: () => [], nodeTags: () => [] }
 )
 
 const emit = defineEmits<{
@@ -46,6 +53,14 @@ const emit = defineEmits<{
   (e: 'addTable'): void
   (e: 'editTable'): void
   (e: 'removeTable'): void
+  /** Toggle a marker on the node. */
+  (e: 'toggleMarker', marker: string): void
+  /** Clear all markers on the node. */
+  (e: 'clearMarkers'): void
+  /** Add / edit tags on the node (opens a prompt). */
+  (e: 'addTag'): void
+  /** Remove all tags from the node. */
+  (e: 'removeTags'): void
   (e: 'close'): void
 }>()
 
@@ -88,6 +103,21 @@ const clamped = computed<ClampedPos>(() => {
 const hasImage = computed(() => props.hasImage)
 const hasLink = computed(() => props.hasLink)
 const hasNote = computed(() => props.hasNote)
+const hasMarkers = computed(() => props.nodeMarkers.length > 0)
+const hasTags = computed(() => props.nodeTags.length > 0)
+
+// Marker picker: expandable section.  When open, shows all
+// marker groups as icon grids.
+const markerPickerOpen = ref(false)
+function toggleMarkerPicker() {
+  markerPickerOpen.value = !markerPickerOpen.value
+}
+function isMarkerActive(id: string): boolean {
+  return props.nodeMarkers.includes(id)
+}
+function onMarkerClick(id: string) {
+  emit('toggleMarker', id)
+}
 
 // Wire window-level listeners to close the menu on outside click /
 // Esc / scroll.  Caller invokes `emit('close')` to dismiss; the
@@ -166,6 +196,44 @@ function run(handler: () => void) {
       <Icon name="x" :size="13" />
       <span>移除笔记</span>
     </button>
+
+    <div class="zm-node-menu-divider" />
+
+    <!-- Markers — expandable picker grid -->
+    <button class="zm-node-menu-item" @click.stop="toggleMarkerPicker">
+      <span class="zm-node-menu-icon" aria-hidden="true">⚑</span>
+      <span>标记图标</span>
+      <span class="zm-node-menu-arrow" :class="{ 'is-open': markerPickerOpen }">›</span>
+    </button>
+    <div v-if="markerPickerOpen" class="zm-marker-picker">
+      <div v-for="group in MARKER_LIB" :key="group.label" class="zm-marker-group">
+        <div class="zm-marker-group-label">{{ group.label }}</div>
+        <div class="zm-marker-grid">
+          <button
+            v-for="m in group.markers"
+            :key="m.id"
+            class="zm-marker-cell"
+            :class="{ 'is-active': isMarkerActive(m.id) }"
+            :title="m.label"
+            @click.stop="onMarkerClick(m.id)"
+            v-html="'<svg viewBox=&quot;0 0 24 24&quot; width=&quot;20&quot; height=&quot;20&quot;>' + markerSvg(m.id) + '</svg>'"
+          />
+        </div>
+      </div>
+      <button v-if="hasMarkers" class="zm-marker-clear" @click.stop="emit('clearMarkers')">
+        清除所有标记
+      </button>
+    </div>
+
+    <!-- Tags -->
+    <button class="zm-node-menu-item" @click.stop="run(() => emit('addTag'))">
+      <span class="zm-node-menu-icon" aria-hidden="true">#</span>
+      <span>{{ hasTags ? '编辑标签' : '添加标签' }}</span>
+    </button>
+    <button v-if="hasTags" class="zm-node-menu-item" @click.stop="run(() => emit('removeTags'))">
+      <Icon name="x" :size="13" />
+      <span>移除标签</span>
+    </button>
   </div>
 </template>
 
@@ -230,5 +298,84 @@ function run(handler: () => void) {
 .zm-node-menu-icon-table {
   font-size: 12px;
   font-family: inherit;
+}
+
+.zm-node-menu-divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 2px 4px;
+}
+.zm-node-menu-arrow {
+  margin-left: auto;
+  font-size: 14px;
+  color: #94a3b8;
+  transition: transform 0.15s;
+}
+.zm-node-menu-arrow.is-open {
+  transform: rotate(90deg);
+}
+
+/* Marker picker */
+.zm-marker-picker {
+  padding: 4px 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.zm-marker-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.zm-marker-group-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+}
+.zm-marker-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.zm-marker-cell {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: #f8fafc;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.1s;
+}
+.zm-marker-cell:hover {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+}
+.zm-marker-cell.is-active {
+  background: #eff6ff;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.2);
+}
+.zm-marker-cell svg {
+  display: block;
+}
+.zm-marker-clear {
+  font: inherit;
+  font-size: 11px;
+  color: #b91c1c;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: center;
+  padding: 3px;
+  border-radius: 4px;
+}
+.zm-marker-clear:hover {
+  background: #fee2e2;
 }
 </style>
