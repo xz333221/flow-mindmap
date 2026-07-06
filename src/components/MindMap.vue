@@ -2499,10 +2499,12 @@ function menuRemoveTags() {
 // Export PNG / SVG — serialize the canvas into a standalone image.
 //
 // SVG export builds a new <svg> element from the existing edge
-// paths + each node rendered as a <foreignObject> containing an
-// HTML div that mirrors the on-canvas styling.  PNG export draws
-// the SVG onto a <canvas> at the requested pixel density and
-// triggers a download.
+// paths + each node rendered as native SVG elements (<rect>,
+// <text>, nested <svg> for markers).  PNG export draws the SVG
+// onto a <canvas> at the requested pixel density and triggers a
+// download.  We use native SVG elements instead of foreignObject
+// because foreignObject taints the canvas, causing SecurityError
+// on canvas.toBlob().
 // ---------------------------------------------------------------------------
 function buildExportSVG(): SVGSVGElement {
   const r = layoutResult.value
@@ -2542,86 +2544,380 @@ function buildExportSVG(): SVGSVGElement {
     svgEl.appendChild(path)
   }
 
-  // Nodes as foreignObject — embeds HTML inside SVG so the
-  // node's CSS styling (background, border, text) is preserved.
-  const xmlns = 'http://www.w3.org/1999/xhtml'
-  for (const n of allNodes.value) {
-    const fo = document.createElementNS(svgNS, 'foreignObject')
-    fo.setAttribute('x', String(n.x - n.width / 2))
-    fo.setAttribute('y', String(n.y - n.height / 2))
-    fo.setAttribute('width', String(n.width))
-    fo.setAttribute('height', String(n.height))
+  // Nodes as native SVG elements.  We deliberately avoid
+  // <foreignObject> here because drawing an SVG that contains
+  // foreignObject onto a <canvas> taints the canvas (the HTML
+  // content inside foreignObject is treated as cross-origin),
+  // which makes canvas.toBlob() throw a SecurityError — breaking
+  // PNG export entirely.  Native SVG elements (<rect>, <text>,
+  // nested <svg>) do not have this restriction.
+  const FONT_FAMILY = "-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif"
 
-    const div = document.createElementNS(xmlns, 'div')
-    div.setAttribute('xmlns', xmlns)
-    div.setAttribute(
-      'style',
-      [
-        'display:flex',
-        'flex-direction:column',
-        'align-items:center',
-        'justify-content:center',
-        'box-sizing:border-box',
-        `width:${n.width}px`,
-        `height:${n.height}px`,
-        `padding:0 ${0.8 * n.fontSize}px`,
-        `border-radius:8px`,
-        `border:1px solid ${nodeBorder(n)}`,
-        `background:${nodeBg(n)}`,
-        `color:${nodeFg(n)}`,
-        `font-weight:${nodeFontWeight(n)}`,
-        `font-size:${n.fontSize}px`,
-        `line-height:1.2`,
-        `font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif`,
-        'white-space:nowrap',
-        'overflow:hidden',
-      ].join(';')
-    )
-
-    // Markers row (inline SVG icons)
-    if (n.markers && n.markers.length > 0) {
-      const markerRow = document.createElementNS(xmlns, 'div')
-      markerRow.setAttribute(
-        'style',
-        'display:flex;align-items:center;gap:2px;margin-right:4px'
-      )
-      for (const mid of n.markers) {
-        const span = document.createElementNS(xmlns, 'span')
-        span.setAttribute(
-          'style',
-          'display:inline-block;width:14px;height:14px;flex-shrink:0'
-        )
-        span.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14">${markerSvg(mid)}</svg>`
-        markerRow.appendChild(span)
+  // Helper: estimate text width for positioning markers and tags.
+  // CJK characters are roughly full-width (≈ fontSize); Latin
+  // characters are about 0.55 × fontSize.  This is only an
+  // approximation — the layout engine already sized the node to
+  // fit, so exact measurement isn't critical for export.
+  function estTextWidth(text: string, fontSize: number): number {
+    let w = 0
+    for (const ch of text) {
+      if (/[\u4e00-\u9fff\u3000-\u30ff\uff00-\uffef]/.test(ch)) {
+        w += fontSize
+      } else {
+        w += fontSize * 0.55
       }
-      div.appendChild(markerRow)
+    }
+    return w
+  }
+
+  for (const n of allNodes.value) {
+    const nx = n.x - n.width / 2
+    const ny = n.y - n.height / 2
+
+    // Node background rect with rounded corners + border
+    const rect = document.createElementNS(svgNS, 'rect')
+    rect.setAttribute('x', String(nx))
+    rect.setAttribute('y', String(ny))
+    rect.setAttribute('width', String(n.width))
+    rect.setAttribute('height', String(n.height))
+    rect.setAttribute('rx', '8')
+    rect.setAttribute('fill', nodeBg(n))
+    rect.setAttribute('stroke', nodeBorder(n))
+    rect.setAttribute('stroke-width', '1')
+    svgEl.appendChild(rect)
+
+    const hasTags = !!(n.tags && n.tags.length > 0)
+    const hasMarkers = !!(n.markers && n.markers.length > 0)
+    const hasImage = !!n.image
+    const hasRich = !!(n.richContent && (n.richContent.kind === 'code' || n.richContent.kind === 'table'))
+
+    // -- Rich body (code / table) rendered ABOVE the title --
+    // Matches the on-canvas layout where .zm-rich-above sits
+    // between the image and the text label.
+    let richH = 0
+    let richW = 0
+    if (hasRich) {
+      const rc = n.richContent!
+      const richFontSize = n.fontSize * 0.78 * 0.92  // .zm-rich 0.78em * .zm-rich-code/table 0.92em
+      const richPadX = 6   // .zm-rich padding 4px 6px + .zm-rich-code padding 6px 8px → ~6-8px
+      const richPadY = 4
+      const richMarginBottom = 2  // .zm-rich-above margin-bottom
+      const richGap = 6  // .zm-rich margin-top (not used for above, but gap from image)
+
+      if (rc.kind === 'code') {
+        const codeStr = stripCodeFence(rc.raw)
+        const lang = codeLang(rc.raw)
+        const codeLines = codeStr.split('\n')
+        const lineHeight = richFontSize * 1.35
+        // Estimate max line width for the code block
+        let maxLineW = 0
+        for (const line of codeLines) {
+          maxLineW = Math.max(maxLineW, estTextWidth(line, richFontSize))
+        }
+        richW = Math.min(maxLineW + richPadX * 2 + 4, n.width - 4)
+        richH = codeLines.length * lineHeight + richPadY * 2 + richMarginBottom
+
+        const richX = n.x - richW / 2
+        let richY = ny + 4  // small top padding
+        // If there is an image, render rich body below it
+        if (hasImage) {
+          richY = ny + n.image!.height + richGap
+        }
+
+        // Code block background
+        const codeBg = document.createElementNS(svgNS, 'rect')
+        codeBg.setAttribute('x', String(richX))
+        codeBg.setAttribute('y', String(richY))
+        codeBg.setAttribute('width', String(richW))
+        codeBg.setAttribute('height', String(richH - richMarginBottom))
+        codeBg.setAttribute('rx', '6')
+        codeBg.setAttribute('fill', 'rgba(255,255,255,0.55)')
+        codeBg.setAttribute('stroke', nodeBorder(n))
+        codeBg.setAttribute('stroke-width', '1')
+        svgEl.appendChild(codeBg)
+
+        // Language tag (top-right corner)
+        if (lang) {
+          const langText = document.createElementNS(svgNS, 'text')
+          langText.setAttribute('x', String(richX + richW - richPadX))
+          langText.setAttribute('y', String(richY + richPadY + 4))
+          langText.setAttribute('text-anchor', 'end')
+          langText.setAttribute('fill', nodeFg(n))
+          langText.setAttribute('font-size', String(richFontSize * 0.8))
+          langText.setAttribute('font-family', FONT_FAMILY)
+          langText.setAttribute('opacity', '0.5')
+          langText.textContent = lang
+          svgEl.appendChild(langText)
+        }
+
+        // Code lines
+        const monoFont = "'JetBrains Mono','Fira Code',Consolas,monospace"
+        for (let li = 0; li < codeLines.length; li++) {
+          const codeText = document.createElementNS(svgNS, 'text')
+          codeText.setAttribute('x', String(richX + richPadX))
+          codeText.setAttribute('y', String(richY + richPadY + (li + 0.5) * lineHeight + 2))
+          codeText.setAttribute('dominant-baseline', 'central')
+          codeText.setAttribute('fill', nodeFg(n))
+          codeText.setAttribute('font-size', String(richFontSize))
+          codeText.setAttribute('font-family', monoFont)
+          // Truncate long lines to fit the code block width
+          let displayLine = codeLines[li]
+          const maxChars = Math.floor((richW - richPadX * 2) / (richFontSize * 0.6))
+          if (displayLine.length > maxChars) {
+            displayLine = displayLine.substring(0, maxChars - 1) + '…'
+          }
+          codeText.textContent = displayLine
+          svgEl.appendChild(codeText)
+        }
+      } else if (rc.kind === 'table') {
+        const rows = tableRows(rc.raw)
+        if (rows.length > 0) {
+          const lineHeight = richFontSize * 1.35
+          const cellPadX = 6
+          const cellPadY = 3
+          const colCount = rows[0].length
+          // Calculate column widths based on content
+          const colWidths = []
+          for (let ci = 0; ci < colCount; ci++) {
+            let maxW = 0
+            for (const row of rows) {
+              if (ci < row.length) {
+                maxW = Math.max(maxW, estTextWidth(row[ci], richFontSize))
+              }
+            }
+            colWidths.push(maxW + cellPadX * 2)
+          }
+          richW = Math.min(colWidths.reduce((a, b) => a + b, 0), n.width - 4)
+          // Scale columns proportionally if they exceed node width
+          const scale = richW / colWidths.reduce((a, b) => a + b, 0)
+          for (let ci = 0; ci < colCount; ci++) {
+            colWidths[ci] *= scale
+          }
+          richH = rows.length * (lineHeight + cellPadY * 2) + richMarginBottom
+
+          const richX = n.x - richW / 2
+          let richY = ny + 4
+          if (hasImage) {
+            richY = ny + n.image!.height + richGap
+          }
+
+          // Table background
+          const tblBg = document.createElementNS(svgNS, 'rect')
+          tblBg.setAttribute('x', String(richX))
+          tblBg.setAttribute('y', String(richY))
+          tblBg.setAttribute('width', String(richW))
+          tblBg.setAttribute('height', String(richH - richMarginBottom))
+          tblBg.setAttribute('rx', '6')
+          tblBg.setAttribute('fill', 'rgba(255,255,255,0.55)')
+          tblBg.setAttribute('stroke', nodeBorder(n))
+          tblBg.setAttribute('stroke-width', '1')
+          svgEl.appendChild(tblBg)
+
+          // Render cells
+          let cellX = richX
+          let cellY = richY
+          for (let ri = 0; ri < rows.length; ri++) {
+            const row = rows[ri]
+            const rowH = lineHeight + cellPadY * 2
+            cellX = richX
+            for (let ci = 0; ci < colCount; ci++) {
+              const cellW = colWidths[ci]
+              const cellText = row[ci] || ''
+
+              // Cell border (right + bottom)
+              if (ci < colCount - 1) {
+                const vLine = document.createElementNS(svgNS, 'line')
+                vLine.setAttribute('x1', String(cellX + cellW))
+                vLine.setAttribute('y1', String(cellY))
+                vLine.setAttribute('x2', String(cellX + cellW))
+                vLine.setAttribute('y2', String(cellY + rowH))
+                vLine.setAttribute('stroke', nodeBorder(n))
+                vLine.setAttribute('stroke-width', '1')
+                svgEl.appendChild(vLine)
+              }
+              if (ri < rows.length - 1) {
+                const hLine = document.createElementNS(svgNS, 'line')
+                hLine.setAttribute('x1', String(cellX))
+                hLine.setAttribute('y1', String(cellY + rowH))
+                hLine.setAttribute('x2', String(cellX + cellW))
+                hLine.setAttribute('y2', String(cellY + rowH))
+                hLine.setAttribute('stroke', nodeBorder(n))
+                hLine.setAttribute('stroke-width', '1')
+                svgEl.appendChild(hLine)
+              }
+
+              // Header row gets bolder background + text
+              if (ri === 0) {
+                const hdrBg = document.createElementNS(svgNS, 'rect')
+                hdrBg.setAttribute('x', String(cellX))
+                hdrBg.setAttribute('y', String(cellY))
+                hdrBg.setAttribute('width', String(cellW))
+                hdrBg.setAttribute('height', String(rowH))
+                hdrBg.setAttribute('fill', 'rgba(255,255,255,0.4)')
+                svgEl.appendChild(hdrBg)
+              }
+
+              // Cell text
+              const tEl = document.createElementNS(svgNS, 'text')
+              tEl.setAttribute('x', String(cellX + cellPadX))
+              tEl.setAttribute('y', String(cellY + cellPadY + lineHeight / 2 + 2))
+              tEl.setAttribute('dominant-baseline', 'central')
+              tEl.setAttribute('fill', nodeFg(n))
+              tEl.setAttribute('font-size', String(richFontSize))
+              tEl.setAttribute('font-family', FONT_FAMILY)
+              if (ri === 0) {
+                tEl.setAttribute('font-weight', '600')
+              }
+              // Truncate if too long
+              let displayText = cellText
+              const maxChars = Math.floor((cellW - cellPadX * 2) / (richFontSize * 0.55))
+              if (displayText.length > maxChars && maxChars > 2) {
+                displayText = displayText.substring(0, maxChars - 1) + '…'
+              }
+              tEl.textContent = displayText
+              svgEl.appendChild(tEl)
+
+              cellX += cellW
+            }
+            cellY += rowH
+          }
+        }
+      }
+    }
+
+    // -- Node image rendered ABOVE rich body and title --
+    let imageH = 0
+    if (hasImage) {
+      const img = n.image!
+      const imgY = ny + 4
+      const imgX = n.x - img.width / 2
+      // Use <image> element — native SVG, no tainting when
+      // the src is a data: URL.  Remote URLs may taint the
+      // canvas but most node images are data: URLs.
+      const imgEl = document.createElementNS(svgNS, 'image')
+      imgEl.setAttribute('x', String(imgX))
+      imgEl.setAttribute('y', String(imgY))
+      imgEl.setAttribute('width', String(img.width))
+      imgEl.setAttribute('height', String(img.height))
+      // Use href (SVG2) and xlink:href (SVG1.1 fallback)
+      imgEl.setAttribute('href', img.src)
+      imgEl.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', img.src)
+      imgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet')
+      svgEl.appendChild(imgEl)
+      imageH = img.height + 6  // image height + gap
+    }
+
+    // -- Text label and markers --
+    // Vertical center: when image/rich content exists, the text
+    // sits in the lower portion of the node box.  When tags are
+    // also present, shift up slightly.
+    let textRowY = n.y
+    const contentAbove = imageH + richH
+    if (contentAbove > 0) {
+      // Text sits below the image + rich body
+      textRowY = ny + contentAbove + (n.height - contentAbove) / 2
+    } else if (hasTags) {
+      textRowY = n.y - 8
+    }
+
+    // Horizontal layout: markers sit to the LEFT of the text
+    // label, matching the on-canvas flexbox layout.
+    const markerSize = 14
+    const markerGap = 2
+    const markerMarginRight = 4
+    const markerCount = hasMarkers ? n.markers!.length : 0
+    const markerRowW = markerCount > 0
+      ? markerCount * markerSize + (markerCount - 1) * markerGap + markerMarginRight
+      : 0
+    const textW = estTextWidth(n.text, n.fontSize)
+    const contentW = markerRowW + textW
+    const contentStartX = n.x - contentW / 2
+
+    // Markers (if any) — rendered as nested <svg> elements
+    if (hasMarkers) {
+      let mx = contentStartX
+      for (const mid of n.markers!) {
+        const inner = markerSvg(mid)
+        if (inner) {
+          const mSvg = document.createElementNS(svgNS, 'svg')
+          mSvg.setAttribute('x', String(mx))
+          mSvg.setAttribute('y', String(textRowY - markerSize / 2))
+          mSvg.setAttribute('width', String(markerSize))
+          mSvg.setAttribute('height', String(markerSize))
+          mSvg.setAttribute('viewBox', '0 0 24 24')
+          mSvg.setAttribute('color', nodeFg(n))
+          const parser = new DOMParser()
+          const doc = parser.parseFromString(
+            `<svg xmlns="${svgNS}">${inner}</svg>`,
+            'image/svg+xml'
+          )
+          if (!doc.querySelector('parsererror')) {
+            while (doc.documentElement.firstChild) {
+              mSvg.appendChild(doc.documentElement.firstChild)
+            }
+          }
+          svgEl.appendChild(mSvg)
+        }
+        mx += markerSize + markerGap
+      }
     }
 
     // Text label
-    const textSpan = document.createElementNS(xmlns, 'span')
-    textSpan.textContent = n.text
-    textSpan.setAttribute('style', 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px')
-    div.appendChild(textSpan)
+    const textX = hasMarkers ? contentStartX + markerRowW + textW / 2 : n.x
+    const text = document.createElementNS(svgNS, 'text')
+    text.setAttribute('x', String(textX))
+    text.setAttribute('y', String(textRowY))
+    text.setAttribute('text-anchor', 'middle')
+    text.setAttribute('dominant-baseline', 'central')
+    text.setAttribute('fill', nodeFg(n))
+    text.setAttribute('font-size', String(n.fontSize))
+    text.setAttribute('font-weight', String(nodeFontWeight(n)))
+    text.setAttribute('font-family', FONT_FAMILY)
+    text.textContent = n.text
+    svgEl.appendChild(text)
 
-    // Tags row
-    if (n.tags && n.tags.length > 0) {
-      const tagRow = document.createElementNS(xmlns, 'div')
-      tagRow.setAttribute('style', 'display:flex;flex-wrap:wrap;gap:3px;margin-top:4px')
-      for (const t of n.tags) {
+    // Tags (if any) — rendered as pill rects + text below the label
+    if (hasTags) {
+      const tagFontSize = 10
+      const tagH = 16
+      const tagGap = 3
+      const tagsY = n.y + 10
+      const tagWidths = n.tags!.map((t) => estTextWidth(t, tagFontSize) + 12)
+      const totalTagsW = tagWidths.reduce((a, b) => a + b + tagGap, -tagGap)
+      let tagX = n.x - totalTagsW / 2
+
+      for (let i = 0; i < n.tags!.length; i++) {
+        const t = n.tags![i]
         const c = tagColor(t)
-        const pill = document.createElementNS(xmlns, 'span')
-        pill.textContent = t
-        pill.setAttribute(
-          'style',
-          `display:inline-block;padding:1px 6px;border-radius:999px;font-size:10px;line-height:1.4;background:${c.background};border:1px solid ${c.borderColor};color:${c.color}`
-        )
-        tagRow.appendChild(pill)
-      }
-      div.appendChild(tagRow)
-    }
+        const w = tagWidths[i]
 
-    fo.appendChild(div)
-    svgEl.appendChild(fo)
+        // Pill background
+        const pill = document.createElementNS(svgNS, 'rect')
+        pill.setAttribute('x', String(tagX))
+        pill.setAttribute('y', String(tagsY - tagH / 2))
+        pill.setAttribute('width', String(w))
+        pill.setAttribute('height', String(tagH))
+        pill.setAttribute('rx', String(tagH / 2))
+        pill.setAttribute('fill', c.background)
+        pill.setAttribute('stroke', c.borderColor)
+        pill.setAttribute('stroke-width', '1')
+        svgEl.appendChild(pill)
+
+        // Pill text
+        const tagText = document.createElementNS(svgNS, 'text')
+        tagText.setAttribute('x', String(tagX + w / 2))
+        tagText.setAttribute('y', String(tagsY))
+        tagText.setAttribute('text-anchor', 'middle')
+        tagText.setAttribute('dominant-baseline', 'central')
+        tagText.setAttribute('fill', c.color)
+        tagText.setAttribute('font-size', String(tagFontSize))
+        tagText.setAttribute('font-family', FONT_FAMILY)
+        tagText.textContent = t
+        svgEl.appendChild(tagText)
+
+        tagX += w + tagGap
+      }
+    }
   }
 
   return svgEl
@@ -2682,10 +2978,10 @@ function exportPNGFile(pngScale = 2) {
         URL.revokeObjectURL(url)
       }, 'image/png')
     } catch (err) {
-      // SecurityError: tainted canvas (foreignObject with external
-      // resources can trigger this in Chrome).  Fall back to SVG
-      // download so the user still gets a file.
-      console.warn('PNG export failed (tainted canvas), falling back to SVG:', err)
+      // SecurityError: tainted canvas.  This should no longer
+      // happen since we switched from foreignObject to native SVG
+      // elements, but keep the fallback as a safety net.
+      console.warn('PNG export failed, falling back to SVG:', err)
       exportSVGFile()
     }
   }

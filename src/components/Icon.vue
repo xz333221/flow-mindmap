@@ -293,6 +293,11 @@ defineProps<{
       <circle cx="11" cy="11" r="7" />
       <line x1="16" y1="16" x2="21" y2="21" />
     </template>
+    <!-- json: curly braces — reads as "JSON data format". -->
+    <template v-else-if="name === 'json'">
+      <path d="M8 4 C6 4 6 6 6 7 C6 8 5 8 5 9 C5 10 6 10 6 11 C6 12 6 14 8 14" />
+      <path d="M16 4 C18 4 18 6 18 7 C18 8 19 8 19 9 C19 10 18 10 18 11 C18 12 18 14 16 14" />
+    </template>
     <!-- svg-export: document with angle brackets — reads as
          "export vector/SVG". -->
     <template v-else-if="name === 'svg-export'">

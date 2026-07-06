@@ -19,8 +19,8 @@ const emit = defineEmits<{
   (e: 'openSettings'): void
   (e: 'openData'): void
   (e: 'openImport', mode: 'markdown' | 'json' | 'txt'): void
-  (e: 'exportPNG'): void
-  (e: 'exportSVG'): void
+  (e: 'exportPng'): void
+  (e: 'exportSvg'): void
   (e: 'close'): void
 }>()
 
@@ -35,9 +35,10 @@ const clamped = computed<ClampedPos>(() => {
   if (props.container) {
     const rect = props.container.getBoundingClientRect()
     // The main menu grows with content; 160 is enough for the
-    // three items including the caret on the middle one.
+    // four items including the caret on the two submenu items.
     const menuWidth = 160
-    const menuHeight = 4 + 5 * 28
+    // 4 padding + 4 items * 28px + 1 divider (~5px)
+    const menuHeight = 4 + 4 * 28 + 5
     if (left + menuWidth > rect.right) {
       left = Math.max(rect.left + 4, props.x - menuWidth - 2)
     }
@@ -51,33 +52,40 @@ const clamped = computed<ClampedPos>(() => {
 })
 
 // ============================================================================
-// Cascading import submenu
+// Cascading submenus (import & export)
 // ============================================================================
 //
-// On hover of the "导入" item, a submenu slides out to the right
-// listing the three import modes.  We use a short time-based
+// On hover of a "has-submenu" item, a submenu slides out to the
+// right listing the available options.  We use a short time-based
 // debounce so the submenu doesn't flicker when the cursor moves
 // between the parent item and the submenu.  The submenu is
-// absolutely positioned inside the parent item (CSS: left:100%,
-// top:-4px, margin-left:4px) so it always sits flush against the
-// parent with only a small 4px gap -- no more huge hard-coded
-// offset, no more gap to the main menu.
+// absolutely positioned (CSS: position:fixed via submenuStyle)
+// so it always sits flush against the parent with only a small
+// 4px gap -- no more huge hard-coded offset, no more gap to the
+// main menu.
 
-const submenuOpen = ref(false)
+/** Which submenu is currently open (or null when closed). */
+const openSubmenu = ref<'import' | 'export' | null>(null)
 
-// Ref to the import item container.  Used to compute the
+// Refs to the has-submenu item containers.  Used to compute the
 // submenu's position so it sits flush against the parent's right
 // edge and stays on-screen even when the main menu is near the
 // viewport's right edge.
 const importItemRef = ref<HTMLElement | null>(null)
+const exportItemRef = ref<HTMLElement | null>(null)
 
 // Computed style for the submenu.  We measure the parent item
 // each time the submenu opens and pick a position that keeps the
 // submenu inside the viewport.  When the parent is near the right
 // edge, we flip the submenu to the left of the parent.
 const submenuStyle = computed<Record<string, string>>(() => {
-  if (!importItemRef.value) return { left: '-9999px', top: '-9999px', display: 'none' }
-  const rect = importItemRef.value.getBoundingClientRect()
+  const itemRef = openSubmenu.value === 'import'
+    ? importItemRef.value
+    : openSubmenu.value === 'export'
+      ? exportItemRef.value
+      : null
+  if (!itemRef) return { left: '-9999px', top: '-9999px', display: 'none' }
+  const rect = itemRef.getBoundingClientRect()
   const vw = window.innerWidth
   const vh = window.innerHeight
   // Approximate the submenu dimensions.  We don't measure the
@@ -85,6 +93,7 @@ const submenuStyle = computed<Record<string, string>>(() => {
   // the moment we compute).  176 = min-width 160 + 2 * border 1
   // + 2 * padding 4 + a small safety margin.
   const subW = 176
+  // Both import and export submenus have 3 items.
   const subH = 4 + 3 * 28
   // Prefer the right of the parent.  If that would push the
   // submenu past the viewport's right edge, flip to the left.
@@ -102,13 +111,13 @@ const submenuStyle = computed<Record<string, string>>(() => {
 let submenuEnterTimer: ReturnType<typeof setTimeout> | null = null
 let submenuLeaveTimer: ReturnType<typeof setTimeout> | null = null
 
-function onSubmenuEnter() {
+function onSubmenuEnter(menu: 'import' | 'export') {
   if (submenuLeaveTimer) {
     clearTimeout(submenuLeaveTimer)
     submenuLeaveTimer = null
   }
   submenuEnterTimer = setTimeout(() => {
-    submenuOpen.value = true
+    openSubmenu.value = menu
   }, 60)
 }
 function onSubmenuLeave() {
@@ -117,7 +126,7 @@ function onSubmenuLeave() {
     submenuEnterTimer = null
   }
   submenuLeaveTimer = setTimeout(() => {
-    submenuOpen.value = false
+    openSubmenu.value = null
   }, 120)
 }
 
@@ -175,28 +184,46 @@ function run(handler: () => void) {
     <div
       ref="importItemRef"
       class="zm-canvas-menu-item zm-canvas-menu-item-has-submenu"
-      :class="{ 'is-open': submenuOpen }"
-      @mouseenter="onSubmenuEnter"
+      :class="{ 'is-open': openSubmenu === 'import' }"
+      @mouseenter="onSubmenuEnter('import')"
       @mouseleave="onSubmenuLeave"
     >
       <Icon name="import" :size="13" :stroke="1.6" /><span>导入</span>
       <svg class="zm-canvas-menu-caret" width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="2.5 1.8 5.2 4 2.5 6.2" /></svg>
       <div
-        v-if="submenuOpen"
+        v-if="openSubmenu === 'import'"
         class="zm-canvas-submenu"
         :style="submenuStyle"
-        @mouseenter="onSubmenuEnter"
+        @mouseenter="onSubmenuEnter('import')"
         @mouseleave="onSubmenuLeave"
       >
         <button class="zm-canvas-menu-item" @click.stop="run(() => emit('openImport', 'markdown'))"><Icon name="markdown" :size="13" :stroke="1.6" /><span>Markdown 导入</span></button>
-        <button class="zm-canvas-menu-item" @click.stop="run(() => emit('openImport', 'json'))"><Icon name="data" :size="13" :stroke="1.6" /><span>JSON 文件导入</span></button>
+        <button class="zm-canvas-menu-item" @click.stop="run(() => emit('openImport', 'json'))"><Icon name="json" :size="13" :stroke="1.6" /><span>JSON 文件导入</span></button>
         <button class="zm-canvas-menu-item" @click.stop="run(() => emit('openImport', 'txt'))"><Icon name="txt" :size="13" :stroke="1.6" /><span>TXT 文件导入</span></button>
       </div>
     </div>
     <button class="zm-canvas-menu-item" @click.stop="run(() => emit('openSettings'))"><Icon name="settings" :size="13" :stroke="1.6" /><span>设置</span></button>
     <div class="zm-canvas-menu-divider" />
-    <button class="zm-canvas-menu-item" @click.stop="run(() => emit('exportPNG'))"><Icon name="image" :size="13" :stroke="1.6" /><span>导出 PNG</span></button>
-    <button class="zm-canvas-menu-item" @click.stop="run(() => emit('exportSVG'))"><Icon name="svg-export" :size="13" :stroke="1.6" /><span>导出 SVG</span></button>
+    <div
+      ref="exportItemRef"
+      class="zm-canvas-menu-item zm-canvas-menu-item-has-submenu"
+      :class="{ 'is-open': openSubmenu === 'export' }"
+      @mouseenter="onSubmenuEnter('export')"
+      @mouseleave="onSubmenuLeave"
+    >
+      <Icon name="export" :size="13" :stroke="1.6" /><span>导出</span>
+      <svg class="zm-canvas-menu-caret" width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="2.5 1.8 5.2 4 2.5 6.2" /></svg>
+      <div
+        v-if="openSubmenu === 'export'"
+        class="zm-canvas-submenu"
+        :style="submenuStyle"
+        @mouseenter="onSubmenuEnter('export')"
+        @mouseleave="onSubmenuLeave"
+      >
+        <button class="zm-canvas-menu-item" @click.stop="run(() => emit('exportPng'))"><Icon name="image" :size="13" :stroke="1.6" /><span>导出 PNG</span></button>
+        <button class="zm-canvas-menu-item" @click.stop="run(() => emit('exportSvg'))"><Icon name="svg-export" :size="13" :stroke="1.6" /><span>导出 SVG</span></button>
+      </div>
+    </div>
   </div>
 </template>
 
