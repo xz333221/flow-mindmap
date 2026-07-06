@@ -160,10 +160,16 @@ await page.waitForTimeout(150)
 // smoke test — re-add when/if balance UI returns to the toolbar.
 
 // App layout: drawers are closed by default — open them, then assert
-// their content renders.
-await page.locator('.zm-app-icon-btn[title="显示大纲"]').click()
+// their content renders.  The outline opens via the canvas FAB
+// (top-left); the data drawer opens via the canvas right-click
+// menu → "查看数据".
+await page.locator('.zm-canvas-fab-outline').click()
 await page.waitForTimeout(250)
-await page.locator('.zm-app-icon-btn[title="显示数据"]').click()
+// Right-click on the canvas background to open the context menu,
+// then click "查看数据".
+await page.mouse.click(400, 400, { button: 'right' })
+await page.waitForTimeout(200)
+await page.locator('.zm-canvas-menu-item:has-text("查看数据")').click()
 await page.waitForTimeout(250)
 const outlineRows = await page.locator('.zm-outline-row').count()
 const dataPre = await page.locator('.zm-data-panel').count()
@@ -201,7 +207,7 @@ if (!download.suggestedFilename().endsWith('.json')) {
   process.exit(1)
 }
 
-// close the outline drawer and re-open it via the toolbar button
+// close the outline drawer and re-open it via the FAB
 await page.locator('.zm-drawer--left .zm-drawer-close').click()
 await page.waitForTimeout(300)
 const outlineAfterClose = await page.locator('.zm-outline-row').count()
@@ -209,7 +215,7 @@ if (outlineAfterClose !== 0) {
   console.error(`expected 0 outline rows after close, got ${outlineAfterClose}`)
   process.exit(1)
 }
-await page.locator('.zm-app-icon-btn[title="显示大纲"]').click()
+await page.locator('.zm-canvas-fab-outline').click()
 await page.waitForTimeout(300)
 const outlineAfterReopen = await page.locator('.zm-outline-row').count()
 if (outlineAfterReopen < 14) {

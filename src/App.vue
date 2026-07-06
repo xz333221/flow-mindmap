@@ -9,45 +9,6 @@ import MarkdownPanel from './components/MarkdownPanel.vue'
 import NotePanel from './components/NotePanel.vue'
 import type { MindMapNode, MindMapSettings, NodeStyle } from './types'
 
-// Sample data — same shape the user can pass in production.
-const initialData: MindMapNode = {
-  id: 'root',
-  text: 'flow-mindmap 思维导图',
-  children: [
-    {
-      id: 'n_features',
-      text: '核心功能',
-      children: [
-        { id: 'n_f1', text: '节点增删改', children: [] },
-        { id: 'n_f2', text: '拖拽布局', children: [] },
-        { id: 'n_f3', text: '缩放与平移', children: [] },
-        { id: 'n_f4', text: '键盘快捷键', children: [] },
-        { id: 'n_f5', text: '导入导出 JSON', children: [] },
-        { id: 'n_f6', text: '撤销与重做', children: [] },
-      ],
-    },
-    {
-      id: 'n_tech',
-      text: '技术栈',
-      children: [
-        { id: 'n_t1', text: 'Vue 3 + Vite', children: [] },
-        { id: 'n_t2', text: 'TypeScript', children: [] },
-        { id: 'n_t3', text: '纯 SVG 渲染', children: [] },
-        { id: 'n_t4', text: '无第三方依赖', children: [] },
-      ],
-    },
-    {
-      id: 'n_open',
-      text: '开源',
-      children: [
-        { id: 'n_o1', text: 'Apache-2.0 协议', children: [] },
-        { id: 'n_o2', text: '可作为 npm 组件使用', children: [] },
-        { id: 'n_o3', text: '欢迎 Star', children: [] },
-      ],
-    },
-  ],
-}
-
 // Demo fixture for hash #rich: a hand-built tree that
 // exercises every node-level field — image, code/table
 // (rendered above the title via richContent), link, note —
@@ -265,27 +226,6 @@ const data = ref<MindMapNode>(richData)
 // Top-bar buttons: each one is gated by a prop with the default
 // the package ships with.  Consumers can override any subset to
 // hide buttons they don't want on the host page.
-const props = withDefaults(
-  defineProps<{
-    /** Show the "显示大纲" button in the top bar. */
-    showOutlineBtn?: boolean
-    /** Show the "显示数据" button in the top bar. */
-    showDataBtn?: boolean
-    /** Show the "显示 Markdown" button in the top bar. */
-    showMarkdownBtn?: boolean
-    /** Show the "显示设置" button in the top bar. */
-    showSettingsBtn?: boolean
-    /** Show the "进入预览模式" button in the top bar. */
-    showPreviewModeBtn?: boolean
-  }>(),
-  {
-    showOutlineBtn: true,
-    showDataBtn: true,
-    showMarkdownBtn: false,
-    showSettingsBtn: true,
-    showPreviewModeBtn: true,
-  }
-)
 const selectedNode = ref<MindMapNode | null>(null)
 const collapsedIds = ref<Set<string>>(new Set())
 const showOutline = ref(false)
@@ -310,28 +250,8 @@ const mindMapRef = ref<InstanceType<typeof MindMap> | null>(null)
 // reload) can switch to the multi-branch fan fixture.
 function syncHashData() {
   data.value = pickDataByHash()
-  richMode.value = typeof location !== 'undefined' && location.hash === '#rich'
 }
 
-// "Rich sample" loader: replaces the current data with the
-// hand-built tree that exercises every node-level field
-// (image / code / table / note / link).  The button toggles
-// back to the default sample on second click so reviewers can
-// A/B compare.
-// Default to the "节点能力一览" fixture so reviewers see every
-// renderable field (image / code / table / note / link) on first
-// load.  The toolbar button toggles back to the simple sample on
-// the first click.
-const richMode = ref(true)
-function loadRichSample() {
-  if (richMode.value) {
-    data.value = initialData
-    richMode.value = false
-  } else {
-    data.value = richData
-    richMode.value = true
-  }
-}
 // From MindMap's right-click -> View data: open the data
 // drawer; close the markdown / note drawers so only one
 // side panel is visible at a time.
@@ -583,10 +503,6 @@ function onOutlineMove(payload: { srcId: string; targetId: string; position: 'be
 // reference in state.
 const selectedId = computed(() => selectedNode.value?.id ?? null)
 
-function countNodes(n: MindMapNode): number {
-  return 1 + n.children.reduce((acc, c) => acc + countNodes(c), 0)
-}
-const totalNodes = computed(() => countNodes(data.value))
 </script>
 
 <template>
@@ -612,84 +528,6 @@ const totalNodes = computed(() => countNodes(data.value))
     </Drawer>
 
     <main class="zm-app-main">
-      <div v-if="!previewMode" class="zm-app-toolbar">        <button
-          v-if="props.showOutlineBtn && !showOutline"
-          class="zm-app-icon-btn"
-          title="显示大纲"
-          @click="showOutline = true"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="8" y1="6" x2="21" y2="6" />
-            <line x1="8" y1="12" x2="21" y2="12" />
-            <line x1="8" y1="18" x2="21" y2="18" />
-            <line x1="3" y1="6" x2="3.01" y2="6" />
-            <line x1="3" y1="12" x2="3.01" y2="12" />
-            <line x1="3" y1="18" x2="3.01" y2="18" />
-          </svg>
-        </button>
-        <button
-          v-if="props.showDataBtn && !showData"
-          class="zm-app-icon-btn"
-          title="显示数据"
-          @click="showData = true; showMarkdown = false; showNote = false"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="16 18 22 12 16 6" />
-            <polyline points="8 6 2 12 8 18" />
-          </svg>
-        </button>
-        <button
-          v-if="props.showMarkdownBtn && !showMarkdown"
-          class="zm-app-icon-btn"
-          title="显示 Markdown"
-          @click="showMarkdown = true; showData = false; showNote = false"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 7 V4 H20 V7" />
-            <path d="M9 20 H15" />
-            <path d="M12 4 V20" />
-          </svg>
-        </button>
-        <button
-          v-if="props.showSettingsBtn && !showSettings"
-          class="zm-app-icon-btn"
-          title="显示设置"
-          @click="showSettings = true; showData = false; showMarkdown = false; showNote = false"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
-        </button>
-        <span class="zm-app-spacer" />
-        <span class="zm-app-tip">{{ data.text || '未命名' }} · {{ totalNodes }} 节点</span>
-        <button
-          v-if="false"
-          class="zm-app-icon-btn"
-          :class="{ 'is-on': richMode }"
-          :title="richMode ? '切回默认示例 (3 分支)' : '切到节点能力一览 (图片/代码/表格/笔记/链接)'"
-          @click="loadRichSample"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="7" height="7" rx="1" />
-            <rect x="14" y="3" width="7" height="7" rx="1" />
-            <rect x="3" y="14" width="7" height="7" rx="1" />
-            <rect x="14" y="14" width="7" height="7" rx="1" />
-          </svg>
-        </button>
-        <button
-          v-if="props.showPreviewModeBtn"
-          class="zm-app-icon-btn"
-          :class="{ 'is-on': previewMode }"
-          title="进入预览模式"
-          @click="previewMode = true"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-        </button>
-      </div>
       <!-- Preview-mode exit button: a small pill that sits over the
            canvas so the user can always leave preview mode. -->
       <button
@@ -810,42 +648,6 @@ const totalNodes = computed(() => countNodes(data.value))
   display: flex;
   flex-direction: column;
   min-width: 0;
-}
-.zm-app-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  background: #ffffff;
-  border-bottom: 1px solid #e2e8f0;
-  flex-shrink: 0;
-}
-.zm-app-icon-btn {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid #e2e8f0;
-  background: #ffffff;
-  border-radius: 6px;
-  cursor: pointer;
-  color: #475569;
-}
-.zm-app-icon-btn:hover {
-  background: #f1f5f9;
-  color: #1e293b;
-}
-.zm-app-spacer {
-  flex: 1;
-}
-.zm-app-tip {
-  font-size: 12px;
-  color: #64748b;
-}
-.zm-app-icon-btn.is-on {
-  background: #e0e7ff;
-  color: #4338ca;
 }
 .zm-app-preview-exit {
   position: absolute;
