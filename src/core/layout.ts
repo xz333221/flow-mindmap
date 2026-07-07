@@ -96,7 +96,7 @@ import type { MindMapNode, MindMapImage, RichContent } from '../types'
 // Index 0 = root, 1 = top branch, 2 = sub-branch, 3+ = leaf tier.
 const NODE_FONTS = [22, 15, 13, 12]
 const NODE_FONT_WEIGHTS = [700, 600, 500, 400]
-const NODE_HEIGHTS = [52, 40, 32, 28]
+const NODE_HEIGHTS = [46, 36, 30, 26]
 const NODE_MIN_W = [120, 80, 60, 44]
 /** Horizontal padding in `em`, matching `.zm-node { padding: 0 0.8em }`
  *  in MindMap.vue.  Keep these in sync or the SVG edges will pierce
@@ -251,10 +251,17 @@ function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number, ri
   const textW = Math.min(measureText(node.text || '', fontSize, NODE_FONT_WEIGHTS[t]), TEXT_MAX_W)
   const pad = padPx(level, baseFontSize)
   const textWWithPad = Math.ceil(textW + pad * 2 + NODE_BORDER * 2)
-  // Count visible lines for multi-line text (Shift+Enter in the edit
-  // textarea creates real \n breaks).  Each line takes fontSize × 1.2
-  // px of height; the node box grows to fit them all.
-  const lineCount = Math.max(1, (node.text || '').split('\n').length)
+  // Count visual lines: each explicit \n segment may also wrap at
+  // TEXT_MAX_W (200px, matching `.zm-text { max-width: 200px }`).
+  // Without this, a 400px-wide string with no \n would report
+  // lineCount=1 but CSS wraps it to 2 lines, making the box too short.
+  const textLines = (node.text || '').split('\n')
+  let lineCount = 0
+  for (const seg of textLines) {
+    const segW = measureText(seg, fontSize, NODE_FONT_WEIGHTS[t])
+    lineCount += Math.max(1, Math.ceil(segW / TEXT_MAX_W))
+  }
+  lineCount = Math.max(1, lineCount)
   // Title-row height reserved in the layout.  `heightAt()` returns
   // the full single-row node height per tier (e.g. 40 px at
   // depth 1), which is right for a text-only node.  But when a
@@ -282,7 +289,7 @@ function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number, ri
   )
   const textH = hasAboveRichForH
     ? Math.ceil(fontSize * 1.2) + 6
-    : heightAt(level, baseFontSize) + Math.ceil(fontSize * 1.2 * (lineCount - 1)) + NODE_BORDER * 2 + NODE_VPAD * 2
+    : heightAt(level, baseFontSize) + Math.ceil(fontSize * 1.2 * (lineCount - 1))
   // Reserve space for the inline icons: each link/note icon is
   // 16px + 4px gap (only between adjacent icons; no trailing gap
   // — the text label sits right after the last icon).
