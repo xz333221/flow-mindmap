@@ -3597,7 +3597,7 @@ onMounted(() => {
             </span>
             <span class="zm-text-label">{{ n.text }}</span>
             <a
-              v-if="n.link && !editingId"
+              v-if="n.link && editingId !== n.id"
               class="zm-node-link"
               :href="n.link.url"
               target="_blank"
@@ -3607,7 +3607,7 @@ onMounted(() => {
               @mousedown.stop
             ><Icon name="link" :size="11" :stroke="2" /></a>
             <button
-              v-if="n.note && !editingId"
+              v-if="n.note && editingId !== n.id"
               class="zm-node-note-btn"
               type="button"
               :title="notePreview(n.note.text)"
