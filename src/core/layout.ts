@@ -181,7 +181,16 @@ function measureText(text: string, fontSize: number, fontWeight: number): number
   if (cached !== undefined) return cached
   const ctx = measureCtx()
   ctx.font = `${fontWeight} ${fontSize}px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif`
-  const w = ctx.measureText(text).width
+  // For multi-line text (containing \n), measure the widest line
+  // so the node box fits the longest line rather than the
+  // concatenated string (which canvas would measure including the
+  // newline character, producing an inaccurate width).
+  const lines = text.split('\n')
+  let w = 0
+  for (const line of lines) {
+    const lw = ctx.measureText(line).width
+    if (lw > w) w = lw
+  }
   _measureCache.set(key, w)
   return w
 }
@@ -232,6 +241,10 @@ function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number, ri
   const textW = Math.min(measureText(node.text || '', fontSize, NODE_FONT_WEIGHTS[t]), TEXT_MAX_W)
   const pad = padPx(level, baseFontSize)
   const textWWithPad = Math.ceil(textW + pad * 2)
+  // Count visible lines for multi-line text (Shift+Enter in the edit
+  // textarea creates real \n breaks).  Each line takes fontSize × 1.2
+  // px of height; the node box grows to fit them all.
+  const lineCount = Math.max(1, (node.text || '').split('\n').length)
   // Title-row height reserved in the layout.  `heightAt()` returns
   // the full single-row node height per tier (e.g. 40 px at
   // depth 1), which is right for a text-only node.  But when a
@@ -259,7 +272,7 @@ function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number, ri
   )
   const textH = hasAboveRichForH
     ? Math.ceil(fontSize * 1.2) + 6
-    : heightAt(level, baseFontSize)
+    : Math.round(heightAt(level, baseFontSize) * lineCount)
   // Reserve space for the inline icons: each link/note icon is
   // 16px + 4px gap (only between adjacent icons; no trailing gap
   // — the text label sits right after the last icon).

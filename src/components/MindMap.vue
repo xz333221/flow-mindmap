@@ -1561,12 +1561,14 @@ function startEdit(id: string) {
   // edit the new node would appear unselected.
   selectedIds.value = new Set([id])
   emitSelection()
-  // The input is mounted conditionally; once it appears we have to focus
-  // it ourselves.  Use nextTick so the v-else branch has rendered.
+  // The textarea is mounted conditionally; once it appears we have
+  // to focus it ourselves.  Use nextTick so the v-else branch has
+  // rendered.
   nextTick(() => {
-    const el = document.querySelector('.zm-input') as HTMLInputElement | null
+    const el = document.querySelector('.zm-input') as HTMLTextAreaElement | null
     el?.focus()
     el?.select()
+    autoresizeEditEl(el)
   })
 }
 
@@ -1583,6 +1585,17 @@ function commitEdit() {
 
 function cancelEdit() {
   editingId.value = null
+}
+
+/** Auto-resize the edit textarea to fit its content (no scrollbar
+ *  for short text, grows with each Shift+Enter line break). */
+function autoresizeEditEl(el: HTMLTextAreaElement | null) {
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = el.scrollHeight + 'px'
+}
+function autoresizeEdit(e: Event) {
+  autoresizeEditEl(e.target as HTMLTextAreaElement)
 }
 
 // ---------------------------------------------------------------------------
@@ -3615,16 +3628,18 @@ onMounted(() => {
               @mousedown.stop
             ><Icon name="note" :size="11" :stroke="2" /></button>
           </span>
-          <input
+          <textarea
             v-else
             class="zm-input"
             v-model="editText"
             autofocus
+            rows="1"
             @blur="commitEdit()"
-            @keydown.enter.exact="commitEdit()"
+            @keydown.enter.exact.prevent="commitEdit()"
             @keydown.tab.prevent="commitEdit()"
             @keydown.esc="cancelEdit"
             @keydown="onEditKeydown"
+            @input="autoresizeEdit"
             @mousedown.stop
             @click.stop
           />
@@ -3835,14 +3850,8 @@ onMounted(() => {
       </button>
       <span class="zm-tb-divider" />
 
-      <!-- Export: JSON only on the toolbar.  PNG / SVG live in the
-           canvas right-click menu so the toolbar stays clean. -->
-      <button class="zm-tb-btn" title="导出 JSON" @click="exportToFile">
-        <Icon name="export" />
-      </button>
-
-      <!-- Non-preview-only: edit + layout + import.  These mutate
-           the data tree or settings, which preview mode disallows. -->
+      <!-- Non-preview-only: edit + layout.  Import/export live in
+           the right-click context menu so the toolbar stays clean. -->
       <template v-if="!props.previewMode">
         <span class="zm-tb-divider" />
         <button
@@ -3883,14 +3892,6 @@ onMounted(() => {
           @click="setLayoutMode('org')"
         >
           <Icon name="org" />
-        </button>
-        <span class="zm-tb-divider" />
-        <button
-          class="zm-tb-btn"
-          title="导入 JSON"
-          @click="importFromFile"
-        >
-          <Icon name="import" />
         </button>
       </template>
     </div>
@@ -4162,8 +4163,10 @@ body.is-dragging { cursor: grabbing !important; user-select: none; }
 .zm-text-label {
   pointer-events: none;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* `pre-line` preserves \n line breaks (from Shift+Enter in the
+   *  edit textarea) while collapsing runs of whitespace, so the
+   *  rendered text wraps naturally at the box edge. */
+  white-space: pre-line;
   /* Allow flex to shrink the label so a long string doesn't push
    * the rendered width past the layout's reserved width (which
    * would pull the line anchor off the box edge).  `min-width: 0`
@@ -4180,6 +4183,11 @@ body.is-dragging { cursor: grabbing !important; user-select: none; }
   text-align: center;
   width: 100%;
   min-width: 40px;
+  /* textarea-specific: no resize handle, grow with content via JS. */
+  resize: none;
+  overflow: hidden;
+  padding: 0;
+  line-height: 1.2;
 }
 
 /* Truncated-label tooltip.  Fixed-positioned on the canvas wrapper
@@ -4278,19 +4286,17 @@ body.is-dragging { cursor: grabbing !important; user-select: none; }
   overflow: visible;
 }
 .zm-rich-code {
-  margin: 0;
-  padding: 6px 8px;
-  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
-  font-size: 0.92em;
-  white-space: pre-wrap;
-  word-break: break-word;
-  /* Lifts the code off the node's coloured surface so it
-   * stays legible regardless of branch palette.  The
-   * translucent white mixes with the node background. */
-  background: rgba(255, 255, 255, 0.55);
-  border: 1px solid currentColor;
-  border-radius: 6px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+margin: 0;
+padding: 6px 8px;
+font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+font-size: 0.92em;
+white-space: pre-wrap;
+word-break: break-word;
+/* Near-opaque white so the code body reads clearly on any branch
+* palette without the muddy translucency of the old 0.55 alpha. */
+background: rgba(255, 255, 255, 0.95);
+border: 1px solid currentColor;
+border-radius: 6px;
 }
 .zm-rich-list {
   margin: 0;
@@ -4306,15 +4312,14 @@ body.is-dragging { cursor: grabbing !important; user-select: none; }
  * 3-4 row table that fits within the reserved space should
  * just be its natural height. */
 .zm-rich-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 0.92em;
-  background: rgba(255, 255, 255, 0.55);
-  border: 1px solid currentColor;
-  border-radius: 6px;
-  overflow: hidden;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+width: 100%;
+border-collapse: separate;
+border-spacing: 0;
+font-size: 0.92em;
+background: rgba(255, 255, 255, 0.95);
+border: 1px solid currentColor;
+border-radius: 6px;
+overflow: hidden;
 }
 .zm-rich-table td {
   border-top: 1px solid currentColor;
