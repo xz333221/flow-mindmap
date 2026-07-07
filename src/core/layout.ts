@@ -288,7 +288,7 @@ function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number, ri
     (node.richContent.kind === 'code' || node.richContent.kind === 'table')
   )
   const textH = hasAboveRichForH
-    ? Math.ceil(fontSize * 1.2) + 6
+    ? Math.ceil(fontSize * 1.2) + 6 + Math.ceil(fontSize * 1.2 * (lineCount - 1))
     : heightAt(level, baseFontSize) + Math.ceil(fontSize * 1.2 * (lineCount - 1))
   // Reserve space for the inline icons: each link/note icon is
   // 16px + 4px gap (only between adjacent icons; no trailing gap

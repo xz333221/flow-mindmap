@@ -4157,8 +4157,6 @@ body.is-dragging { cursor: grabbing !important; user-select: none; }
   min-height: 1.2em;
   max-width: 200px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .zm-text-label {
   pointer-events: none;
