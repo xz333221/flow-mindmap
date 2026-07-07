@@ -126,10 +126,31 @@ function heightAt(depth: number, baseFontSize: number = 14): number {
 // =====================================================================
 // Gaps — keep flow-mindmap defaults (H_GAP=60, V_GAP=14).  1.html uses 70/10
 // but flow-mindmap's existing tests assume 60/14; we match the project.
+//
+// Depth-dependent horizontal gap: the gap between a parent and its
+// children shrinks as you go deeper, so the tree feels more compact
+// at lower tiers.  Root → level-1 uses the full H_GAP; each
+// subsequent level multiplies by H_GAP_DECAY (0.75) until the floor
+// H_GAP_MIN is reached.
+//   depth 0→1: 60    (root to first branch)
+//   depth 1→2: 45    (first branch to sub-branch)
+//   depth 2→3: 34    (sub-branch to leaf tier)
+//   depth 3→4: 30    (clamped to minimum)
+//   depth 4+:  30
 // =====================================================================
 const H_GAP = 60
+const H_GAP_MIN = 30
+const H_GAP_DECAY = 0.75
 const V_GAP = 14
 const SIDE_PADDING = 24
+
+/** Horizontal (or vertical, in org mode) gap between a parent at the
+ *  given depth and its immediate children.  The gap shrinks with
+ *  depth so deeper tiers sit closer together, but never below
+ *  H_GAP_MIN. */
+function hGapForDepth(parentDepth: number): number {
+  return Math.max(H_GAP_MIN, Math.round(H_GAP * Math.pow(H_GAP_DECAY, parentDepth)))
+}
 
 // =====================================================================
 // Text measurement — same role as 1.html's measureText() (JS L327).
@@ -572,13 +593,17 @@ function layoutHorizontal(
   // independent of the side they happen to be on.
   const step = applyClockwise ? sign : 1
   let cy = node.y - step * totalH / 2
+  // Depth-dependent gap: deeper tiers sit closer together.
+  // The `hGap` parameter is kept for API compat but the actual
+  // gap is computed from the parent's depth.
+  const gap = hGapForDepth(node.depth)
   node.children.forEach((child) => {
     // When preserve=true, keep the LayoutNode's existing x/y
     // (the user just dragged this subtree to a new spot).  We
     // still set _dir so the line anchor / side / ribbon
     // orientation follow the new split.
     if (!preserve) {
-      child.x = node.x + sign * (node.width / 2 + hGap + child.width / 2)
+      child.x = node.x + sign * (node.width / 2 + gap + child.width / 2)
       child.y = cy + step * child._subtreeH / 2
     }
     child._dir = dir
@@ -598,10 +623,13 @@ function layoutVertical(node: LayoutNode, vGap: number, preserve: boolean = fals
     0
   )
   let cx = node.x - totalW / 2
+  // Depth-dependent gap (same curve as horizontal mode) so deeper
+  // org-chart tiers also sit closer together.
+  const gap = hGapForDepth(node.depth)
   node.children.forEach((child) => {
     if (!preserve) {
       child.x = cx + child._subtreeW / 2
-      child.y = node.y + node.height / 2 + vGap + child.height / 2
+      child.y = node.y + node.height / 2 + gap + child.height / 2
     }
     child._dir = 'down'
     cx += child._subtreeW + V_GAP * 2
@@ -802,10 +830,16 @@ export const LAYOUT = {
   NODE_PAD_H: NODE_PAD_EM,
   NODE_FONT_WEIGHTS,
   H_GAP,
+  H_GAP_MIN,
+  H_GAP_DECAY,
   V_GAP,
   SIDE_PADDING,
   heightAt,
   fontAt,
+  /** Depth-dependent horizontal gap between a parent at `parentDepth`
+   *  and its children.  Deeper tiers get a smaller gap, clamped to
+   *  H_GAP_MIN. */
+  hGapForDepth,
   /** Clear the text-measurement cache (call after font load). */
   clearMeasureCache: () => _measureCache.clear(),
 }

@@ -1554,6 +1554,13 @@ function startEdit(id: string) {
   if (!n) return
   editingId.value = id
   editText.value = n.text
+  // Select the node so it gets the visual selection highlight while
+  // being edited, and remains selected after the edit is committed.
+  // Without this, adding a node via Tab/Enter enters edit mode but
+  // the selection stays on the previous node — after committing the
+  // edit the new node would appear unselected.
+  selectedIds.value = new Set([id])
+  emitSelection()
   // The input is mounted conditionally; once it appears we have to focus
   // it ourselves.  Use nextTick so the v-else branch has rendered.
   nextTick(() => {
