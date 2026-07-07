@@ -2488,6 +2488,13 @@ function siblingIndexOf(id: string): number {
 // root box is rendered on top (DOM order: edges SVG → nodes), so the
 // portion inside the root is visually covered — the line appears to
 // emerge from underneath the root box.
+//
+// When `settings.lineOrigin === 'proportional'`, the exit point on
+// the root edge is projected from the child's position — think of
+// it as a ray from the root center toward the child, intersected
+// with the root's border.  Children above the center exit from the
+// upper part of the edge; children below exit from the lower part,
+// creating a natural fan/radiation effect.
 // =====================================================================
 function lineAnchor(
   n: LayoutNode,
@@ -2500,6 +2507,23 @@ function lineAnchor(
   // drawn from (n.x, n.y) and the root box covers it.
   if (side === 'out' && n.isRoot && settings.lineOrigin === 'center') {
     return { x: n.x, y: n.y }
+  }
+  // Root-originated edges with proportional exit point — project
+  // the child's position onto the root's edge (ray-cast / fan).
+  if (side === 'out' && n.isRoot && settings.lineOrigin === 'proportional' && child) {
+    if (childDir === 'down') {
+      // Vertical layout: project child's x onto the root's
+      // top/bottom edge, clamped to the root's horizontal extent.
+      const halfW = n.width / 2
+      const px = Math.max(n.x - halfW, Math.min(n.x + halfW, child.x))
+      return { x: px, y: n.y + n.height / 2 }
+    }
+    // Horizontal layout: project child's y onto the root's
+    // left/right edge, clamped to the root's vertical extent.
+    const d = dir !== undefined ? dir : n.side
+    const halfH = n.height / 2
+    const py = Math.max(n.y - halfH, Math.min(n.y + halfH, child.y))
+    return { x: n.x + d * (n.width / 2), y: py }
   }
   if (childDir === 'down') {
     // Vertical layout (org mode): line lands on top/bottom mid-edge

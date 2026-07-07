@@ -128,8 +128,11 @@ export type LayoutMode = 'mindmap' | 'tree' | 'org'
 /** Where root-originated edges start on the root node.
  *  'edge' = left/right mid-edge (default, XMind classic),
  *  'center' = root node center — the line emerges from underneath
- *  the root box, covered by it. */
-export type LineOrigin = 'edge' | 'center'
+ *  the root box, covered by it.
+ *  'proportional' = the exit point on the root edge is projected
+ *  from the child's position (ray-cast), so children above the
+ *  center exit from the upper part of the edge and vice versa. */
+export type LineOrigin = 'edge' | 'center' | 'proportional'
 
 /** Identifier for a branch palette — the id of a built-in (e.g.
  *  'default', 'classic', 'vivid', 'dev', 'mint') or a user-defined
@@ -182,7 +185,9 @@ export interface MindMapSettings {
    *  left/right mid-edge of the root node; 'center' = the root
    *  node's geometric center — the line is drawn from the center
    *  but visually covered by the root box, so it appears to emerge
-   *  from underneath the root. */
+   *  from underneath the root; 'proportional' = the exit point is
+   *  projected from the child's position so each child exits the
+   *  root at the closest edge point (fan / ray-cast). */
   lineOrigin: LineOrigin
   /** Layout mode (1.html parity).  'mindmap' = center + left/right
    *  fans; 'tree' = single column expanding to the right; 'org' =

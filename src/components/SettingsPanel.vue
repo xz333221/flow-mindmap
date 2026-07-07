@@ -35,10 +35,12 @@ const LINE_STYLE_OPTIONS: { value: LineStyle; label: string; viewBox: string }[]
 
 /** Line origin picker options. 'edge' = the root's left/right
  *  mid-edge (default), 'center' = the root's geometric center
- *  (line is covered by the root box). */
+ *  (line is covered by the root box), 'proportional' = the exit
+ *  point is projected from the child's position (fan / ray-cast). */
 const LINE_ORIGIN_OPTIONS: { value: LineOrigin; label: string }[] = [
   { value: 'edge', label: '左右中点' },
   { value: 'center', label: '节点正中心' },
+  { value: 'proportional', label: '按比例计算' },
 ]
 
 // Font weight options for the per-node select.
@@ -345,11 +347,19 @@ const previewLines = computed(() => {
                 stroke-linecap="round"
               />
               <path
-                v-else
+                v-else-if="opt.value === 'center'"
                 d="M 14 9 L 0 9 M 14 9 L 28 9"
                 fill="none"
                 stroke="currentColor"
                 stroke-width="2"
+                stroke-linecap="round"
+              />
+              <path
+                v-else
+                d="M 8 7 L 0 4 M 8 9 L 0 9 M 8 11 L 0 14 M 20 7 L 28 4 M 20 9 L 28 9 M 20 11 L 28 14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
                 stroke-linecap="round"
               />
             </svg>
