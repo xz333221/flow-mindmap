@@ -1355,17 +1355,17 @@ function variableWidthPath(
   }
 
   if (style === 'arc') {
-    // Smooth quadratic-bezier arc.  The control point sits at the
-    // midpoint of the primary axis, pinned to the parent's position
-    // on the secondary axis.  This makes the curve leave the parent
-    // edge tangentially (horizontal for L/R, vertical for down) and
-    // then bow smoothly toward the child — no inflection point, so
-    // the shape reads as a single "rainbow" arc rather than an S.
+    // Smooth quadratic-bezier arc ("rainbow" shape).  The control
+    // point sits at the midpoint of the primary axis, pinned to the
+    // CHILD's position on the secondary axis.  This makes the curve
+    // arrive at the child edge tangentially (horizontal for L/R,
+    // vertical for down) and bow AWAY from the parent — like a
+    // rainbow arc rather than an S-curve (no inflection point).
     let cp: { x: number; y: number }
     if (dir === 'right' || dir === 'left') {
-      cp = { x: (from.x + to.x) / 2, y: from.y }
+      cp = { x: (from.x + to.x) / 2, y: to.y }
     } else {
-      cp = { x: from.x, y: (from.y + to.y) / 2 }
+      cp = { x: to.x, y: (from.y + to.y) / 2 }
     }
     const qderiv = (t: number) => {
       const u = 1 - t
