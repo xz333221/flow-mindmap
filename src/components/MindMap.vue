@@ -4058,7 +4058,7 @@ onMounted(() => {
                             * cross axis). */
   align-items: center;
   justify-content: center;
-  padding: 0 0.8em;
+  padding: 2px 0.8em;
   box-sizing: border-box;
   border-radius: 8px;
   border: 1px solid;

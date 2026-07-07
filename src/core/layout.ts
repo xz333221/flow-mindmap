@@ -103,6 +103,16 @@ const NODE_MIN_W = [120, 80, 60, 44]
  *  the node box.  Tightened from 1.6em → 0.8em so long-text nodes
  *  (markdown body lines, links) don't end up comically wide. */
 const NODE_PAD_EM = [0.8, 0.8, 0.8, 0.8]
+/** Border width in px, matching `.zm-node { border: 1px solid }` in
+ *  MindMap.vue.  The layout must add this to both width and height
+ *  because `box-sizing: border-box` means the border eats into the
+ *  content area — without compensating, the text gets 2px less room
+ *  than measured and wraps prematurely. */
+const NODE_BORDER = 1
+/** Vertical padding in px, matching `.zm-node { padding: 2px 0.8em }`
+ *  in MindMap.vue.  Added to the height so text doesn't sit flush
+ *  against the top/bottom borders. */
+const NODE_VPAD = 2
 const MAX_TIER = NODE_FONTS.length - 1
 
 function padPx(depth: number, baseFontSize: number): number {
@@ -240,7 +250,7 @@ function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number, ri
   const fontSize = fontAt(level, baseFontSize)
   const textW = Math.min(measureText(node.text || '', fontSize, NODE_FONT_WEIGHTS[t]), TEXT_MAX_W)
   const pad = padPx(level, baseFontSize)
-  const textWWithPad = Math.ceil(textW + pad * 2)
+  const textWWithPad = Math.ceil(textW + pad * 2 + NODE_BORDER * 2)
   // Count visible lines for multi-line text (Shift+Enter in the edit
   // textarea creates real \n breaks).  Each line takes fontSize × 1.2
   // px of height; the node box grows to fit them all.
@@ -272,7 +282,7 @@ function calcNodeSize(node: MindMapNode, level: number, baseFontSize: number, ri
   )
   const textH = hasAboveRichForH
     ? Math.ceil(fontSize * 1.2) + 6
-    : Math.round(heightAt(level, baseFontSize) * lineCount)
+    : heightAt(level, baseFontSize) + Math.ceil(fontSize * 1.2 * (lineCount - 1)) + NODE_BORDER * 2 + NODE_VPAD * 2
   // Reserve space for the inline icons: each link/note icon is
   // 16px + 4px gap (only between adjacent icons; no trailing gap
   // — the text label sits right after the last icon).
