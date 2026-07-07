@@ -123,7 +123,7 @@ export interface MindMapTheme {
   rainbowBranch?: boolean
 }
 
-export type LineStyle = 'curve' | 'straight'
+export type LineStyle = 'curve' | 'straight' | 'arc' | 'elbow'
 export type LayoutMode = 'mindmap' | 'tree' | 'org'
 
 /** Identifier for a branch palette — the id of a built-in (e.g.
@@ -167,8 +167,11 @@ export interface MindMapSettings {
    *  canvas treats these as first-class palettes alongside the
    *  built-ins.  Persisted by the host app. */
   customPalettes: BranchPalette[]
-  /** Edge shape between parent and child. 'curve' = fish-gill bezier
-   *  (xmind default), 'straight' = direct line segment. */
+  /** Edge shape between parent and child.
+   *  'curve' = S-shaped cubic bezier (XMind default),
+   *  'straight' = direct diagonal line segment,
+   *  'arc' = smooth rounded arc with semicircular caps (bubble look),
+   *  'elbow' = orthogonal right-angle routing (org-chart style). */
   lineStyle: LineStyle
   /** Layout mode (1.html parity).  'mindmap' = center + left/right
    *  fans; 'tree' = single column expanding to the right; 'org' =

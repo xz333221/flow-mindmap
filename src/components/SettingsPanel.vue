@@ -24,10 +24,13 @@ function set<K extends keyof MindMapSettings>(key: K, value: MindMapSettings[K])
 }
 
 /** Line style picker options. The icon shows the line shape; the
- *  label is the Chinese name. */
+ *  label is the Chinese name.  Order matches XMind's style picker:
+ *  arc → elbow → straight → S-curve. */
 const LINE_STYLE_OPTIONS: { value: LineStyle; label: string; viewBox: string }[] = [
-  { value: 'curve', label: '圆弧', viewBox: '0 0 28 14' },
+  { value: 'arc', label: '圆弧', viewBox: '0 0 28 14' },
+  { value: 'elbow', label: '折线', viewBox: '0 0 28 14' },
   { value: 'straight', label: '直线', viewBox: '0 0 28 14' },
+  { value: 'curve', label: 'S曲线', viewBox: '0 0 28 14' },
 ]
 
 // Font weight options for the per-node select.
@@ -273,7 +276,24 @@ const previewLines = computed(() => {
           >
             <svg :viewBox="opt.viewBox" width="28" height="14" preserveAspectRatio="none">
               <path
-                v-if="opt.value === 'curve'"
+                v-if="opt.value === 'arc'"
+                d="M 0 12 Q 14 2, 28 12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+              />
+              <path
+                v-else-if="opt.value === 'elbow'"
+                d="M 0 10 L 16 10 L 16 4 L 28 4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                v-else-if="opt.value === 'curve'"
                 d="M 0 12 C 8 0, 20 0, 28 12"
                 fill="none"
                 stroke="currentColor"
@@ -849,14 +869,15 @@ const previewLines = computed(() => {
 /* Line style buttons */
 .zm-line-style-group {
   display: flex;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 .zm-line-style-btn {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 4px 10px;
+  padding: 4px 7px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
@@ -864,7 +885,7 @@ const previewLines = computed(() => {
   color: #94a3b8;
   transition: all 0.12s;
   font-family: inherit;
-  min-width: 56px;
+  min-width: 48px;
 }
 .zm-line-style-btn:hover {
   border-color: #cbd5e1;
