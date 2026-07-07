@@ -3848,7 +3848,7 @@ onMounted(() => {
       <button class="zm-tb-btn" title="全部展开" @click="expandAll">
         <Icon name="expand-all" />
       </button>
-      <span class="zm-tb-divider" />
+      <!-- <span class="zm-tb-divider" /> -->
 
       <!-- Non-preview-only: edit + layout.  Import/export live in
            the right-click context menu so the toolbar stays clean. -->
@@ -4265,9 +4265,8 @@ body.is-dragging { cursor: grabbing !important; user-select: none; }
   font-size: 0.78em;
   line-height: 1.35;
   text-align: left;
-  background: rgba(0, 0, 0, 0.04);
   border-radius: 4px;
-  padding: 4px 6px;
+  padding: 0 4px 4px;
   color: inherit;
 }
 /* When the rich body sits above the title, drop the top
