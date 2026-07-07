@@ -25,7 +25,7 @@ import {
   markdownToMindMap,
   mindMapToMarkdown,
 } from '../tree'
-import type { MindMapNode, MindMapTheme, MindMapExpose, MindMapSettings, NodeStyle, MindMapImage } from '../types'
+import type { MindMapNode, MindMapTheme, MindMapExpose, MindMapSettings, NodeStyle, MindMapImage, LineOrigin } from '../types'
 import { usePanZoom } from '../composables/usePanZoom'
 import { useKeyboard } from '../composables/useKeyboard'
 import { useHistory } from '../composables/useHistory'
@@ -616,6 +616,7 @@ function _onSettingsChange(s: Partial<MindMapSettings>) {
   if (s.branchPaletteId !== undefined) settings.branchPaletteId = s.branchPaletteId
   if (s.customPalettes !== undefined) settings.customPalettes = s.customPalettes
   if (s.lineStyle !== undefined) settings.lineStyle = s.lineStyle
+  if (s.lineOrigin !== undefined) settings.lineOrigin = s.lineOrigin
   if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
   if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
   if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
@@ -635,6 +636,7 @@ function _resetSettings() {
     branchPaletteId: 'default',
     customPalettes: [],
     lineStyle: 'curve',
+    lineOrigin: 'edge',
     layoutMode: 'mindmap',
     taperedEdge: true,
     showOrderBadge: false,
@@ -647,6 +649,7 @@ function _resetSettings() {
   settings.branchPaletteId = defaults.branchPaletteId
   settings.customPalettes = defaults.customPalettes
   settings.lineStyle = defaults.lineStyle
+  settings.lineOrigin = defaults.lineOrigin
   settings.layoutMode = defaults.layoutMode
   settings.taperedEdge = defaults.taperedEdge
   settings.showOrderBadge = defaults.showOrderBadge
@@ -1205,6 +1208,7 @@ const settings = reactive<MindMapSettings>({
   branchPaletteId: 'default',
   customPalettes: [],
   lineStyle: 'curve',
+  lineOrigin: 'edge',
   layoutMode: 'mindmap',
   taperedEdge: true,
   showOrderBadge: false,
@@ -2477,6 +2481,13 @@ function siblingIndexOf(id: string): number {
 // geometry on the root — the previous `rootEdgeAnchor` ray-cast is
 // gone; 1.html just uses the rect-edge midpoint and lets the bezier
 // control points do the smoothing.
+//
+// When `settings.lineOrigin === 'center'`, root-originated edges
+// start from the root node's geometric center instead of the
+// left/right mid-edge.  The line is drawn from the center but the
+// root box is rendered on top (DOM order: edges SVG → nodes), so the
+// portion inside the root is visually covered — the line appears to
+// emerge from underneath the root box.
 // =====================================================================
 function lineAnchor(
   n: LayoutNode,
@@ -2485,6 +2496,11 @@ function lineAnchor(
   child?: LayoutNode
 ): { x: number; y: number } {
   const childDir = child?._dir ?? n._dir
+  // Root-originated edges from the center point — the line is
+  // drawn from (n.x, n.y) and the root box covers it.
+  if (side === 'out' && n.isRoot && settings.lineOrigin === 'center') {
+    return { x: n.x, y: n.y }
+  }
   if (childDir === 'down') {
     // Vertical layout (org mode): line lands on top/bottom mid-edge
     if (side === 'out') return { x: n.x, y: n.y + n.height / 2 }
@@ -3457,6 +3473,7 @@ defineExpose<MindMapExpose>({
     if (s.branchPaletteId !== undefined) settings.branchPaletteId = s.branchPaletteId
     if (s.customPalettes !== undefined) settings.customPalettes = s.customPalettes
     if (s.lineStyle !== undefined) settings.lineStyle = s.lineStyle
+    if (s.lineOrigin !== undefined) settings.lineOrigin = s.lineOrigin
     if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
     if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
     if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
@@ -3469,6 +3486,7 @@ defineExpose<MindMapExpose>({
     branchPaletteId: settings.branchPaletteId,
     customPalettes: settings.customPalettes,
     lineStyle: settings.lineStyle,
+    lineOrigin: settings.lineOrigin,
     layoutMode: settings.layoutMode,
     taperedEdge: settings.taperedEdge,
     showOrderBadge: settings.showOrderBadge,

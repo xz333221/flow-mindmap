@@ -77,6 +77,7 @@ const settings = reactive<MindMapSettings>({
   branchPaletteId: 'default',
   customPalettes: [],
   lineStyle: 'curve',
+  lineOrigin: 'edge',
   layoutMode: 'mindmap',
   taperedEdge: true,
   showOrderBadge: false,

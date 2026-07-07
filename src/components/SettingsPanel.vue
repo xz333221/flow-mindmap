@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive } from 'vue'
-import type { MindMapSettings, LineStyle, BranchPalette, NodeStyle } from '../types'
+import type { MindMapSettings, LineStyle, LineOrigin, BranchPalette, NodeStyle } from '../types'
 import { BUILTIN_PALETTES, parsePaletteInput } from '../core/palettes'
 
 const props = defineProps<{
@@ -31,6 +31,14 @@ const LINE_STYLE_OPTIONS: { value: LineStyle; label: string; viewBox: string }[]
   { value: 'elbow', label: '折线', viewBox: '0 0 28 14' },
   { value: 'straight', label: '直线', viewBox: '0 0 28 14' },
   { value: 'curve', label: 'S曲线', viewBox: '0 0 28 14' },
+]
+
+/** Line origin picker options. 'edge' = the root's left/right
+ *  mid-edge (default), 'center' = the root's geometric center
+ *  (line is covered by the root box). */
+const LINE_ORIGIN_OPTIONS: { value: LineOrigin; label: string }[] = [
+  { value: 'edge', label: '左右中点' },
+  { value: 'center', label: '节点正中心' },
 ]
 
 // Font weight options for the per-node select.
@@ -305,6 +313,43 @@ const previewLines = computed(() => {
                 x1="0" y1="12" x2="28" y2="12"
                 stroke="currentColor"
                 stroke-width="2.2"
+                stroke-linecap="round"
+              />
+            </svg>
+            <span class="zm-line-style-label">{{ opt.label }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Line origin -->
+      <div class="zm-settings-field">
+        <span class="zm-settings-label">线条起点</span>
+        <div class="zm-line-style-group">
+          <button
+            v-for="opt in LINE_ORIGIN_OPTIONS"
+            :key="opt.value"
+            class="zm-line-style-btn"
+            :class="{ 'is-on': settings.lineOrigin === opt.value }"
+            :title="opt.label"
+            @click="set('lineOrigin', opt.value)"
+          >
+            <svg viewBox="0 0 28 18" width="28" height="18" preserveAspectRatio="none">
+              <!-- Root node rectangle -->
+              <rect x="8" y="6" width="12" height="6" rx="2" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.5" />
+              <path
+                v-if="opt.value === 'edge'"
+                d="M 8 9 L 0 9 M 20 9 L 28 9"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+              <path
+                v-else
+                d="M 14 9 L 0 9 M 14 9 L 28 9"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
                 stroke-linecap="round"
               />
             </svg>

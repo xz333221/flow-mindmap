@@ -279,6 +279,7 @@ const settings = reactive<MindMapSettings>({
   branchPaletteId: 'default',
   customPalettes: [],
   lineStyle: 'curve',
+  lineOrigin: 'edge',
   layoutMode: 'mindmap',
   taperedEdge: true,
   showOrderBadge: false,
@@ -311,6 +312,7 @@ function resetSettings() {
     branchPaletteId: 'default',
     customPalettes: [],
     lineStyle: 'curve',
+    lineOrigin: 'edge',
     layoutMode: 'mindmap',
     taperedEdge: true,
     showOrderBadge: false,
@@ -348,6 +350,7 @@ onMounted(() => {
     lineWidthStart: settings.lineWidthStart,
     lineWidthEnd: settings.lineWidthEnd,
     lineStyle: settings.lineStyle,
+    lineOrigin: settings.lineOrigin,
   })
 })
 onBeforeUnmount(() => {

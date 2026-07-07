@@ -125,6 +125,11 @@ export interface MindMapTheme {
 
 export type LineStyle = 'curve' | 'straight' | 'arc' | 'elbow'
 export type LayoutMode = 'mindmap' | 'tree' | 'org'
+/** Where root-originated edges start on the root node.
+ *  'edge' = left/right mid-edge (default, XMind classic),
+ *  'center' = root node center — the line emerges from underneath
+ *  the root box, covered by it. */
+export type LineOrigin = 'edge' | 'center'
 
 /** Identifier for a branch palette — the id of a built-in (e.g.
  *  'default', 'classic', 'vivid', 'dev', 'mint') or a user-defined
@@ -173,6 +178,12 @@ export interface MindMapSettings {
    *  'arc' = smooth rounded arc with semicircular caps (bubble look),
    *  'elbow' = orthogonal right-angle routing (org-chart style). */
   lineStyle: LineStyle
+  /** Where root-originated edges start. 'edge' (default) = the
+   *  left/right mid-edge of the root node; 'center' = the root
+   *  node's geometric center — the line is drawn from the center
+   *  but visually covered by the root box, so it appears to emerge
+   *  from underneath the root. */
+  lineOrigin: LineOrigin
   /** Layout mode (1.html parity).  'mindmap' = center + left/right
    *  fans; 'tree' = single column expanding to the right; 'org' =
    *  downward hierarchy.  Default 'mindmap'. */
