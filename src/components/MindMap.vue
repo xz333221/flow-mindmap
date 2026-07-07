@@ -2508,22 +2508,33 @@ function lineAnchor(
   if (side === 'out' && n.isRoot && settings.lineOrigin === 'center') {
     return { x: n.x, y: n.y }
   }
-  // Root-originated edges with proportional exit point — project
-  // the child's position onto the root's edge (ray-cast / fan).
+  // Root-originated edges with proportional start point.  The Y
+  // is always pinned to the root's horizontal center axis (root.y),
+  // and the X interpolates from the edge toward the center based on
+  // how far the child is from that axis.  Children at the same
+  // height as the root start at the edge (like 'edge' mode);
+  // children far above/below start near the center (like 'center'
+  // mode) and the root box covers the inner portion.
   if (side === 'out' && n.isRoot && settings.lineOrigin === 'proportional' && child) {
     if (childDir === 'down') {
-      // Vertical layout: project child's x onto the root's
-      // top/bottom edge, clamped to the root's horizontal extent.
-      const halfW = n.width / 2
-      const px = Math.max(n.x - halfW, Math.min(n.x + halfW, child.x))
-      return { x: px, y: n.y + n.height / 2 }
+      // Vertical layout: X pinned to root center, Y interpolates
+      // from bottom edge toward center.
+      const dx = Math.abs(child.x - n.x)
+      const ref = n.width / 2
+      const ratio = ref > 0 ? Math.min(1, dx / ref) : 0
+      const edgeY = n.y + n.height / 2
+      const centerY = n.y
+      return { x: n.x, y: edgeY + (centerY - edgeY) * ratio }
     }
-    // Horizontal layout: project child's y onto the root's
-    // left/right edge, clamped to the root's vertical extent.
+    // Horizontal layout: Y pinned to root center, X interpolates
+    // from left/right edge toward center.
+    const dy = Math.abs(child.y - n.y)
+    const ref = n.height / 2
+    const ratio = ref > 0 ? Math.min(1, dy / ref) : 0
     const d = dir !== undefined ? dir : n.side
-    const halfH = n.height / 2
-    const py = Math.max(n.y - halfH, Math.min(n.y + halfH, child.y))
-    return { x: n.x + d * (n.width / 2), y: py }
+    const edgeX = n.x + d * (n.width / 2)
+    const centerX = n.x
+    return { x: edgeX + (centerX - edgeX) * ratio, y: n.y }
   }
   if (childDir === 'down') {
     // Vertical layout (org mode): line lands on top/bottom mid-edge
