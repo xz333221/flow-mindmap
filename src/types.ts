@@ -208,6 +208,11 @@ export interface MindMapSettings {
    *  every edge's parent end = the previous edge's child end, so
    *  widths interpolate continuously from root to leaves. */
   taperedEdge: boolean
+  /** Per-level width decay ratio (tapered mode only).  Each depth's
+   *  parent-side width = lineWidthStart × taper^depth.  Default 0.67
+   *  — a level-1 edge is 67% as wide as the root, level-2 is 67%²
+   *  ≈ 45%, and so on.  Range 0.3–1.0; 1.0 means no decay. */
+  lineWidthTaper: number
   /** When true, every node shows a small badge with its zero-based
    *  position in its parent's children array ("1.", "2.", "3.").
    *  Default false — useful when verifying the data-tree order

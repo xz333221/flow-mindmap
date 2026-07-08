@@ -150,11 +150,9 @@ function widthAt(depth: number, total: number, start: number, end: number): numb
   const t = depth / (total - 1)
   return start + (end - start) * t
 }
-function taperedParentW(depth: number, start: number, end: number): number {
-  if (depth <= 0) return start
-  if (depth === 1) return Math.max(1.5, start * 0.67)
-  if (depth === 2) return Math.max(0.8, start * 0.42)
-  return end
+function taperedParentW(depth: number, start: number, end: number, taper: number): number {
+  const w = start * Math.pow(taper, depth)
+  return Math.max(end, w)
 }
 const previewLines = computed(() => {
   const start = props.settings.lineWidthStart
@@ -176,7 +174,7 @@ const previewLines = computed(() => {
       y1: y,
       x2: right,
       y2: y,
-      w: tapered ? taperedParentW(d, start, end) : widthAt(d, total, start, end),
+      w: tapered ? taperedParentW(d, start, end, props.settings.lineWidthTaper) : widthAt(d, total, start, end),
       color: props.settings.rainbowBranch
         ? colors[i % colors.length]
         : '#94a3b8',
@@ -535,6 +533,31 @@ const previewLines = computed(() => {
         </button>
       </div>
 
+      <!-- Line width taper ratio (only relevant in tapered mode) -->
+      <div v-if="settings.taperedEdge" class="zm-settings-field">
+        <span class="zm-settings-label">层级衰减 <span class="zm-settings-sub">{{ Math.round(settings.lineWidthTaper * 100) }}%</span></span>
+        <input
+          class="zm-settings-number"
+          type="number"
+          step="0.05"
+          min="0.3"
+          max="1"
+          :value="settings.lineWidthTaper"
+          @change="(e) => set('lineWidthTaper', parseFloat((e.target as HTMLInputElement).value) || 0.67)"
+        />
+      </div>
+      <div v-if="settings.taperedEdge" class="zm-slider">
+        <div class="zm-slider-track" />
+        <input
+          type="range"
+          min="0.3"
+          max="1"
+          step="0.01"
+          :value="settings.lineWidthTaper"
+          @input="(e) => set('lineWidthTaper', parseFloat((e.target as HTMLInputElement).value))"
+        />
+      </div>
+
       <!-- Order badge -->
       <div class="zm-settings-field">
         <span class="zm-settings-label">显示节点序号</span>
@@ -739,6 +762,13 @@ const previewLines = computed(() => {
   flex: 1;
   color: #334155;
   font-weight: 500;
+}
+.zm-settings-sub {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 400;
+  font-family: ui-monospace, monospace;
+  margin-left: 4px;
 }
 .zm-settings-value-tag {
   font-size: 11px;

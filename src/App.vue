@@ -283,6 +283,7 @@ const settings = reactive<MindMapSettings>({
   lineOrigin: 'proportional',
   layoutMode: 'mindmap',
   taperedEdge: true,
+  lineWidthTaper: 0.67,
   showOrderBadge: false,
   canvasBg: undefined,
 })
@@ -317,6 +318,7 @@ function resetSettings() {
     lineOrigin: 'proportional',
     layoutMode: 'mindmap',
     taperedEdge: true,
+    lineWidthTaper: 0.67,
     showOrderBadge: false,
     canvasBg: undefined,
   }

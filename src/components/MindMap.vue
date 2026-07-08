@@ -619,6 +619,7 @@ function _onSettingsChange(s: Partial<MindMapSettings>) {
   if (s.rootLineStyle !== undefined) settings.rootLineStyle = s.rootLineStyle
   if (s.lineOrigin !== undefined) settings.lineOrigin = s.lineOrigin
   if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
+  if (s.lineWidthTaper !== undefined) settings.lineWidthTaper = Math.max(0.3, Math.min(1, s.lineWidthTaper))
   if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
   if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
 }
@@ -641,6 +642,7 @@ rootLineStyle: 'arc',
 lineOrigin: 'proportional',
     layoutMode: 'mindmap',
     taperedEdge: true,
+    lineWidthTaper: 0.67,
     showOrderBadge: false,
     canvasBg: undefined,
   }
@@ -655,6 +657,7 @@ lineOrigin: 'proportional',
   settings.lineOrigin = defaults.lineOrigin
   settings.layoutMode = defaults.layoutMode
   settings.taperedEdge = defaults.taperedEdge
+  settings.lineWidthTaper = defaults.lineWidthTaper
   settings.showOrderBadge = defaults.showOrderBadge
   settings.canvasBg = defaults.canvasBg
 }
@@ -1215,6 +1218,7 @@ rootLineStyle: 'arc',
 lineOrigin: 'proportional',
   layoutMode: 'mindmap',
   taperedEdge: true,
+  lineWidthTaper: 0.67,
   showOrderBadge: false,
   canvasBg: undefined,
 })
@@ -1251,12 +1255,13 @@ function endWidthForDepth(depth: number): number {
     : continuousWidth(depth)
 }
 function taperedParentWidth(depth: number): number {
-  // Per-tier parent-side width.  The child side is always
-  // `lineWidthEnd` (set by endWidthForDepth above).
-  if (depth <= 0) return settings.lineWidthStart
-  if (depth === 1) return Math.max(1.5, settings.lineWidthStart * 0.67)
-  if (depth === 2) return Math.max(0.8, settings.lineWidthStart * 0.42)
-  return settings.lineWidthEnd
+  // Per-tier parent-side width using exponential decay:
+  //   depth 0 = lineWidthStart, depth N = lineWidthStart × taper^N,
+  //   clamped to lineWidthEnd so very deep levels don't go below
+  //   the leaf width.
+  const taper = settings.lineWidthTaper
+  const w = settings.lineWidthStart * Math.pow(taper, depth)
+  return Math.max(settings.lineWidthEnd, w)
 }
 function continuousWidth(depth: number): number {
   // depth 0 = root → start; depth >= 3 = leaf → end; in between
@@ -3657,6 +3662,7 @@ defineExpose<MindMapExpose>({
     if (s.rootLineStyle !== undefined) settings.rootLineStyle = s.rootLineStyle
     if (s.lineOrigin !== undefined) settings.lineOrigin = s.lineOrigin
     if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
+    if (s.lineWidthTaper !== undefined) settings.lineWidthTaper = Math.max(0.3, Math.min(1, s.lineWidthTaper))
     if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
     if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
   },
@@ -3672,6 +3678,7 @@ defineExpose<MindMapExpose>({
     lineOrigin: settings.lineOrigin,
     layoutMode: settings.layoutMode,
     taperedEdge: settings.taperedEdge,
+    lineWidthTaper: settings.lineWidthTaper,
     showOrderBadge: settings.showOrderBadge,
     canvasBg: settings.canvasBg,
   }),
