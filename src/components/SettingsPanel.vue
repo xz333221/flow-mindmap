@@ -24,22 +24,17 @@ function set<K extends keyof MindMapSettings>(key: K, value: MindMapSettings[K])
 }
 
 /** Line style picker options. The icon shows the line shape; the
- *  label is the Chinese name.  Order matches XMind's style picker:
- *  arc → elbow → straight → S-curve. */
+ *  label is the Chinese name. */
 const LINE_STYLE_OPTIONS: { value: LineStyle; label: string; viewBox: string }[] = [
   { value: 'arc', label: '圆弧', viewBox: '0 0 28 14' },
+  { value: 'rounded-elbow', label: '圆角折线', viewBox: '0 0 28 14' },
   { value: 'elbow', label: '折线', viewBox: '0 0 28 14' },
   { value: 'straight', label: '直线', viewBox: '0 0 28 14' },
   { value: 'curve', label: 'S曲线', viewBox: '0 0 28 14' },
 ]
 
-/** Root line style picker options — same as LINE_STYLE_OPTIONS but
- *  with a leading '跟随全局' option that clears rootLineStyle so it
- *  falls back to the global lineStyle. */
-const ROOT_LINE_STYLE_OPTIONS: { value: LineStyle | undefined; label: string; viewBox: string }[] = [
-  { value: undefined, label: '跟随全局', viewBox: '0 0 28 14' },
-  ...LINE_STYLE_OPTIONS,
-]
+/** Root line style picker — same options as LINE_STYLE_OPTIONS. */
+const ROOT_LINE_STYLE_OPTIONS = LINE_STYLE_OPTIONS
 
 /** Line origin picker options. 'edge' = the root's left/right
  *  mid-edge (default), 'center' = the root's geometric center
@@ -280,9 +275,9 @@ const previewLines = computed(() => {
 
       <div class="zm-settings-divider" />
 
-      <!-- Line style -->
+      <!-- Line style (other nodes) -->
       <div class="zm-settings-field">
-        <span class="zm-settings-label">线条类型</span>
+        <span class="zm-settings-label">其他节点线条</span>
         <div class="zm-line-style-group">
           <button
             v-for="opt in LINE_STYLE_OPTIONS"
@@ -300,6 +295,15 @@ const previewLines = computed(() => {
                 stroke="currentColor"
                 stroke-width="2.2"
                 stroke-linecap="round"
+              />
+              <path
+                v-else-if="opt.value === 'rounded-elbow'"
+                d="M 0 10 L 12 10 Q 16 10 16 6 L 16 4 L 28 4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
               />
               <path
                 v-else-if="opt.value === 'elbow'"
@@ -337,28 +341,29 @@ const previewLines = computed(() => {
         <div class="zm-line-style-group">
           <button
             v-for="opt in ROOT_LINE_STYLE_OPTIONS"
-            :key="opt.label"
+            :key="opt.value"
             class="zm-line-style-btn"
-            :class="{ 'is-on': (settings.rootLineStyle ?? undefined) === (opt.value ?? undefined) }"
+            :class="{ 'is-on': settings.rootLineStyle === opt.value }"
             :title="opt.label"
             @click="set('rootLineStyle', opt.value)"
           >
             <svg :viewBox="opt.viewBox" width="28" height="14" preserveAspectRatio="none">
-              <text
-                v-if="opt.value === undefined"
-                x="14" y="11"
-                text-anchor="middle"
-                font-size="10"
-                fill="currentColor"
-                opacity="0.7"
-              >=</text>
               <path
-                v-else-if="opt.value === 'arc'"
+                v-if="opt.value === 'arc'"
                 d="M 0 12 Q 14 2, 28 12"
                 fill="none"
                 stroke="currentColor"
                 stroke-width="2.2"
                 stroke-linecap="round"
+              />
+              <path
+                v-else-if="opt.value === 'rounded-elbow'"
+                d="M 0 10 L 12 10 Q 16 10 16 6 L 16 4 L 28 4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
               />
               <path
                 v-else-if="opt.value === 'elbow'"

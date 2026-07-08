@@ -636,9 +636,9 @@ function _resetSettings() {
     rainbowBranch: true,
     branchPaletteId: 'default',
     customPalettes: [],
-    lineStyle: 'curve',
-    rootLineStyle: undefined,
-    lineOrigin: 'edge',
+lineStyle: 'rounded-elbow',
+rootLineStyle: 'arc',
+lineOrigin: 'proportional',
     layoutMode: 'mindmap',
     taperedEdge: true,
     showOrderBadge: false,
@@ -1210,9 +1210,9 @@ const settings = reactive<MindMapSettings>({
   rainbowBranch: true,
   branchPaletteId: 'default',
   customPalettes: [],
-  lineStyle: 'curve',
-  rootLineStyle: undefined,
-  lineOrigin: 'edge',
+lineStyle: 'rounded-elbow',
+rootLineStyle: 'arc',
+lineOrigin: 'proportional',
   layoutMode: 'mindmap',
   taperedEdge: true,
   showOrderBadge: false,
@@ -1223,7 +1223,7 @@ const settings = reactive<MindMapSettings>({
  *  from the root use `rootLineStyle` when set, falling back to the
  *  global `lineStyle` for all other edges. */
 function edgeLineStyle(fromIsRoot: boolean): LineStyle {
-  return fromIsRoot && settings.rootLineStyle ? settings.rootLineStyle : settings.lineStyle
+  return fromIsRoot ? settings.rootLineStyle : settings.lineStyle
 }
 
 // Two width strategies, selected by `settings.taperedEdge`:
@@ -1319,7 +1319,7 @@ function variableWidthPath(
   startW: number,
   endW: number,
   n = 32,
-  style: 'curve' | 'straight' | 'arc' | 'elbow' = 'curve',
+  style: 'curve' | 'straight' | 'arc' | 'elbow' | 'rounded-elbow' = 'curve',
   dir: 'right' | 'left' | 'down' = 'right'
 ): string {
   if (style === 'curve') {
@@ -1481,7 +1481,108 @@ function variableWidthPath(
     return ed
   }
 
+  if (style === 'rounded-elbow') {
+    // Orthogonal routing with quarter-circle rounded corners instead
+    // of sharp miters.  Same centerline as 'elbow' (from → mid → mid →
+    // to) but each 90° corner is replaced by a fillet arc.
+    const cl: { x: number; y: number }[] = []
+    // Corner definitions: position + incoming dir + outgoing dir.
+    type Corner = { pos: { x: number; y: number }; d1: { x: number; y: number }; d2: { x: number; y: number } }
+    let corners: Corner[]
+    if (dir === 'down') {
+      const midY = (from.y + to.y) / 2
+      const sy1 = Math.sign(midY - from.y) || 1
+      const sx = Math.sign(to.x - from.x) || 1
+      const sy2 = Math.sign(to.y - midY) || 1
+      corners = [
+        { pos: { x: from.x, y: midY }, d1: { x: 0, y: sy1 }, d2: { x: sx, y: 0 } },
+        { pos: { x: to.x, y: midY }, d1: { x: sx, y: 0 }, d2: { x: 0, y: sy2 } },
+      ]
+    } else {
+      const midX = (from.x + to.x) / 2
+      const sx1 = Math.sign(midX - from.x) || 1
+      const sy = Math.sign(to.y - from.y) || 1
+      const sx2 = Math.sign(to.x - midX) || 1
+      corners = [
+        { pos: { x: midX, y: from.y }, d1: { x: sx1, y: 0 }, d2: { x: 0, y: sy } },
+        { pos: { x: midX, y: to.y }, d1: { x: 0, y: sy }, d2: { x: sx2, y: 0 } },
+      ]
+    }
+    // Clamp the fillet radius to half of the shortest adjacent segment.
+    const seg1Len = Math.hypot(corners[0].pos.x - from.x, corners[0].pos.y - from.y)
+    const seg2Len = Math.hypot(corners[1].pos.x - corners[0].pos.x, corners[1].pos.y - corners[0].pos.y)
+    const seg3Len = Math.hypot(to.x - corners[1].pos.x, to.y - corners[1].pos.y)
+    const maxR = Math.min(seg1Len, seg2Len, seg3Len, 14) * 0.45
+    const radius = Math.max(2, maxR)
+
+    // Helper: sample a quarter-circle arc at a right-angle corner.
+    function arcSamples(c: Corner, r: number, steps: number): { x: number; y: number }[] {
+      const S = { x: c.pos.x - r * c.d1.x, y: c.pos.y - r * c.d1.y }
+      const E = { x: c.pos.x + r * c.d2.x, y: c.pos.y + r * c.d2.y }
+      const O = { x: c.pos.x + r * (c.d2.x - c.d1.x), y: c.pos.y + r * (c.d2.y - c.d1.y) }
+      const aS = Math.atan2(S.y - O.y, S.x - O.x)
+      const aE = Math.atan2(E.y - O.y, E.x - O.x)
+      let delta = aE - aS
+      while (delta > Math.PI) delta -= 2 * Math.PI
+      while (delta < -Math.PI) delta += 2 * Math.PI
+      const out: { x: number; y: number }[] = []
+      for (let i = 1; i < steps; i++) {
+        const t = i / steps
+        const a = aS + delta * t
+        out.push({ x: O.x + r * Math.cos(a), y: O.y + r * Math.sin(a) })
+      }
+      return out
+    }
+
+    // Build centerline: start → approach c1 → arc c1 → approach c2 → arc c2 → end
+    cl.push(from)
+    cl.push({ x: corners[0].pos.x - radius * corners[0].d1.x, y: corners[0].pos.y - radius * corners[0].d1.y })
+    for (const p of arcSamples(corners[0], radius, 7)) cl.push(p)
+    cl.push({ x: corners[1].pos.x - radius * corners[1].d1.x, y: corners[1].pos.y - radius * corners[1].d1.y })
+    for (const p of arcSamples(corners[1], radius, 7)) cl.push(p)
+    cl.push(to)
+
+    // Compute cumulative arc-length for width interpolation.
+    const segLens: number[] = []
+    let totalLen = 0
+    for (let i = 0; i < cl.length - 1; i++) {
+      const l = Math.hypot(cl[i + 1].x - cl[i].x, cl[i + 1].y - cl[i].y)
+      segLens.push(l)
+      totalLen += l
+    }
+    // Offset polygon via finite-difference normals.
+    const rleft: { x: number; y: number }[] = []
+    const rright: { x: number; y: number }[] = []
+    let acc = 0
+    for (let i = 0; i < cl.length; i++) {
+      const prev = cl[Math.max(0, i - 1)]
+      const next = cl[Math.min(cl.length - 1, i + 1)]
+      const dx = next.x - prev.x
+      const dy = next.y - prev.y
+      let len = Math.hypot(dx, dy)
+      if (len < 1e-6) len = 1
+      const nx = -dy / len
+      const ny = dx / len
+      if (i > 0) acc += segLens[i - 1]
+      const t = totalLen > 0 ? acc / totalLen : 0
+      const halfW = (startW + (endW - startW) * t) / 2
+      rleft.push({ x: cl[i].x + nx * halfW, y: cl[i].y + ny * halfW })
+      rright.push({ x: cl[i].x - nx * halfW, y: cl[i].y - ny * halfW })
+    }
+    // Assemble with rounded semicircular end caps (like 'arc' style).
+    const rStart = startW / 2
+    const rEnd = endW / 2
+    let rd = `M ${rleft[0].x.toFixed(2)} ${rleft[0].y.toFixed(2)}`
+    for (let i = 1; i < rleft.length; i++) rd += ` L ${rleft[i].x.toFixed(2)} ${rleft[i].y.toFixed(2)}`
+    rd += ` A ${rEnd.toFixed(2)} ${rEnd.toFixed(2)} 0 0 0 ${rright[rleft.length - 1].x.toFixed(2)} ${rright[rleft.length - 1].y.toFixed(2)}`
+    for (let i = rright.length - 2; i >= 0; i--) rd += ` L ${rright[i].x.toFixed(2)} ${rright[i].y.toFixed(2)}`
+    rd += ` A ${rStart.toFixed(2)} ${rStart.toFixed(2)} 0 0 0 ${rleft[0].x.toFixed(2)} ${rleft[0].y.toFixed(2)}`
+    rd += ' Z'
+    return rd
+  }
+
   // 'straight' fallback: a simple quad with no curve at all.
+  {
   const dx = to.x - from.x
   const dy = to.y - from.y
   let len = Math.hypot(dx, dy)
@@ -1495,6 +1596,7 @@ function variableWidthPath(
   const c = { x: to.x - nx * halfEnd, y: to.y - ny * halfEnd }
   const d = { x: to.x + nx * halfEnd, y: to.y + ny * halfEnd }
   return `M ${a.x.toFixed(2)} ${a.y.toFixed(2)} L ${d.x.toFixed(2)} ${d.y.toFixed(2)} L ${c.x.toFixed(2)} ${c.y.toFixed(2)} L ${b.x.toFixed(2)} ${b.y.toFixed(2)} Z`
+  }
 }
 
 const lrRootChildren = computed<LayoutNode[]>(() => layoutResult.value.root.children)

@@ -123,7 +123,7 @@ export interface MindMapTheme {
   rainbowBranch?: boolean
 }
 
-export type LineStyle = 'curve' | 'straight' | 'arc' | 'elbow'
+export type LineStyle = 'curve' | 'straight' | 'arc' | 'elbow' | 'rounded-elbow'
 export type LayoutMode = 'mindmap' | 'tree' | 'org'
 /** Where root-originated edges start on the root node.
  *  'edge' = left/right mid-edge (default, XMind classic),
@@ -180,12 +180,13 @@ export interface MindMapSettings {
    *  'straight' = direct diagonal line segment,
    *  'arc' = smooth rounded arc with semicircular caps (bubble look),
    *  'elbow' = orthogonal right-angle routing (org-chart style). */
+  /** Line style for edges between NON-root nodes (i.e. level-1→
+   *  level-2, level-2→level-3, …).  'rounded-elbow' = orthogonal
+   *  routing with rounded corners (default, modern org-chart look). */
   lineStyle: LineStyle
-  /** Line style for edges that originate FROM the root node. When
-   *  undefined, falls back to `lineStyle`. This lets you use e.g.
-   *  'arc' for root branches while keeping 'curve' for deeper
-   *  levels — a common XMind look. */
-  rootLineStyle?: LineStyle
+  /** Line style for edges that originate FROM the root node.
+   *  Default 'arc' — smooth rainbow arcs fanning out from the root. */
+  rootLineStyle: LineStyle
   /** Where root-originated edges start. 'edge' (default) = the
    *  left/right mid-edge of the root node; 'center' = the root
    *  node's geometric center — the line is drawn from the center
