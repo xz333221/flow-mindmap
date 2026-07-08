@@ -2511,26 +2511,26 @@ function lineAnchor(
   // Root-originated edges with proportional start point.  The Y
   // is always pinned to the root's horizontal center axis (root.y),
   // and the X interpolates from the edge toward the center based on
-  // how far the child is from that axis.  Children at the same
-  // height as the root start at the edge (like 'edge' mode);
-  // children far above/below start near the center (like 'center'
-  // mode) and the root box covers the inner portion.
+  // how far the child is from that axis.  The reference distance is
+  // the *maximum* vertical offset among all root children, so the
+  // furthest child gets ratio = 1 (starts at center, like 'center'
+  // mode) while a child at the same height gets ratio = 0 (starts
+  // at the edge, like 'edge' mode).
   if (side === 'out' && n.isRoot && settings.lineOrigin === 'proportional' && child) {
+    const rootChildren = layoutResult.value.root.children
     if (childDir === 'down') {
       // Vertical layout: X pinned to root center, Y interpolates
       // from bottom edge toward center.
-      const dx = Math.abs(child.x - n.x)
-      const ref = n.width / 2
-      const ratio = ref > 0 ? Math.min(1, dx / ref) : 0
+      const maxDx = rootChildren.reduce((m, c) => Math.max(m, Math.abs(c.x - n.x)), 1)
+      const ratio = Math.min(1, Math.abs(child.x - n.x) / maxDx)
       const edgeY = n.y + n.height / 2
       const centerY = n.y
       return { x: n.x, y: edgeY + (centerY - edgeY) * ratio }
     }
     // Horizontal layout: Y pinned to root center, X interpolates
     // from left/right edge toward center.
-    const dy = Math.abs(child.y - n.y)
-    const ref = n.height / 2
-    const ratio = ref > 0 ? Math.min(1, dy / ref) : 0
+    const maxDy = rootChildren.reduce((m, c) => Math.max(m, Math.abs(c.y - n.y)), 1)
+    const ratio = Math.min(1, Math.abs(child.y - n.y) / maxDy)
     const d = dir !== undefined ? dir : n.side
     const edgeX = n.x + d * (n.width / 2)
     const centerX = n.x
