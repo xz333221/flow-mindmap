@@ -25,7 +25,7 @@ import {
   markdownToMindMap,
   mindMapToMarkdown,
 } from '../tree'
-import type { MindMapNode, MindMapTheme, MindMapExpose, MindMapSettings, NodeStyle, MindMapImage } from '../types'
+import type { MindMapNode, MindMapTheme, MindMapExpose, MindMapSettings, NodeStyle, MindMapImage, LineOrigin } from '../types'
 import { usePanZoom } from '../composables/usePanZoom'
 import { useKeyboard } from '../composables/useKeyboard'
 import { useHistory } from '../composables/useHistory'
@@ -616,6 +616,7 @@ function _onSettingsChange(s: Partial<MindMapSettings>) {
   if (s.branchPaletteId !== undefined) settings.branchPaletteId = s.branchPaletteId
   if (s.customPalettes !== undefined) settings.customPalettes = s.customPalettes
   if (s.lineStyle !== undefined) settings.lineStyle = s.lineStyle
+  if (s.lineOrigin !== undefined) settings.lineOrigin = s.lineOrigin
   if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
   if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
   if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
@@ -635,6 +636,7 @@ function _resetSettings() {
     branchPaletteId: 'default',
     customPalettes: [],
     lineStyle: 'curve',
+    lineOrigin: 'edge',
     layoutMode: 'mindmap',
     taperedEdge: true,
     showOrderBadge: false,
@@ -647,6 +649,7 @@ function _resetSettings() {
   settings.branchPaletteId = defaults.branchPaletteId
   settings.customPalettes = defaults.customPalettes
   settings.lineStyle = defaults.lineStyle
+  settings.lineOrigin = defaults.lineOrigin
   settings.layoutMode = defaults.layoutMode
   settings.taperedEdge = defaults.taperedEdge
   settings.showOrderBadge = defaults.showOrderBadge
@@ -1205,6 +1208,7 @@ const settings = reactive<MindMapSettings>({
   branchPaletteId: 'default',
   customPalettes: [],
   lineStyle: 'curve',
+  lineOrigin: 'edge',
   layoutMode: 'mindmap',
   taperedEdge: true,
   showOrderBadge: false,
@@ -1266,22 +1270,45 @@ function cubicAt(
   return { x, y }
 }
 
+/** Quadratic Bezier point at parameter t in [0,1].  P0=from,
+ *  P1=cp, P2=to.  Used by the 'arc' line style. */
+function quadAt(
+  t: number,
+  p0: { x: number; y: number },
+  cp: { x: number; y: number },
+  p2: { x: number; y: number }
+) {
+  const u = 1 - t
+  const x = u * u * p0.x + 2 * u * t * cp.x + t * t * p2.x
+  const y = u * u * p0.y + 2 * u * t * cp.y + t * t * p2.y
+  return { x, y }
+}
+
 /** Build a single closed-fill SVG path that visually represents the
- *  cubic Bezier from `from` to `to` with a stroke width that tapers
+ *  connection from `from` to `to` with a stroke width that tapers
  *  linearly from `startW` (parent end, thick) to `endW` (child end,
  *  thin).  32 samples along the curve, offset along the normal, give
  *  a smooth filled ribbon — restores the "粗端(根部) 细端(子端)"
  *  taper that the simple-stroke bezier was missing.
  *
- *  For 'down' (org mode) the control points sit on the parent/child
- *  x line, offset on y by 45% of the gap (1.html parity). */
+ *  Styles:
+ *  - 'curve': S-shaped cubic bezier (fish-gill, XMind default).
+ *    For 'down' (org mode) the control points sit on the parent/child
+ *    x line, offset on y by 45% of the gap (1.html parity).
+ *  - 'arc': smooth quadratic-bezier arc with semicircular end caps.
+ *    The curve starts tangent to the parent edge then bows to the
+ *    child — no inflection point, giving a "rainbow" / bubble look.
+ *  - 'elbow': orthogonal right-angle routing (org-chart style).
+ *    Goes along the primary axis, turns 90°, crosses, turns 90°,
+ *    arrives at the target.  Miter corners.
+ *  - 'straight': direct diagonal line segment. */
 function variableWidthPath(
   from: { x: number; y: number },
   to: { x: number; y: number },
   startW: number,
   endW: number,
   n = 32,
-  style: 'curve' | 'straight' = 'curve',
+  style: 'curve' | 'straight' | 'arc' | 'elbow' = 'curve',
   dir: 'right' | 'left' | 'down' = 'right'
 ): string {
   if (style === 'curve') {
@@ -1325,6 +1352,122 @@ function variableWidthPath(
     for (let i = n; i >= 0; i--) d2 += ` L ${right[i].x.toFixed(2)} ${right[i].y.toFixed(2)}`
     d2 += ' Z'
     return d2
+  }
+
+  if (style === 'arc') {
+    // Smooth quadratic-bezier arc ("rainbow" shape).  The control
+    // point sits at the midpoint of the primary axis, pinned to the
+    // CHILD's position on the secondary axis.  This makes the curve
+    // arrive at the child edge tangentially (horizontal for L/R,
+    // vertical for down) and bow AWAY from the parent — like a
+    // rainbow arc rather than an S-curve (no inflection point).
+    let cp: { x: number; y: number }
+    if (dir === 'right' || dir === 'left') {
+      cp = { x: (from.x + to.x) / 2, y: to.y }
+    } else {
+      cp = { x: to.x, y: (from.y + to.y) / 2 }
+    }
+    const qderiv = (t: number) => {
+      const u = 1 - t
+      const dx = 2 * u * (cp.x - from.x) + 2 * t * (to.x - cp.x)
+      const dy = 2 * u * (cp.y - from.y) + 2 * t * (to.y - cp.y)
+      return { dx, dy }
+    }
+    const aleft: { x: number; y: number }[] = []
+    const aright: { x: number; y: number }[] = []
+    for (let i = 0; i <= n; i++) {
+      const t = i / n
+      const p = i === 0 ? from : i === n ? to : quadAt(t, from, cp, to)
+      const d = qderiv(t)
+      let dlen = Math.hypot(d.dx, d.dy)
+      if (dlen < 1e-6) dlen = 1
+      const nxn = -d.dy / dlen
+      const nyn = d.dx / dlen
+      const halfW = (startW + (endW - startW) * t) / 2
+      aleft.push({ x: p.x + nxn * halfW, y: p.y + nyn * halfW })
+      aright.push({ x: p.x - nxn * halfW, y: p.y - nyn * halfW })
+    }
+    // Ribbon with rounded semicircular end caps.  sweep-flag 0
+    // (counterclockwise on screen) is always correct because the
+    // polygon is traced left→end→right→start, which is always
+    // counterclockwise regardless of curve direction.
+    const rStart = startW / 2
+    const rEnd = endW / 2
+    let ad = `M ${aleft[0].x.toFixed(2)} ${aleft[0].y.toFixed(2)}`
+    for (let i = 1; i <= n; i++) ad += ` L ${aleft[i].x.toFixed(2)} ${aleft[i].y.toFixed(2)}`
+    ad += ` A ${rEnd.toFixed(2)} ${rEnd.toFixed(2)} 0 0 0 ${aright[n].x.toFixed(2)} ${aright[n].y.toFixed(2)}`
+    for (let i = n - 1; i >= 0; i--) ad += ` L ${aright[i].x.toFixed(2)} ${aright[i].y.toFixed(2)}`
+    ad += ` A ${rStart.toFixed(2)} ${rStart.toFixed(2)} 0 0 0 ${aleft[0].x.toFixed(2)} ${aleft[0].y.toFixed(2)}`
+    ad += ' Z'
+    return ad
+  }
+
+  if (style === 'elbow') {
+    // Orthogonal routing: primary-axis → 90° turn → cross →
+    // 90° turn → primary-axis.  The turn sits at the midpoint of
+    // the secondary axis so the ribbon is symmetric.
+    const epts: { x: number; y: number }[] = []
+    if (dir === 'down') {
+      const midY = (from.y + to.y) / 2
+      epts.push(from, { x: from.x, y: midY }, { x: to.x, y: midY }, to)
+    } else {
+      const midX = (from.x + to.x) / 2
+      epts.push(from, { x: midX, y: from.y }, { x: midX, y: to.y }, to)
+    }
+    // Segment lengths → total length for width interpolation.
+    const segLens: number[] = []
+    let totalLen = 0
+    for (let i = 0; i < epts.length - 1; i++) {
+      const l = Math.hypot(epts[i + 1].x - epts[i].x, epts[i + 1].y - epts[i].y)
+      segLens.push(l)
+      totalLen += l
+    }
+    // Half-width at each path point (interpolated by arc length).
+    const ehw: number[] = [startW / 2]
+    let acc = 0
+    for (let i = 0; i < segLens.length - 1; i++) {
+      acc += segLens[i]
+      const t = totalLen > 0 ? acc / totalLen : 0
+      ehw.push((startW + (endW - startW) * t) / 2)
+    }
+    ehw.push(endW / 2)
+    // Per-segment normal (unit, left-hand perpendicular).
+    const enerm: { x: number; y: number }[] = []
+    for (let i = 0; i < epts.length - 1; i++) {
+      const dx = epts[i + 1].x - epts[i].x
+      const dy = epts[i + 1].y - epts[i].y
+      let len = Math.hypot(dx, dy)
+      if (len < 1e-6) len = 1
+      enerm.push({ x: -dy / len, y: dx / len })
+    }
+    // Build offset polygons with miter corners.  For orthogonal
+    // segments the two normals at a corner are perpendicular and
+    // axis-aligned, so the miter vertex is simply the corner point
+    // plus the sum of the two normal-offset vectors.
+    const eleft: { x: number; y: number }[] = []
+    const eright: { x: number; y: number }[] = []
+    // Start
+    eleft.push({ x: epts[0].x + enerm[0].x * ehw[0], y: epts[0].y + enerm[0].y * ehw[0] })
+    eright.push({ x: epts[0].x - enerm[0].x * ehw[0], y: epts[0].y - enerm[0].y * ehw[0] })
+    // Corners (miter)
+    for (let i = 1; i < epts.length - 1; i++) {
+      const n1 = enerm[i - 1]
+      const n2 = enerm[i]
+      const w = ehw[i]
+      eleft.push({ x: epts[i].x + n1.x * w + n2.x * w, y: epts[i].y + n1.y * w + n2.y * w })
+      eright.push({ x: epts[i].x - n1.x * w - n2.x * w, y: epts[i].y - n1.y * w - n2.y * w })
+    }
+    // End
+    const lastN = enerm[enerm.length - 1]
+    const lastW = ehw[ehw.length - 1]
+    eleft.push({ x: epts[epts.length - 1].x + lastN.x * lastW, y: epts[epts.length - 1].y + lastN.y * lastW })
+    eright.push({ x: epts[epts.length - 1].x - lastN.x * lastW, y: epts[epts.length - 1].y - lastN.y * lastW })
+    // Assemble: left forward → right backward → close.
+    let ed = `M ${eleft[0].x.toFixed(2)} ${eleft[0].y.toFixed(2)}`
+    for (let i = 1; i < eleft.length; i++) ed += ` L ${eleft[i].x.toFixed(2)} ${eleft[i].y.toFixed(2)}`
+    for (let i = eright.length - 1; i >= 0; i--) ed += ` L ${eright[i].x.toFixed(2)} ${eright[i].y.toFixed(2)}`
+    ed += ' Z'
+    return ed
   }
 
   // 'straight' fallback: a simple quad with no curve at all.
@@ -2351,6 +2494,20 @@ function siblingIndexOf(id: string): number {
 // geometry on the root — the previous `rootEdgeAnchor` ray-cast is
 // gone; 1.html just uses the rect-edge midpoint and lets the bezier
 // control points do the smoothing.
+//
+// When `settings.lineOrigin === 'center'`, root-originated edges
+// start from the root node's geometric center instead of the
+// left/right mid-edge.  The line is drawn from the center but the
+// root box is rendered on top (DOM order: edges SVG → nodes), so the
+// portion inside the root is visually covered — the line appears to
+// emerge from underneath the root box.
+//
+// When `settings.lineOrigin === 'proportional'`, the exit point on
+// the root edge is projected from the child's position — think of
+// it as a ray from the root center toward the child, intersected
+// with the root's border.  Children above the center exit from the
+// upper part of the edge; children below exit from the lower part,
+// creating a natural fan/radiation effect.
 // =====================================================================
 function lineAnchor(
   n: LayoutNode,
@@ -2359,6 +2516,39 @@ function lineAnchor(
   child?: LayoutNode
 ): { x: number; y: number } {
   const childDir = child?._dir ?? n._dir
+  // Root-originated edges from the center point — the line is
+  // drawn from (n.x, n.y) and the root box covers it.
+  if (side === 'out' && n.isRoot && settings.lineOrigin === 'center') {
+    return { x: n.x, y: n.y }
+  }
+  // Root-originated edges with proportional start point.  The Y
+  // is always pinned to the root's horizontal center axis (root.y),
+  // and the X interpolates from the edge toward the center based on
+  // how far the child is from that axis.  The reference distance is
+  // the *maximum* vertical offset among all root children, so the
+  // furthest child gets ratio = 1 (starts at center, like 'center'
+  // mode) while a child at the same height gets ratio = 0 (starts
+  // at the edge, like 'edge' mode).
+  if (side === 'out' && n.isRoot && settings.lineOrigin === 'proportional' && child) {
+    const rootChildren = layoutResult.value.root.children
+    if (childDir === 'down') {
+      // Vertical layout: X pinned to root center, Y interpolates
+      // from bottom edge toward center.
+      const maxDx = rootChildren.reduce((m, c) => Math.max(m, Math.abs(c.x - n.x)), 1)
+      const ratio = Math.min(1, Math.abs(child.x - n.x) / maxDx)
+      const edgeY = n.y + n.height / 2
+      const centerY = n.y
+      return { x: n.x, y: edgeY + (centerY - edgeY) * ratio }
+    }
+    // Horizontal layout: Y pinned to root center, X interpolates
+    // from left/right edge toward center.
+    const maxDy = rootChildren.reduce((m, c) => Math.max(m, Math.abs(c.y - n.y)), 1)
+    const ratio = Math.min(1, Math.abs(child.y - n.y) / maxDy)
+    const d = dir !== undefined ? dir : n.side
+    const edgeX = n.x + d * (n.width / 2)
+    const centerX = n.x
+    return { x: edgeX + (centerX - edgeX) * ratio, y: n.y }
+  }
   if (childDir === 'down') {
     // Vertical layout (org mode): line lands on top/bottom mid-edge
     if (side === 'out') return { x: n.x, y: n.y + n.height / 2 }
@@ -3331,6 +3521,7 @@ defineExpose<MindMapExpose>({
     if (s.branchPaletteId !== undefined) settings.branchPaletteId = s.branchPaletteId
     if (s.customPalettes !== undefined) settings.customPalettes = s.customPalettes
     if (s.lineStyle !== undefined) settings.lineStyle = s.lineStyle
+    if (s.lineOrigin !== undefined) settings.lineOrigin = s.lineOrigin
     if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
     if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
     if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
@@ -3343,6 +3534,7 @@ defineExpose<MindMapExpose>({
     branchPaletteId: settings.branchPaletteId,
     customPalettes: settings.customPalettes,
     lineStyle: settings.lineStyle,
+    lineOrigin: settings.lineOrigin,
     layoutMode: settings.layoutMode,
     taperedEdge: settings.taperedEdge,
     showOrderBadge: settings.showOrderBadge,

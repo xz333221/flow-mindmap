@@ -77,6 +77,7 @@ const settings = reactive<MindMapSettings>({
   branchPaletteId: 'default',
   customPalettes: [],
   lineStyle: 'curve',
+  lineOrigin: 'edge',
   layoutMode: 'mindmap',
   taperedEdge: true,
   showOrderBadge: false,
@@ -283,8 +284,10 @@ onBeforeUnmount(() => {
             <label class="demo-field">
               <span class="demo-field-label">lineStyle</span>
               <select v-model="settings.lineStyle" data-testid="set-linestyle" @change="mmRef?.applySettings({ lineStyle: settings.lineStyle })">
-                <option value="curve">curve</option>
+                <option value="arc">arc</option>
+                <option value="elbow">elbow</option>
                 <option value="straight">straight</option>
+                <option value="curve">curve</option>
               </select>
             </label>
             <label class="demo-toggle">

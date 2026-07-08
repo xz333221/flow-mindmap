@@ -7,12 +7,12 @@ import SettingsPanel from './components/SettingsPanel.vue'
 import NotePanel from './components/NotePanel.vue'
 import MindMapApp from './App.vue'
 import type { App } from 'vue'
-import type { MindMapNode, MindMapOptions, MindMapTheme, MindMapExpose, MindMapSettings, NodeStyle, LineStyle, LayoutMode, BranchPalette, BranchPaletteId, RichContent } from './types'
+import type { MindMapNode, MindMapOptions, MindMapTheme, MindMapExpose, MindMapSettings, NodeStyle, LineStyle, LayoutMode, LineOrigin, BranchPalette, BranchPaletteId, RichContent } from './types'
 import { uid, clone, findNode, findParent, removeNode, addChild, addSibling, markdownToMindMap, mindMapToMarkdown, markdownToRichMindMap, richBlockToMarkdown } from './tree'
 import { MARKER_LIB, markerSvg, markerLabel, markerDef, tagColor } from './core/markers'
 import type { MarkerGroup, MarkerDef } from './core/markers'
 
-export type { MindMapNode, MindMapOptions, MindMapTheme, MindMapExpose, MindMapSettings, NodeStyle, LineStyle, LayoutMode, BranchPalette, BranchPaletteId, RichContent, MarkerGroup, MarkerDef }
+export type { MindMapNode, MindMapOptions, MindMapTheme, MindMapExpose, MindMapSettings, NodeStyle, LineStyle, LayoutMode, LineOrigin, BranchPalette, BranchPaletteId, RichContent, MarkerGroup, MarkerDef }
 export { MindMap, Outline, Drawer, DataPanel, MarkdownPanel, SettingsPanel, NotePanel, MindMapApp }
 export { uid, clone, findNode, findParent, removeNode, addChild, addSibling, markdownToMindMap, mindMapToMarkdown, markdownToRichMindMap, richBlockToMarkdown }
 export { MARKER_LIB, markerSvg, markerLabel, markerDef, tagColor }

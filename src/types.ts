@@ -123,8 +123,16 @@ export interface MindMapTheme {
   rainbowBranch?: boolean
 }
 
-export type LineStyle = 'curve' | 'straight'
+export type LineStyle = 'curve' | 'straight' | 'arc' | 'elbow'
 export type LayoutMode = 'mindmap' | 'tree' | 'org'
+/** Where root-originated edges start on the root node.
+ *  'edge' = left/right mid-edge (default, XMind classic),
+ *  'center' = root node center — the line emerges from underneath
+ *  the root box, covered by it.
+ *  'proportional' = the exit point on the root edge is projected
+ *  from the child's position (ray-cast), so children above the
+ *  center exit from the upper part of the edge and vice versa. */
+export type LineOrigin = 'edge' | 'center' | 'proportional'
 
 /** Identifier for a branch palette — the id of a built-in (e.g.
  *  'default', 'classic', 'vivid', 'dev', 'mint') or a user-defined
@@ -167,9 +175,20 @@ export interface MindMapSettings {
    *  canvas treats these as first-class palettes alongside the
    *  built-ins.  Persisted by the host app. */
   customPalettes: BranchPalette[]
-  /** Edge shape between parent and child. 'curve' = fish-gill bezier
-   *  (xmind default), 'straight' = direct line segment. */
+  /** Edge shape between parent and child.
+   *  'curve' = S-shaped cubic bezier (XMind default),
+   *  'straight' = direct diagonal line segment,
+   *  'arc' = smooth rounded arc with semicircular caps (bubble look),
+   *  'elbow' = orthogonal right-angle routing (org-chart style). */
   lineStyle: LineStyle
+  /** Where root-originated edges start. 'edge' (default) = the
+   *  left/right mid-edge of the root node; 'center' = the root
+   *  node's geometric center — the line is drawn from the center
+   *  but visually covered by the root box, so it appears to emerge
+   *  from underneath the root; 'proportional' = the exit point is
+   *  projected from the child's position so each child exits the
+   *  root at the closest edge point (fan / ray-cast). */
+  lineOrigin: LineOrigin
   /** Layout mode (1.html parity).  'mindmap' = center + left/right
    *  fans; 'tree' = single column expanding to the right; 'org' =
    *  downward hierarchy.  Default 'mindmap'. */
