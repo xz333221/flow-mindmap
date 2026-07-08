@@ -25,7 +25,7 @@ import {
   markdownToMindMap,
   mindMapToMarkdown,
 } from '../tree'
-import type { MindMapNode, MindMapTheme, MindMapExpose, MindMapSettings, NodeStyle, MindMapImage, LineOrigin } from '../types'
+import type { MindMapNode, MindMapTheme, MindMapExpose, MindMapSettings, NodeStyle, MindMapImage, LineOrigin, LineStyle } from '../types'
 import { usePanZoom } from '../composables/usePanZoom'
 import { useKeyboard } from '../composables/useKeyboard'
 import { useHistory } from '../composables/useHistory'
@@ -616,6 +616,7 @@ function _onSettingsChange(s: Partial<MindMapSettings>) {
   if (s.branchPaletteId !== undefined) settings.branchPaletteId = s.branchPaletteId
   if (s.customPalettes !== undefined) settings.customPalettes = s.customPalettes
   if (s.lineStyle !== undefined) settings.lineStyle = s.lineStyle
+  if (s.rootLineStyle !== undefined) settings.rootLineStyle = s.rootLineStyle
   if (s.lineOrigin !== undefined) settings.lineOrigin = s.lineOrigin
   if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
   if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
@@ -636,6 +637,7 @@ function _resetSettings() {
     branchPaletteId: 'default',
     customPalettes: [],
     lineStyle: 'curve',
+    rootLineStyle: undefined,
     lineOrigin: 'edge',
     layoutMode: 'mindmap',
     taperedEdge: true,
@@ -649,6 +651,7 @@ function _resetSettings() {
   settings.branchPaletteId = defaults.branchPaletteId
   settings.customPalettes = defaults.customPalettes
   settings.lineStyle = defaults.lineStyle
+  settings.rootLineStyle = defaults.rootLineStyle
   settings.lineOrigin = defaults.lineOrigin
   settings.layoutMode = defaults.layoutMode
   settings.taperedEdge = defaults.taperedEdge
@@ -1208,12 +1211,20 @@ const settings = reactive<MindMapSettings>({
   branchPaletteId: 'default',
   customPalettes: [],
   lineStyle: 'curve',
+  rootLineStyle: undefined,
   lineOrigin: 'edge',
   layoutMode: 'mindmap',
   taperedEdge: true,
   showOrderBadge: false,
   canvasBg: undefined,
 })
+
+/** Resolve the effective line style for an edge. Edges originating
+ *  from the root use `rootLineStyle` when set, falling back to the
+ *  global `lineStyle` for all other edges. */
+function edgeLineStyle(fromIsRoot: boolean): LineStyle {
+  return fromIsRoot && settings.rootLineStyle ? settings.rootLineStyle : settings.lineStyle
+}
 
 // Two width strategies, selected by `settings.taperedEdge`:
 //
@@ -1916,6 +1927,18 @@ function preorderIds(ids: string[]): string[] {
   return out
 }
 
+/** Best-effort write to the system clipboard via the async Clipboard
+ *  API.  Silently ignored when the API is unavailable (insecure
+ *  context, permissions denied, etc.) — the internal clipboard
+ *  buffer still works for in-canvas paste. */
+function writeSystemClipboard(text: string) {
+  try {
+    navigator.clipboard?.writeText(text)
+  } catch {
+    // no-op
+  }
+}
+
 function doCopy(ids: string[]) {
   const clean = preorderIds(clipboardableIds(ids))
   if (clean.length === 0) return
@@ -1926,6 +1949,11 @@ function doCopy(ids: string[]) {
   }
   if (subs.length === 0) return
   clipboard.value = { nodes: subs, originalIds: new Set(clean) }
+  // Also write plain text to the system clipboard so the user can
+  // paste into external apps (Notepad, chat, etc.). Best-effort —
+  // failures (e.g. insecure context) are silently ignored because
+  // the internal clipboard still works for in-canvas paste.
+  writeSystemClipboard(subs.map((s) => s.text).join('\n'))
   triggerRef()
 }
 
@@ -1945,6 +1973,9 @@ function doCut(ids: string[]) {
   selectedIds.value = new Set()
   emitSelection()
   clipboard.value = { nodes: subs, originalIds: new Set(clean) }
+  // Same system-clipboard write as doCopy — lets the user paste the
+  // text into external apps after a cut.
+  writeSystemClipboard(subs.map((s) => s.text).join('\n'))
   triggerRef()
   emit('change', dataRef.value)
 }
@@ -2942,7 +2973,7 @@ function buildExportSVG(): SVGSVGElement {
         lineWidthForDepth(e.from.depth),
         endWidthForDepth(e.to.depth),
         32,
-        settings.lineStyle,
+        edgeLineStyle(e.from.isRoot),
         e.to._dir
       )
     )
@@ -3521,6 +3552,7 @@ defineExpose<MindMapExpose>({
     if (s.branchPaletteId !== undefined) settings.branchPaletteId = s.branchPaletteId
     if (s.customPalettes !== undefined) settings.customPalettes = s.customPalettes
     if (s.lineStyle !== undefined) settings.lineStyle = s.lineStyle
+    if (s.rootLineStyle !== undefined) settings.rootLineStyle = s.rootLineStyle
     if (s.lineOrigin !== undefined) settings.lineOrigin = s.lineOrigin
     if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
     if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
@@ -3534,6 +3566,7 @@ defineExpose<MindMapExpose>({
     branchPaletteId: settings.branchPaletteId,
     customPalettes: settings.customPalettes,
     lineStyle: settings.lineStyle,
+    rootLineStyle: settings.rootLineStyle,
     lineOrigin: settings.lineOrigin,
     layoutMode: settings.layoutMode,
     taperedEdge: settings.taperedEdge,
@@ -3625,7 +3658,7 @@ onMounted(() => {
             <path
               v-for="e in edges"
               :key="e.key"
-              :d="variableWidthPath(lineAnchor(e.from, 'out', e.to.side, e.to), lineAnchor(e.to, 'in'), lineWidthForDepth(e.from.depth), endWidthForDepth(e.to.depth), 32, settings.lineStyle, e.to._dir)"
+              :d="variableWidthPath(lineAnchor(e.from, 'out', e.to.side, e.to), lineAnchor(e.to, 'in'), lineWidthForDepth(e.from.depth), endWidthForDepth(e.to.depth), 32, edgeLineStyle(e.from.isRoot), e.to._dir)"
               :fill="lineColorFor(e.from, e.to)"
               stroke="none"
             />

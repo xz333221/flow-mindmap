@@ -181,6 +181,11 @@ export interface MindMapSettings {
    *  'arc' = smooth rounded arc with semicircular caps (bubble look),
    *  'elbow' = orthogonal right-angle routing (org-chart style). */
   lineStyle: LineStyle
+  /** Line style for edges that originate FROM the root node. When
+   *  undefined, falls back to `lineStyle`. This lets you use e.g.
+   *  'arc' for root branches while keeping 'curve' for deeper
+   *  levels — a common XMind look. */
+  rootLineStyle?: LineStyle
   /** Where root-originated edges start. 'edge' (default) = the
    *  left/right mid-edge of the root node; 'center' = the root
    *  node's geometric center — the line is drawn from the center

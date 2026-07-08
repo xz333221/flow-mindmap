@@ -279,6 +279,7 @@ const settings = reactive<MindMapSettings>({
   branchPaletteId: 'default',
   customPalettes: [],
   lineStyle: 'curve',
+  rootLineStyle: undefined,
   lineOrigin: 'edge',
   layoutMode: 'mindmap',
   taperedEdge: true,
@@ -312,6 +313,7 @@ function resetSettings() {
     branchPaletteId: 'default',
     customPalettes: [],
     lineStyle: 'curve',
+    rootLineStyle: undefined,
     lineOrigin: 'edge',
     layoutMode: 'mindmap',
     taperedEdge: true,
@@ -350,6 +352,7 @@ onMounted(() => {
     lineWidthStart: settings.lineWidthStart,
     lineWidthEnd: settings.lineWidthEnd,
     lineStyle: settings.lineStyle,
+    rootLineStyle: settings.rootLineStyle,
     lineOrigin: settings.lineOrigin,
   })
 })
