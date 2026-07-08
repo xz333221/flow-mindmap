@@ -1,7 +1,7 @@
 {
     "name":  "flow-mindmap",
-    "version":  "0.5.4",
-    "description":  "A modern, minimalist mind mapping tool é—‚?xmind-style, embeddable as a Vue component.",
+    "version": "0.5.5",
+    "description":  "A modern, minimalist mind mapping tool é—?xmind-style, embeddable as a Vue component.",
     "type":  "module",
     "license":  "Apache-2.0",
     "author":  {
