@@ -274,7 +274,7 @@ const previewLines = computed(() => {
       <div class="zm-settings-divider" />
 
       <!-- Root line style -->
-      <div class="zm-settings-field">
+      <div class="zm-settings-field zm-line-style-field">
         <span class="zm-settings-label">根节点线条</span>
         <div class="zm-line-style-group">
           <button
@@ -334,7 +334,7 @@ const previewLines = computed(() => {
       </div>
 
       <!-- Line style (other nodes) -->
-      <div class="zm-settings-field">
+      <div class="zm-settings-field zm-line-style-field">
         <span class="zm-settings-label">其他节点线条</span>
         <div class="zm-line-style-group">
           <button
@@ -419,7 +419,7 @@ const previewLines = computed(() => {
       </div>
 
       <!-- Line origin -->
-      <div class="zm-settings-field">
+      <div class="zm-settings-field zm-line-style-field">
         <span class="zm-settings-label">线条起点</span>
         <div class="zm-line-style-group">
           <button
@@ -1039,17 +1039,27 @@ const previewLines = computed(() => {
 }
 
 /* Line style buttons */
+.zm-settings-field.zm-line-style-field {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.zm-line-style-field .zm-settings-label {
+  flex: none;
+}
+
 .zm-line-style-group {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
   gap: 4px;
+  width: 100%;
 }
 .zm-line-style-btn {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 4px 7px;
+  padding: 4px 4px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
@@ -1057,7 +1067,6 @@ const previewLines = computed(() => {
   color: #94a3b8;
   transition: all 0.12s;
   font-family: inherit;
-  min-width: 48px;
 }
 .zm-line-style-btn:hover {
   border-color: #cbd5e1;

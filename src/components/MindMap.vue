@@ -4565,7 +4565,7 @@ body.is-dragging { cursor: grabbing !important; user-select: none; }
   line-height: 1.35;
   text-align: left;
   border-radius: 4px;
-  padding: 0 12px 4px;
+  padding: 0 .8em .2em;
   color: inherit;
 }
 /* When the rich body sits above the title, drop the top
