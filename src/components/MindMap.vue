@@ -819,6 +819,9 @@ function menuRemoveTable() {
  *  drawer auto-focuses its textarea on open. */
 function emitEditNote(id: string) {
   if (props.previewMode) return
+  // Select the node first so the NotePanel shows the correct node.
+  selectedIds.value = new Set([id])
+  emitSelection()
   if (props.builtInDrawers) {
     _closeRightDrawers()
     _showNote.value = true
@@ -4562,7 +4565,7 @@ body.is-dragging { cursor: grabbing !important; user-select: none; }
   line-height: 1.35;
   text-align: left;
   border-radius: 4px;
-  padding: 0 4px 4px;
+  padding: 0 12px 4px;
   color: inherit;
 }
 /* When the rich body sits above the title, drop the top
