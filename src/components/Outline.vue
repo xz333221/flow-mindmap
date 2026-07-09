@@ -17,8 +17,10 @@ const props = withDefaults(
     collapsedIds?: Set<string>
     /** Read-only — disables editing / add / drag.  Default false. */
     readonly?: boolean
+    /** Show sibling index (1., 2., …) next to each row.  Default false. */
+    showIndex?: boolean
   }>(),
-  { selectedId: null, collapsedIds: () => new Set<string>(), readonly: false }
+  { selectedId: null, collapsedIds: () => new Set<string>(), readonly: false, showIndex: false }
 )
 
 const emit = defineEmits<{
@@ -442,7 +444,7 @@ async function copyOutline() {
           </svg>
         </button>
         <span v-else class="zm-outline-dot" />
-        <span class="zm-outline-index">{{ row.siblingIndex + 1 }}.</span>
+        <span v-if="props.showIndex" class="zm-outline-index">{{ row.siblingIndex + 1 }}.</span>
         <input
           v-if="editingId === row.id"
           v-model="editingText"

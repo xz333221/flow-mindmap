@@ -846,6 +846,17 @@ const summary = computed(() => {
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(146, 64, 14, 0.08);
 }
+.zm-note-table th {
+  background: #fde68a;
+  font-weight: 600;
+  padding: 6px 10px;
+  text-align: left;
+  border-right: 1px solid #fcd34d;
+  white-space: nowrap;
+}
+.zm-note-table th:last-child {
+  border-right: none;
+}
 .zm-note-table td {
   border-top: 1px solid #fde68a;
   border-right: 1px solid #fde68a;

@@ -3996,9 +3996,7 @@ onMounted(() => {
             @mousedown.stop="(e) => onResizeStart(e, n)"
           />
 
-          <!-- "Remove image" tiny × button.  Sits a couple of
-               pixels above the resize handle.  Clears the
-               image field and re-runs the layout. -->
+          <!-- "Remove image" button — top-right corner. -->
           <button
             v-if="n.image && selectedId === n.id && editingId !== n.id"
             class="zm-img-remove-btn"
@@ -4006,7 +4004,7 @@ onMounted(() => {
             @mousedown.stop
             @click.stop="removeNodeImage(n.id)"
           >
-            <Icon name="x" :size="9" :stroke="2.2" />
+            <Icon name="x" :size="10" :stroke="2.2" />
           </button>
         </div>
       </div>
@@ -4214,6 +4212,7 @@ onMounted(() => {
           :data="dataRef"
           :selected-id="selectedId"
           :collapsed-ids="_outlineCollapsed"
+          :show-index="showOrderBadge"
           @select="_onOutlineSelect"
           @toggle-collapse="_toggleCollapse"
           @edit="_onOutlineEdit"
@@ -4583,7 +4582,7 @@ body.is-dragging { cursor: grabbing !important; user-select: none; }
 }
 .zm-rich-code {
 margin: 0;
-padding: 6px 8px;
+padding: 6px 14px;
 font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
 font-size: 0.92em;
 white-space: pre-wrap;
@@ -4617,10 +4616,22 @@ border: 1px solid currentColor;
 border-radius: 6px;
 overflow: hidden;
 }
+.zm-rich-table th {
+  background: rgba(255, 255, 255, 0.75);
+  font-weight: 600;
+  text-align: left;
+  padding: 3px 10px;
+  border-bottom: 1px solid currentColor;
+  border-right: 1px solid currentColor;
+  opacity: 0.9;
+}
+.zm-rich-table th:last-child {
+  border-right: none;
+}
 .zm-rich-table td {
   border-top: 1px solid currentColor;
   border-right: 1px solid currentColor;
-  padding: 3px 6px;
+  padding: 3px 10px;
   /* Higher than the old 0.7 so cell text reads cleanly against
    * the translucent white fill, but still tinted to the branch
    * palette via currentColor. */
@@ -4799,30 +4810,34 @@ overflow: hidden;
  * nwse-resize to telegraph the drag direction. */
 .zm-img-resize-handle {
   position: absolute;
-  right: -5px;
-  bottom: -5px;
-  width: 10px;
-  height: 10px;
-  background: #ffffff;
-  border: 1.5px solid #3b82f6;
-  border-radius: 2px;
+  right: -6px;
+  bottom: -6px;
+  width: 14px;
+  height: 14px;
+  background: #3b82f6;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
   cursor: nwse-resize;
   z-index: 4;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.3);
+  transition: transform 0.1s;
+}
+.zm-img-resize-handle:hover {
+  transform: scale(1.2);
 }
 .zm-node.is-resizing {
   cursor: nwse-resize !important;
 }
 
-/* "Remove image" tiny × — sits a bit above the resize handle. */
+/* "Remove image" button — top-right corner of the image node. */
 .zm-img-remove-btn {
   position: absolute;
-  right: -5px;
-  bottom: 14px;
-  width: 14px;
-  height: 14px;
+  right: -6px;
+  top: -6px;
+  width: 16px;
+  height: 16px;
   background: #ffffff;
-  border: 1px solid #cbd5e1;
+  border: 1px solid #e2e8f0;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -4831,7 +4846,8 @@ overflow: hidden;
   color: #64748b;
   padding: 0;
   z-index: 4;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15);
+  transition: all 0.1s;
 }
 .zm-img-remove-btn:hover {
   background: #fee2e2;
