@@ -273,66 +273,6 @@ const previewLines = computed(() => {
 
       <div class="zm-settings-divider" />
 
-      <!-- Line style (other nodes) -->
-      <div class="zm-settings-field">
-        <span class="zm-settings-label">其他节点线条</span>
-        <div class="zm-line-style-group">
-          <button
-            v-for="opt in LINE_STYLE_OPTIONS"
-            :key="opt.value"
-            class="zm-line-style-btn"
-            :class="{ 'is-on': settings.lineStyle === opt.value }"
-            :title="opt.label"
-            @click="set('lineStyle', opt.value)"
-          >
-            <svg :viewBox="opt.viewBox" width="28" height="14" preserveAspectRatio="none">
-              <path
-                v-if="opt.value === 'arc'"
-                d="M 0 12 Q 14 2, 28 12"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.2"
-                stroke-linecap="round"
-              />
-              <path
-                v-else-if="opt.value === 'rounded-elbow'"
-                d="M 0 10 L 12 10 Q 16 10 16 6 L 16 4 L 28 4"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-              <path
-                v-else-if="opt.value === 'elbow'"
-                d="M 0 10 L 16 10 L 16 4 L 28 4"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-              <path
-                v-else-if="opt.value === 'curve'"
-                d="M 0 12 C 8 0, 20 0, 28 12"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.2"
-                stroke-linecap="round"
-              />
-              <line
-                v-else
-                x1="0" y1="12" x2="28" y2="12"
-                stroke="currentColor"
-                stroke-width="2.2"
-                stroke-linecap="round"
-              />
-            </svg>
-            <span class="zm-line-style-label">{{ opt.label }}</span>
-          </button>
-        </div>
-      </div>
-
       <!-- Root line style -->
       <div class="zm-settings-field">
         <span class="zm-settings-label">根节点线条</span>
@@ -393,6 +333,91 @@ const previewLines = computed(() => {
         </div>
       </div>
 
+      <!-- Line style (other nodes) -->
+      <div class="zm-settings-field">
+        <span class="zm-settings-label">其他节点线条</span>
+        <div class="zm-line-style-group">
+          <button
+            v-for="opt in LINE_STYLE_OPTIONS"
+            :key="opt.value"
+            class="zm-line-style-btn"
+            :class="{ 'is-on': settings.lineStyle === opt.value }"
+            :title="opt.label"
+            @click="set('lineStyle', opt.value)"
+          >
+            <svg :viewBox="opt.viewBox" width="28" height="14" preserveAspectRatio="none">
+              <path
+                v-if="opt.value === 'arc'"
+                d="M 0 12 Q 14 2, 28 12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+              />
+              <path
+                v-else-if="opt.value === 'rounded-elbow'"
+                d="M 0 10 L 12 10 Q 16 10 16 6 L 16 4 L 28 4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                v-else-if="opt.value === 'elbow'"
+                d="M 0 10 L 16 10 L 16 4 L 28 4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                v-else-if="opt.value === 'curve'"
+                d="M 0 12 C 8 0, 20 0, 28 12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+              />
+              <line
+                v-else
+                x1="0" y1="12" x2="28" y2="12"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+              />
+            </svg>
+            <span class="zm-line-style-label">{{ opt.label }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Elbow corner radius (only when rounded-elbow is active) -->
+      <div v-if="settings.lineStyle === 'rounded-elbow' || settings.rootLineStyle === 'rounded-elbow'" class="zm-settings-field">
+        <span class="zm-settings-label">圆角大小 <span class="zm-settings-sub">{{ settings.elbowRadius }}px</span></span>
+        <input
+          class="zm-settings-number"
+          type="number"
+          step="1"
+          min="2"
+          max="20"
+          :value="settings.elbowRadius"
+          @change="(e) => set('elbowRadius', parseFloat((e.target as HTMLInputElement).value) || 8)"
+        />
+      </div>
+      <div v-if="settings.lineStyle === 'rounded-elbow' || settings.rootLineStyle === 'rounded-elbow'" class="zm-slider">
+        <div class="zm-slider-track" />
+        <input
+          type="range"
+          min="2"
+          max="20"
+          step="1"
+          :value="settings.elbowRadius"
+          @input="(e) => set('elbowRadius', parseFloat((e.target as HTMLInputElement).value))"
+        />
+      </div>
+
       <!-- Line origin -->
       <div class="zm-settings-field">
         <span class="zm-settings-label">线条起点</span>
@@ -450,39 +475,29 @@ const previewLines = computed(() => {
         </button>
       </div>
 
-      <!-- Palette dropdown -->
-      <div v-if="settings.rainbowBranch" class="zm-palette-dropdown">
+      <!-- Palette picker -->
+      <div v-if="settings.rainbowBranch" class="zm-palette-picker">
         <div class="zm-settings-field">
           <span class="zm-settings-label">配色方案</span>
-          <select
-            class="zm-select"
-            :value="settings.branchPaletteId"
-            @change="(e) => set('branchPaletteId', (e.target as HTMLSelectElement).value as any)"
-          >
-            <optgroup label="内置配色">
-              <option v-for="p in BUILTIN_PALETTES" :key="p.id" :value="p.id">
-                {{ p.name }}
-              </option>
-            </optgroup>
-            <optgroup v-if="settings.customPalettes.length" label="自定义">
-              <option v-for="p in settings.customPalettes" :key="p.id" :value="p.id">
-                {{ p.name }}
-              </option>
-            </optgroup>
-          </select>
         </div>
-
-        <!-- Color swatch preview of the active palette -->
-        <div
-          v-if="allPalettes.find(p => p.id === settings.branchPaletteId)"
-          class="zm-palette-preview-bar"
-        >
-          <span
-            v-for="(c, i) in allPalettes.find(p => p.id === settings.branchPaletteId)?.colors"
-            :key="i"
-            class="zm-palette-preview-swatch"
-            :style="{ background: c }"
-          />
+        <div class="zm-palette-list">
+          <button
+            v-for="p in allPalettes"
+            :key="p.id"
+            class="zm-palette-option"
+            :class="{ 'is-active': settings.branchPaletteId === p.id }"
+            @click="set('branchPaletteId', p.id)"
+          >
+            <span class="zm-palette-option-name">{{ p.name }}</span>
+            <span class="zm-palette-option-swatches">
+              <span
+                v-for="(c, i) in p.colors"
+                :key="i"
+                class="zm-palette-option-swatch"
+                :style="{ background: c }"
+              />
+            </span>
+          </button>
         </div>
 
         <!-- Custom palette editor (only show when a custom palette is active) -->
@@ -1079,26 +1094,61 @@ const previewLines = computed(() => {
   padding: 0 2px;
 }
 
-/* Palette dropdown section */
-.zm-palette-dropdown {
+/* Palette picker section */
+.zm-palette-picker {
   margin: 8px 0;
   padding: 10px;
   background: #f8fafc;
   border-radius: 8px;
   border: 1px solid #eef0f3;
 }
-.zm-palette-preview-bar {
+.zm-palette-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+.zm-palette-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  text-align: left;
+  width: 100%;
+}
+.zm-palette-option:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+.zm-palette-option.is-active {
+  border-color: #6366f1;
+  background: #eef2ff;
+  box-shadow: 0 0 0 1px #6366f1;
+}
+.zm-palette-option-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: #1e293b;
+  min-width: 36px;
+  flex-shrink: 0;
+}
+.zm-palette-option-swatches {
   display: flex;
   gap: 2px;
-  height: 10px;
-  border-radius: 4px;
-  overflow: hidden;
-  margin-top: 8px;
-}
-.zm-palette-preview-swatch {
   flex: 1;
-  height: 100%;
+  height: 14px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.zm-palette-option-swatch {
+  flex: 1;
   min-width: 0;
+  height: 100%;
 }
 .zm-palette-custom-editor {
   margin-top: 8px;

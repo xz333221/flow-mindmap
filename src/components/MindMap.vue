@@ -41,10 +41,8 @@ import NotePanel from './NotePanel.vue'
 import {
   codeLang,
   highlightCode,
-  sortTable,
   stripCodeFence,
   tableRows,
-  type SortDir,
 } from '../composables/useRichContent'
 import { markerSvg, markerLabel, tagColor, MARKER_LIB } from '../core/markers'
 
@@ -191,7 +189,6 @@ const tooltip = ref<{ text: string; x: number; y: number; above: boolean } | nul
 // Maps keyed by node id — they hold no data-tree state.
 const richEditingId = ref<string | null>(null)
 const richEditDraft = ref('')
-const sortState = ref<Map<string, { col: number; dir: SortDir }>>(new Map())
 const dataRef = ref<MindMapNode>(clone(props.data))
 // Post-render measurements of each node's rich body
 // (<div class="zm-rich">).  Populated by `measureRichBodies()`
@@ -620,6 +617,7 @@ function _onSettingsChange(s: Partial<MindMapSettings>) {
   if (s.lineOrigin !== undefined) settings.lineOrigin = s.lineOrigin
   if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
   if (s.lineWidthTaper !== undefined) settings.lineWidthTaper = Math.max(0.3, Math.min(1, s.lineWidthTaper))
+  if (s.elbowRadius !== undefined) settings.elbowRadius = Math.max(2, Math.min(20, s.elbowRadius))
   if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
   if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
 }
@@ -632,17 +630,18 @@ function _onNodeStyleChange(style: NodeStyle) {
 function _resetSettings() {
   const defaults: MindMapSettings = {
     autoBalanceOnChange: true,
-    lineWidthStart: 12.0,
-    lineWidthEnd: 0.6,
-    rainbowBranch: true,
-    branchPaletteId: 'default',
-    customPalettes: [],
-lineStyle: 'rounded-elbow',
-rootLineStyle: 'arc',
-lineOrigin: 'proportional',
-    layoutMode: 'mindmap',
-    taperedEdge: true,
-    lineWidthTaper: 0.67,
+  lineWidthStart: 16.0,
+  lineWidthEnd: 0.6,
+  rainbowBranch: true,
+  branchPaletteId: 'default',
+  customPalettes: [],
+  lineStyle: 'rounded-elbow',
+  rootLineStyle: 'arc',
+  lineOrigin: 'proportional',
+  layoutMode: 'mindmap',
+  taperedEdge: true,
+  lineWidthTaper: 0.3,
+  elbowRadius: 8,
     showOrderBadge: false,
     canvasBg: undefined,
   }
@@ -658,6 +657,7 @@ lineOrigin: 'proportional',
   settings.layoutMode = defaults.layoutMode
   settings.taperedEdge = defaults.taperedEdge
   settings.lineWidthTaper = defaults.lineWidthTaper
+  settings.elbowRadius = defaults.elbowRadius
   settings.showOrderBadge = defaults.showOrderBadge
   settings.canvasBg = defaults.canvasBg
 }
@@ -1208,7 +1208,7 @@ const effectiveBg = computed(() => settings.canvasBg || theme.value.bgColor)
 // ---------------------------------------------------------------------------
 const settings = reactive<MindMapSettings>({
   autoBalanceOnChange: true,
-  lineWidthStart: 12.0,
+  lineWidthStart: 16.0,
   lineWidthEnd: 3.6,
   rainbowBranch: true,
   branchPaletteId: 'default',
@@ -1218,7 +1218,8 @@ rootLineStyle: 'arc',
 lineOrigin: 'proportional',
   layoutMode: 'mindmap',
   taperedEdge: true,
-  lineWidthTaper: 0.67,
+  lineWidthTaper: 0.3,
+  elbowRadius: 8,
   showOrderBadge: false,
   canvasBg: undefined,
 })
@@ -1517,7 +1518,7 @@ function variableWidthPath(
     const seg1Len = Math.hypot(corners[0].pos.x - from.x, corners[0].pos.y - from.y)
     const seg2Len = Math.hypot(corners[1].pos.x - corners[0].pos.x, corners[1].pos.y - corners[0].pos.y)
     const seg3Len = Math.hypot(to.x - corners[1].pos.x, to.y - corners[1].pos.y)
-    const maxR = Math.min(seg1Len, seg2Len, seg3Len, 14) * 0.45
+    const maxR = Math.min(seg1Len, seg2Len, seg3Len, settings.elbowRadius) * 0.45
     const radius = Math.max(2, maxR)
 
     // Helper: sample a quarter-circle arc at a right-angle corner.
@@ -1574,14 +1575,11 @@ function variableWidthPath(
       rleft.push({ x: cl[i].x + nx * halfW, y: cl[i].y + ny * halfW })
       rright.push({ x: cl[i].x - nx * halfW, y: cl[i].y - ny * halfW })
     }
-    // Assemble with rounded semicircular end caps (like 'arc' style).
-    const rStart = startW / 2
-    const rEnd = endW / 2
+    // Assemble with flat end caps (no semicircular rounding).
     let rd = `M ${rleft[0].x.toFixed(2)} ${rleft[0].y.toFixed(2)}`
     for (let i = 1; i < rleft.length; i++) rd += ` L ${rleft[i].x.toFixed(2)} ${rleft[i].y.toFixed(2)}`
-    rd += ` A ${rEnd.toFixed(2)} ${rEnd.toFixed(2)} 0 0 0 ${rright[rleft.length - 1].x.toFixed(2)} ${rright[rleft.length - 1].y.toFixed(2)}`
+    rd += ` L ${rright[rleft.length - 1].x.toFixed(2)} ${rright[rleft.length - 1].y.toFixed(2)}`
     for (let i = rright.length - 2; i >= 0; i--) rd += ` L ${rright[i].x.toFixed(2)} ${rright[i].y.toFixed(2)}`
-    rd += ` A ${rStart.toFixed(2)} ${rStart.toFixed(2)} 0 0 0 ${rleft[0].x.toFixed(2)} ${rleft[0].y.toFixed(2)}`
     rd += ' Z'
     return rd
   }
@@ -1905,31 +1903,6 @@ function onRichEditKeydown(e: KeyboardEvent) {
     e.preventDefault()
     commitRichEdit()
   }
-}
-
-// Sort UI for the on-canvas table.  Same asc/desc/off cycle as
-// the panel; state is per-node so different tables can be sorted
-// independently.
-function toggleNodeSort(id: string, col: number) {
-  const cur = sortState.value.get(id)
-  if (!cur || cur.col !== col) {
-    sortState.value.set(id, { col, dir: 'asc' })
-  } else if (cur.dir === 'asc') {
-    sortState.value.set(id, { col, dir: 'desc' })
-  } else {
-    sortState.value.delete(id)
-  }
-}
-// Apply the per-node sort (if any) before the template iterates.
-function sortedTableRows(id: string, rows: string[][]): string[][] {
-  const s = sortState.value.get(id)
-  if (!s || rows.length <= 1) return rows
-  return sortTable(rows, s.col, s.dir)
-}
-function sortMark(id: string, col: number): string {
-  const s = sortState.value.get(id)
-  if (!s || s.col !== col) return '↕'
-  return s.dir === 'asc' ? '▲' : '▼'
 }
 
 function onEditKeydown(e: KeyboardEvent) {
@@ -3663,6 +3636,7 @@ defineExpose<MindMapExpose>({
     if (s.lineOrigin !== undefined) settings.lineOrigin = s.lineOrigin
     if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
     if (s.lineWidthTaper !== undefined) settings.lineWidthTaper = Math.max(0.3, Math.min(1, s.lineWidthTaper))
+    if (s.elbowRadius !== undefined) settings.elbowRadius = Math.max(2, Math.min(20, s.elbowRadius))
     if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
     if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
   },
@@ -3679,6 +3653,7 @@ defineExpose<MindMapExpose>({
     layoutMode: settings.layoutMode,
     taperedEdge: settings.taperedEdge,
     lineWidthTaper: settings.lineWidthTaper,
+    elbowRadius: settings.elbowRadius,
     showOrderBadge: settings.showOrderBadge,
     canvasBg: settings.canvasBg,
   }),
@@ -3903,22 +3878,12 @@ onMounted(() => {
                 class="zm-rich-table"
               >
                 <tbody>
-                  <tr v-for="(row, ri) in sortedTableRows(n.id, tableRows(n.richContent.raw))" :key="ri">
+                  <tr v-for="(row, ri) in tableRows(n.richContent.raw)" :key="ri">
                     <th
                       v-if="ri === 0"
                       v-for="(cell, ci) in row"
                       :key="`h${ci}`"
-                      class="zm-rich-table-sort"
-                      :class="{
-                        'is-sorted': sortState.get(n.id)?.col === ci,
-                        'is-asc': sortState.get(n.id)?.col === ci && sortState.get(n.id)?.dir === 'asc',
-                        'is-desc': sortState.get(n.id)?.col === ci && sortState.get(n.id)?.dir === 'desc',
-                      }"
-                      @click.stop="toggleNodeSort(n.id, ci)"
-                    >
-                      <span>{{ cell }}</span>
-                      <span class="zm-rich-sort-mark" aria-hidden="true">{{ sortMark(n.id, ci) }}</span>
-                    </th>
+                    >{{ cell }}</th>
                     <td
                       v-else
                       v-for="(cell, ci) in row"
@@ -4666,40 +4631,6 @@ overflow: hidden;
 }
 .zm-rich-table td:last-child {
   border-right: none;
-}
-.zm-rich-table-sort {
-  position: relative;
-  background: rgba(255, 255, 255, 0.4);
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-  user-select: none;
-  padding: 3px 6px;
-  border-bottom: 1px solid currentColor;
-  border-right: 1px solid currentColor;
-  /* The parent .zm-rich has pointer-events: none so clicks fall
-   * through to the node; re-enable here so sort actually works. */
-  pointer-events: auto;
-}
-.zm-rich-table-sort:last-child {
-  border-right: none;
-}
-.zm-rich-table-sort:hover {
-  background: rgba(255, 255, 255, 0.65);
-}
-.zm-rich-table-sort.is-sorted {
-  background: rgba(255, 255, 255, 0.7);
-}
-.zm-rich-sort-mark {
-  position: absolute;
-  right: 4px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 9px;
-  color: #94a3b8;
-}
-.zm-rich-table-sort.is-sorted .zm-rich-sort-mark {
-  color: #1d4ed8;
 }
 .zm-rich-edit {
   width: 100%;

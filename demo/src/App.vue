@@ -60,7 +60,7 @@ const theme = reactive({
   branchText: '#1e293b',
   bgColor: '#f8fafc',
   fontSize: 14,
-  lineWidthStart: 12,
+  lineWidthStart: 16,
   lineWidthEnd: 0.6,
   rainbowBranch: true,
 })
@@ -71,7 +71,7 @@ const lineColorsInput = ref<string>('')
 
 const settings = reactive<MindMapSettings>({
   autoBalanceOnChange: true,
-  lineWidthStart: 12,
+  lineWidthStart: 16,
   lineWidthEnd: 0.6,
   rainbowBranch: true,
   branchPaletteId: 'default',
@@ -81,7 +81,8 @@ const settings = reactive<MindMapSettings>({
   lineOrigin: 'proportional',
   layoutMode: 'mindmap',
   taperedEdge: true,
-  lineWidthTaper: 0.67,
+  lineWidthTaper: 0.3,
+  elbowRadius: 8,
   showOrderBadge: false,
 })
 

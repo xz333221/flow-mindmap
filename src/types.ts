@@ -213,6 +213,9 @@ export interface MindMapSettings {
    *  — a level-1 edge is 67% as wide as the root, level-2 is 67%²
    *  ≈ 45%, and so on.  Range 0.3–1.0; 1.0 means no decay. */
   lineWidthTaper: number
+  /** Corner radius (px) for the 'rounded-elbow' line style.  Controls
+   *  how round the 90° bends are.  Default 8.  Range 2–20. */
+  elbowRadius: number
   /** When true, every node shows a small badge with its zero-based
    *  position in its parent's children array ("1.", "2.", "3.").
    *  Default false — useful when verifying the data-tree order

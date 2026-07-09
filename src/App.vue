@@ -273,7 +273,7 @@ function openImport(_mode: 'json' | 'markdown' | 'txt') {
 // MindMap's own defaults so the UI is consistent.
 const settings = reactive<MindMapSettings>({
   autoBalanceOnChange: true,
-  lineWidthStart: 12.0,
+  lineWidthStart: 16.0,
   lineWidthEnd: 3.6,
   rainbowBranch: true,
   branchPaletteId: 'default',
@@ -283,7 +283,8 @@ const settings = reactive<MindMapSettings>({
   lineOrigin: 'proportional',
   layoutMode: 'mindmap',
   taperedEdge: true,
-  lineWidthTaper: 0.67,
+  lineWidthTaper: 0.3,
+  elbowRadius: 8,
   showOrderBadge: false,
   canvasBg: undefined,
 })
@@ -308,7 +309,7 @@ function onNodeStyleChange(style: NodeStyle) {
 function resetSettings() {
   const defaults: MindMapSettings = {
     autoBalanceOnChange: true,
-    lineWidthStart: 12.0,
+    lineWidthStart: 16.0,
     lineWidthEnd: 0.6,
     rainbowBranch: true,
     branchPaletteId: 'default',
@@ -318,7 +319,8 @@ function resetSettings() {
     lineOrigin: 'proportional',
     layoutMode: 'mindmap',
     taperedEdge: true,
-    lineWidthTaper: 0.67,
+    lineWidthTaper: 0.3,
+    elbowRadius: 8,
     showOrderBadge: false,
     canvasBg: undefined,
   }

@@ -8,9 +8,7 @@
  *   3. image — URL input + live preview
  *   4. code  — textarea (raw markdown) with a syntax-highlighted
  *              preview that re-renders as the user types
- *   5. table — CSV-ish textarea with a live preview; column
- *              headers in the preview are clickable to sort the
- *              rows (asc → desc → off, doesn't write back to raw)
+ *   5. table — CSV-ish textarea with a live preview.
  *
  * Sections that aren't set on the selected node are hidden, so
  * the panel collapses to just the note when nothing else exists.
@@ -22,10 +20,8 @@ import {
   codeLang,
   highlightCode,
   rowsToTable,
-  sortTable,
   stripCodeFence,
   tableRows,
-  type SortDir,
 } from '../composables/useRichContent'
 import { renderMarkdown } from '../composables/useMarkdown'
 
@@ -231,15 +227,10 @@ function commitCode() {
 const tableDraft = ref('')
 const tableRef = ref<HTMLTextAreaElement | null>(null)
 useAutosize(tableRef, { minRows: 4, maxRows: 14 })
-const sortCol = ref(-1)
-const sortDir = ref<SortDir>('asc')
 watch(
   () => [props.selectedNode?.id, props.selectedNode?.richContent?.raw],
   () => {
     tableDraft.value = props.selectedNode?.richContent?.raw ?? ''
-    // Switching nodes resets the sort UI.
-    sortCol.value = -1
-    sortDir.value = 'asc'
   },
   { immediate: true }
 )
@@ -254,21 +245,6 @@ function commitTable() {
 // Live parse for the table preview.  Uses textarea content so the
 // preview reflects in-progress edits before commit.
 const tableParsedRows = computed(() => tableRows(tableDraft.value))
-const sortedRows = computed(() => {
-  const rows = tableParsedRows.value
-  if (sortCol.value < 0 || rows.length <= 1) return rows
-  return sortTable(rows, sortCol.value, sortDir.value)
-})
-function toggleSort(col: number) {
-  if (sortCol.value !== col) {
-    sortCol.value = col
-    sortDir.value = 'asc'
-  } else if (sortDir.value === 'asc') {
-    sortDir.value = 'desc'
-  } else {
-    sortCol.value = -1
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Header summary
@@ -436,7 +412,6 @@ const summary = computed(() => {
         <section v-if="hasTable || showTable" class="zm-note-section">
           <header class="zm-note-section-head">
             <span class="zm-note-section-title">表格</span>
-            <span class="zm-note-section-hint">点击表头排序</span>
           </header>
           <textarea
             ref="tableRef"
@@ -449,24 +424,12 @@ const summary = computed(() => {
           />
           <table v-if="tableParsedRows.length" class="zm-note-table">
             <tbody>
-              <tr v-for="(row, ri) in sortedRows" :key="ri">
+              <tr v-for="(row, ri) in tableParsedRows" :key="ri">
                 <th
                   v-if="ri === 0"
                   v-for="(cell, ci) in row"
                   :key="`h${ci}`"
-                  class="zm-note-table-sort"
-                  :class="{
-                    'is-sorted': sortCol === ci,
-                    'is-asc': sortCol === ci && sortDir === 'asc',
-                    'is-desc': sortCol === ci && sortDir === 'desc',
-                  }"
-                  @click="toggleSort(ci)"
-                >
-                  <span>{{ cell }}</span>
-                  <span class="zm-note-table-sort-mark" aria-hidden="true">
-                    {{ sortCol === ci ? (sortDir === 'asc' ? '▲' : '▼') : '↕' }}
-                  </span>
-                </th>
+                >{{ cell }}</th>
                 <td
                   v-else
                   v-for="(cell, ci) in row"
@@ -897,38 +860,6 @@ const summary = computed(() => {
 }
 .zm-note-table td:last-child {
   border-right: none;
-}
-.zm-note-table-sort {
-  background: #fef3c7;
-  font-weight: 600;
-  padding: 6px 10px;
-  border-bottom: 1px solid #fcd34d;
-  border-right: 1px solid #fde68a;
-  text-align: left;
-  cursor: pointer;
-  user-select: none;
-  position: relative;
-}
-.zm-note-table-sort:last-child {
-  border-right: none;
-}
-.zm-note-table-sort:hover {
-  background: #fde68a;
-}
-.zm-note-table-sort.is-sorted {
-  background: #fde68a;
-  color: #92400e;
-}
-.zm-note-table-sort-mark {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 10px;
-  color: #94a3b8;
-}
-.zm-note-table-sort.is-sorted .zm-note-table-sort-mark {
-  color: #1d4ed8;
 }
 
 .zm-note-action-btn {
