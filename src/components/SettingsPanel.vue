@@ -263,10 +263,10 @@ const previewLines = computed(() => {
         <div class="zm-slider-track" />
         <input
           type="range"
-          min="0.2"
-          max="6"
-          step="0.1"
-          :value="settings.lineWidthEnd"
+min="0.1"
+max="6"
+step="0.1"
+:value="settings.lineWidthEnd"
           @input="(e) => set('lineWidthEnd', parseFloat((e.target as HTMLInputElement).value))"
         />
       </div>

@@ -643,7 +643,7 @@ const _currentNodeStyle = computed<NodeStyle>(() => {
 function _onSettingsChange(s: Partial<MindMapSettings>) {
   if (s.autoBalanceOnChange !== undefined) settings.autoBalanceOnChange = s.autoBalanceOnChange
   if (s.lineWidthStart !== undefined) settings.lineWidthStart = Math.max(0.5, Math.min(20, s.lineWidthStart))
-  if (s.lineWidthEnd !== undefined) settings.lineWidthEnd = Math.max(0.3, Math.min(10, s.lineWidthEnd))
+  if (s.lineWidthEnd !== undefined) settings.lineWidthEnd = Math.max(0.1, Math.min(10, s.lineWidthEnd))
   if (s.rainbowBranch !== undefined) settings.rainbowBranch = s.rainbowBranch
   if (s.branchPaletteId !== undefined) settings.branchPaletteId = s.branchPaletteId
   if (s.customPalettes !== undefined) settings.customPalettes = s.customPalettes
@@ -1564,6 +1564,17 @@ function variableWidthPath(
     // Orthogonal routing with quarter-circle rounded corners instead
     // of sharp miters.  Same centerline as 'elbow' (from → mid → mid →
     // to) but each 90° corner is replaced by a fillet arc.
+    //
+    // Degenerate case: when from and to share the same secondary-axis
+    // coordinate (e.g. a horizontal line where from.y ≈ to.y), there
+    // is no bend at all — fall through to the straight-line renderer
+    // so no phantom fillet arc appears at high zoom.
+    const isStraight = dir === 'down'
+      ? Math.abs(from.x - to.x) < 0.5
+      : Math.abs(from.y - to.y) < 0.5
+    if (isStraight) {
+      // Fall through to 'straight' below.
+    } else {
     const cl: { x: number; y: number }[] = []
     // Corner definitions: position + incoming dir + outgoing dir.
     type Corner = { pos: { x: number; y: number }; d1: { x: number; y: number }; d2: { x: number; y: number } }
@@ -1658,6 +1669,7 @@ function variableWidthPath(
     for (let i = rright.length - 2; i >= 0; i--) rd += ` L ${rright[i].x.toFixed(2)} ${rright[i].y.toFixed(2)}`
     rd += ' Z'
     return rd
+    } // end else (non-straight)
   }
 
   // 'straight' fallback: a simple quad with no curve at all.
@@ -4318,7 +4330,7 @@ onMounted(() => {
       <!-- 缩放比例 + 放大 / 缩小 / 重置视图: always visible, also
            show in preview mode (the canvas still needs to be
            navigable in preview). -->
-      <span class="zm-tb-tip zm-tb-zoom">{{ Math.round(panZoom.scale.value * 100) }}%</span>
+      <span class="zm-tb-tip zm-tb-zoom" title="点击重置为 100%" @click="panZoom.zoomTo100()">{{ Math.round(panZoom.scale.value * 100) }}%</span>
       <button class="zm-tb-btn" title="放大" @click="panZoom.zoomIn">
         <Icon name="zoom-in" />
       </button>
@@ -5225,10 +5237,17 @@ overflow: hidden;
   margin: 0 4px;
 }
 .zm-tb-tip {
-  font-size: 12px;
-  color: #64748b;
-  min-width: 38px;
-  text-align: center;
+font-size: 12px;
+color: #64748b;
+min-width: 38px;
+text-align: center;
+}
+.zm-tb-zoom {
+cursor: pointer;
+user-select: none;
+}
+.zm-tb-zoom:hover {
+color: #3b82f6;
 }
 
 /* ── Search highlight / dim ──────────────────────────

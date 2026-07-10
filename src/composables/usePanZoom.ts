@@ -195,6 +195,22 @@ export function usePanZoom(opts: PanZoomOptions) {
     offsetY.value = rect.height / 2 - rootY * fit
   }
 
+  /** Reset zoom to exactly 100% (scale = 1) while keeping the
+   *  center of the viewport anchored to the same world-space point. */
+  function zoomTo100() {
+    const container = opts.getContainer()
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    // World point currently at the center of the viewport.
+    const cx = rect.width / 2
+    const cy = rect.height / 2
+    const wx = (cx - offsetX.value) / scale.value
+    const wy = (cy - offsetY.value) / scale.value
+    scale.value = 1
+    offsetX.value = cx - wx
+    offsetY.value = cy - wy
+  }
+
   /** Center the view on a world-space rectangle (a node's bbox).
    *  Keeps the current scale unless the node is too small to see
    *  clearly at the current zoom — then zooms in to 1.0. */
@@ -228,6 +244,7 @@ export function usePanZoom(opts: PanZoomOptions) {
     onWheel,
     zoomIn,
     zoomOut,
+    zoomTo100,
     startPan,
     startMarquee,
     updateMarquee,
