@@ -651,7 +651,7 @@ function _onSettingsChange(s: Partial<MindMapSettings>) {
   if (s.rootLineStyle !== undefined) settings.rootLineStyle = s.rootLineStyle
   if (s.lineOrigin !== undefined) settings.lineOrigin = s.lineOrigin
   if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
-  if (s.lineWidthTaper !== undefined) settings.lineWidthTaper = Math.max(0.3, Math.min(1, s.lineWidthTaper))
+  if (s.lineWidthTaper !== undefined) settings.lineWidthTaper = Math.max(0.1, Math.min(1, s.lineWidthTaper))
 if (s.elbowRadius !== undefined) settings.elbowRadius = Math.max(2, Math.min(40, s.elbowRadius))
 if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
 if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
@@ -1731,16 +1731,15 @@ function nodeBg(n: LayoutNode): string {
   const s = getNodeStyle(n.id)
   if (s.bg) return s.bg
   if (n.isRoot) return theme.value.rootBg
-  // Depth 2+ are transparent so the canvas background shows through.
-  if (n.depth >= 2) return 'transparent'
-  // Depth 1 (first-level branches) gets a tinted background that is
-  // lighter than the root.  When rainbowBranch is on, use the branch
-  // hue for the tint; otherwise use the root background colour.
+  // Depth 3+ are transparent so the canvas background shows through.
+  if (n.depth >= 3) return 'transparent'
+  // Depth 1 gets a medium tint; depth 2 gets a lighter tint.
+  const alpha = n.depth === 1 ? 0.15 : 0.08
   if (settings.rainbowBranch) {
     const hue = branchColor.value.get(n.id)
-    if (hue) return hexWithAlpha(hue, 0.15)
+    if (hue) return hexWithAlpha(hue, alpha)
   }
-  return hexWithAlpha(theme.value.rootBg, 0.15)
+  return hexWithAlpha(theme.value.rootBg, alpha)
 }
 function nodeFg(n: LayoutNode): string {
   const s = getNodeStyle(n.id)
@@ -3824,7 +3823,7 @@ defineExpose<MindMapExpose>({
     if (s.rootLineStyle !== undefined) settings.rootLineStyle = s.rootLineStyle
     if (s.lineOrigin !== undefined) settings.lineOrigin = s.lineOrigin
     if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
-    if (s.lineWidthTaper !== undefined) settings.lineWidthTaper = Math.max(0.3, Math.min(1, s.lineWidthTaper))
+    if (s.lineWidthTaper !== undefined) settings.lineWidthTaper = Math.max(0.1, Math.min(1, s.lineWidthTaper))
 if (s.elbowRadius !== undefined) settings.elbowRadius = Math.max(2, Math.min(40, s.elbowRadius))
 if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
 if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg

@@ -555,20 +555,20 @@ step="1"
           class="zm-settings-number"
           type="number"
           step="0.05"
-          min="0.3"
-          max="1"
-          :value="settings.lineWidthTaper"
-          @change="(e) => set('lineWidthTaper', parseFloat((e.target as HTMLInputElement).value) || 0.67)"
+min="0.1"
+max="1"
+:value="settings.lineWidthTaper"
+@change="(e) => set('lineWidthTaper', parseFloat((e.target as HTMLInputElement).value) || 0.67)"
         />
       </div>
       <div v-if="settings.taperedEdge" class="zm-slider">
         <div class="zm-slider-track" />
         <input
           type="range"
-          min="0.3"
-          max="1"
-          step="0.01"
-          :value="settings.lineWidthTaper"
+min="0.1"
+max="1"
+step="0.01"
+:value="settings.lineWidthTaper"
           @input="(e) => set('lineWidthTaper', parseFloat((e.target as HTMLInputElement).value))"
         />
       </div>
