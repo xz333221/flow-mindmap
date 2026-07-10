@@ -2511,6 +2511,18 @@ function computeDropPosition(
   return 'child'
 }
 
+/** True when the hit node is a direct child of the root on the LEFT
+ *  side of a mindmap layout.  In that case the root's clockwise sweep
+ *  (layoutHorizontal with applyClockwise=true, step=-1) reverses the
+ *  visual order: the first data child appears at the BOTTOM and the
+ *  last at the TOP.  So “before in data” lands BELOW the target and
+ *  “after in data” lands ABOVE — the opposite of what the user sees.
+ *  Callers must swap before↔after for such nodes so the VISUAL intent
+ *  (drop above / below) maps to the correct DATA operation. */
+function isLeftSideRootChild(n: LayoutNode): boolean {
+  return !!n.parent?.isRoot && n._dir === 'left'
+}
+
 function onDragPointerUp(_e: PointerEvent) {
   window.removeEventListener('pointermove', onDragPointerMove)
   window.removeEventListener('pointerup', onDragPointerUp)
@@ -2527,7 +2539,18 @@ function onDragPointerUp(_e: PointerEvent) {
   if (!state) return
 
   if (state.currentTargetId && state.dropPosition) {
-    doMove(state.srcId, state.currentTargetId, state.dropPosition)
+    // The root's clockwise sweep reverses the visual top-to-bottom
+    // order for left-side children (layoutHorizontal step=-1).  Swap
+    // before↔after so “drop above” still inserts the node above the
+    // target visually, matching the indicator the user saw.
+    let dataPos = state.dropPosition
+    if (dataPos !== 'child') {
+      const target = allNodes.value.find((n) => n.id === state.currentTargetId)
+      if (target && isLeftSideRootChild(target)) {
+        dataPos = dataPos === 'before' ? 'after' : 'before'
+      }
+    }
+    doMove(state.srcId, state.currentTargetId, dataPos)
     // The drag's pointerdown didn't emit 'select' (see
     // onNodePointerDown).  Now that the drop succeeded, broadcast
     // the new selection so the host's right-side drawer /
