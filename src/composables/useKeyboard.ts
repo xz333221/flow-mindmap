@@ -49,6 +49,13 @@ export interface KeyboardOptions {
    *   dy = +1  → select next sibling
    */
   onNavigate: (dx: number, dy: number) => void
+  /** Move the currently selected node one slot up (dy=-1) or down
+   *  (dy=+1) among its siblings.  The host is responsible for
+   *  mapping the visual direction to the correct data-level
+   *  before/after, taking into account the left/right side
+   *  reversal of root children.  No-op when the node is the root
+   *  or already at the boundary. */
+  onMoveSibling: (dy: number) => void
   onSelectRoot: () => void
 }
 
@@ -186,6 +193,19 @@ export function useKeyboard(opts: KeyboardOptions) {
     } else if (e.key === 'Escape') {
       e.preventDefault()
       opts.onClearSelection()
+    } else if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      // Alt+ArrowUp/Down — move the selected node up/down among
+      // its siblings.  The host handles the left/right side
+      // reversal for root children.
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        opts.onMoveSibling(-1)
+        return
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        opts.onMoveSibling(+1)
+        return
+      }
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
       opts.onNavigate(0, +1)

@@ -1781,6 +1781,7 @@ useKeyboard({
   onUndo: doUndo,
   onRedo: doRedo,
   onNavigate: doNavigate,
+  onMoveSibling: doMoveSibling,
   onSelectRoot: () => {
     selectedIds.value = new Set([dataRef.value.id])
     emitSelection()
@@ -2319,6 +2320,46 @@ function doMove(srcId: string, targetId: string, position: 'before' | 'after' | 
     return true
   }
   return false
+}
+
+/** Move the selected node one slot up (dy=-1) or down (dy=+1) among
+ *  its siblings.  For left-side root children the visual order is
+ *  reversed (clockwise sweep), so "up" maps to the next data sibling
+ *  and "down" maps to the previous one — we detect this via the
+ *  LayoutNode tree and flip the direction accordingly. */
+function doMoveSibling(dy: number) {
+  const cur = selectedId.value
+  if (!cur) return
+  const root = dataRef.value
+  // Root can't move among siblings.
+  if (cur === root.id) return
+  const parent = findParent(root, cur)
+  if (!parent) return
+  const idx = parent.children.findIndex((c) => c.id === cur)
+  if (idx < 0) return
+
+  // Check if this node is a left-side root child whose visual
+  // order is reversed.  We look it up in the LayoutNode tree.
+  let effectiveDy = dy
+  const layoutNode = allNodes.value.find((n) => n.id === cur)
+  if (layoutNode && isLeftSideRootChild(layoutNode)) {
+    effectiveDy = -dy
+  }
+
+  if (effectiveDy < 0) {
+    // Move up visually = swap with previous data sibling.
+    if (idx === 0) return
+    const prevId = parent.children[idx - 1].id
+    moveNode(root, cur, prevId, 'before')
+  } else {
+    // Move down visually = swap with next data sibling.
+    if (idx >= parent.children.length - 1) return
+    const nextId = parent.children[idx + 1].id
+    moveNode(root, cur, nextId, 'after')
+  }
+  record()
+  triggerRef()
+  emit('change', root)
 }
 
 function onNodeClick(e: MouseEvent, n: LayoutNode) {

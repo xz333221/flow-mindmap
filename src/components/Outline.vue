@@ -729,15 +729,14 @@ async function copyOutline() {
   border-radius: 4px;
   flex-shrink: 0;
   padding: 0;
-  display: inline-flex;
+  display: none;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  transition: opacity 0.1s, background 0.1s, color 0.1s, border-color 0.1s;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
 }
 .zm-outline-row:hover .zm-outline-row-action,
 .zm-outline-row.is-selected .zm-outline-row-action {
-  opacity: 1;
+  display: inline-flex;
 }
 .zm-outline-row-action:hover {
   background: #e0e7ff;
@@ -756,26 +755,25 @@ async function copyOutline() {
   border: none;
   background: transparent;
   color: #94a3b8;
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   border-radius: 3px;
   flex-shrink: 0;
   padding: 0;
-  opacity: 0;
-  transition: opacity 0.1s, background 0.1s, color 0.1s;
+  transition: background 0.1s, color 0.1s;
 }
 .zm-outline-row:hover .zm-outline-row-copy,
 .zm-outline-row.is-selected .zm-outline-row-copy {
-  opacity: 1;
+  display: flex;
 }
 .zm-outline-row-copy:hover {
   background: #e2e8f0;
   color: #475569;
 }
 .zm-outline-row-copy.is-success {
-  opacity: 1;
+  display: flex;
   color: #047857;
   background: #ecfdf5;
 }
