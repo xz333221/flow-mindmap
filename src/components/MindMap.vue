@@ -874,11 +874,14 @@ function notePreview(text: string, max = 60): string {
 
 // ---------------------------------------------------------------------------
 // Ctrl+V paste — when a node is selected and the clipboard carries
-// an image, route it through readImageFile / applyNodeImage.  We
-// also intercept text pastes? No: paste-as-text into a selected
-// node should NOT replace the node text (that's confusing); the
-// user can double-click to enter edit mode and paste there.  This
-// handler is image-only.
+// an image, route it through readImageFile / applyNodeImage.  When
+// the clipboard carries plain text (and the internal node clipboard
+// is empty), parse the text into one or more child nodes:
+//   - single line → one child
+//   - multiple lines → one child per non-empty line
+//   - lines starting with "- " have the marker stripped
+// This lets users paste outlines / bullet lists directly from any
+// text source (notepad, chat, browser) into the mindmap.
 // ---------------------------------------------------------------------------
 function onPaste(e: ClipboardEvent) {
   if (props.previewMode) return
@@ -892,6 +895,8 @@ function onPaste(e: ClipboardEvent) {
   if (!sel) return
   const items = e.clipboardData?.items
   if (!items) return
+
+  // 1) Image paste — existing behaviour.
   for (let i = 0; i < items.length; i++) {
     const it = items[i]
     if (it.kind === 'file' && it.type.startsWith('image/')) {
@@ -906,6 +911,36 @@ function onPaste(e: ClipboardEvent) {
       return
     }
   }
+
+  // 2) Text paste — only when the internal node clipboard is empty
+  //    (so copied nodes still paste as nodes, not as their text
+  //    representation).  Split into child nodes.
+  if (clipboard.value && clipboard.value.nodes.length > 0) return
+
+  let text: string | null = null
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i]
+    if (it.kind === 'string' && it.type === 'text/plain') {
+      text = e.clipboardData?.getData('text/plain') ?? null
+      break
+    }
+  }
+  if (!text) return
+  // Only treat non-trivial text as child-node paste.  A single
+  // space or empty string is a no-op.
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^\s*[-*+]\s+/, '').trim())
+    .filter((l) => l.length > 0)
+  if (lines.length === 0) return
+
+  e.preventDefault()
+  record()
+  for (const line of lines) {
+    addChild(dataRef.value, sel, line)
+  }
+  triggerRef()
+  emit('change', dataRef.value)
 }
 onMounted(() => {
   window.addEventListener('paste', onPaste)
@@ -1696,7 +1731,11 @@ function nodeBg(n: LayoutNode): string {
     const hue = branchColor.value.get(n.id)
     if (hue) return hexWithAlpha(hue, 0.18)
   }
-  return theme.value.branchBg
+  // Depth 1 (first-level branches) gets a tinted background that is
+  // lighter than the root.  Depth 2+ are transparent so the canvas
+  // background shows through — keeps the tree visually airy.
+  if (n.depth === 1) return hexWithAlpha(theme.value.rootBg, 0.08)
+  return 'transparent'
 }
 function nodeFg(n: LayoutNode): string {
   const s = getNodeStyle(n.id)
@@ -1711,12 +1750,13 @@ function nodeFg(n: LayoutNode): string {
 function nodeBorder(n: LayoutNode): string {
   const s = getNodeStyle(n.id)
   if (s.borderColor) return s.borderColor
-  if (n.isRoot) return theme.value.rootBg
+  if (n.isRoot) return 'transparent'
   if (settings.rainbowBranch) {
     const hue = branchColor.value.get(n.id)
     if (hue) return darken(hue, 0.3)
   }
-  return theme.value.lineColor
+  // No border by default for all non-root nodes.
+  return 'transparent'
 }
 function nodeFontWeight(n: LayoutNode): number {
 const s = getNodeStyle(n.id)
