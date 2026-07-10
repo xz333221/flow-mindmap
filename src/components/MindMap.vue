@@ -1731,15 +1731,16 @@ function nodeBg(n: LayoutNode): string {
   const s = getNodeStyle(n.id)
   if (s.bg) return s.bg
   if (n.isRoot) return theme.value.rootBg
+  // Depth 2+ are transparent so the canvas background shows through.
+  if (n.depth >= 2) return 'transparent'
+  // Depth 1 (first-level branches) gets a tinted background that is
+  // lighter than the root.  When rainbowBranch is on, use the branch
+  // hue for the tint; otherwise use the root background colour.
   if (settings.rainbowBranch) {
     const hue = branchColor.value.get(n.id)
-    if (hue) return hexWithAlpha(hue, 0.18)
+    if (hue) return hexWithAlpha(hue, 0.15)
   }
-  // Depth 1 (first-level branches) gets a tinted background that is
-  // lighter than the root.  Depth 2+ are transparent so the canvas
-  // background shows through — keeps the tree visually airy.
-  if (n.depth === 1) return hexWithAlpha(theme.value.rootBg, 0.15)
-  return 'transparent'
+  return hexWithAlpha(theme.value.rootBg, 0.15)
 }
 function nodeFg(n: LayoutNode): string {
   const s = getNodeStyle(n.id)
@@ -1754,12 +1755,8 @@ function nodeFg(n: LayoutNode): string {
 function nodeBorder(n: LayoutNode): string {
   const s = getNodeStyle(n.id)
   if (s.borderColor) return s.borderColor
-  if (n.isRoot) return 'transparent'
-  if (settings.rainbowBranch) {
-    const hue = branchColor.value.get(n.id)
-    if (hue) return darken(hue, 0.3)
-  }
-  // No border by default for all non-root nodes.
+  // No border by default for ALL nodes (root and non-root alike).
+  // rainbowBranch only colours the connecting lines, not node borders.
   return 'transparent'
 }
 function nodeFontWeight(n: LayoutNode): number {
@@ -3289,8 +3286,11 @@ function buildExportSVG(): SVGSVGElement {
     rect.setAttribute('height', String(n.height))
     rect.setAttribute('rx', '8')
     rect.setAttribute('fill', nodeBg(n))
-    rect.setAttribute('stroke', nodeBorder(n))
-    rect.setAttribute('stroke-width', '1')
+    const _border = nodeBorder(n)
+    if (_border !== 'transparent') {
+      rect.setAttribute('stroke', _border)
+      rect.setAttribute('stroke-width', '1')
+    }
     svgEl.appendChild(rect)
 
     const hasTags = !!(n.tags && n.tags.length > 0)
