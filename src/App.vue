@@ -284,7 +284,7 @@ const settings = reactive<MindMapSettings>({
   layoutMode: 'mindmap',
   taperedEdge: true,
   lineWidthTaper: 0.3,
-  elbowRadius: 8,
+  elbowRadius: 20,
   showOrderBadge: false,
   canvasBg: undefined,
 })
@@ -320,7 +320,7 @@ function resetSettings() {
     layoutMode: 'mindmap',
     taperedEdge: true,
     lineWidthTaper: 0.3,
-    elbowRadius: 8,
+    elbowRadius: 20,
     showOrderBadge: false,
     canvasBg: undefined,
   }

@@ -214,7 +214,8 @@ export interface MindMapSettings {
    *  ≈ 45%, and so on.  Range 0.3–1.0; 1.0 means no decay. */
   lineWidthTaper: number
   /** Corner radius (px) for the 'rounded-elbow' line style.  Controls
-   *  how round the 90° bends are.  Default 8.  Range 2–20. */
+   *  how round the 90° bends are.  Only applied to the child-end corner;
+   *  the parent-end corner stays sharp.  Default 20.  Range 2–40. */
   elbowRadius: number
   /** When true, every node shows a small badge with its zero-based
    *  position in its parent's children array ("1.", "2.", "3.").

@@ -400,20 +400,20 @@ const previewLines = computed(() => {
           class="zm-settings-number"
           type="number"
           step="1"
-          min="2"
-          max="20"
-          :value="settings.elbowRadius"
-          @change="(e) => set('elbowRadius', parseFloat((e.target as HTMLInputElement).value) || 8)"
+min="2"
+max="40"
+:value="settings.elbowRadius"
+@change="(e) => set('elbowRadius', parseFloat((e.target as HTMLInputElement).value) || 20)"
         />
       </div>
       <div v-if="settings.lineStyle === 'rounded-elbow' || settings.rootLineStyle === 'rounded-elbow'" class="zm-slider">
         <div class="zm-slider-track" />
         <input
           type="range"
-          min="2"
-          max="20"
-          step="1"
-          :value="settings.elbowRadius"
+min="2"
+max="40"
+step="1"
+:value="settings.elbowRadius"
           @input="(e) => set('elbowRadius', parseFloat((e.target as HTMLInputElement).value))"
         />
       </div>

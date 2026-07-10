@@ -21,6 +21,7 @@ import {
   clone,
   cloneSubtree,
   reassignIds,
+  countDescendants,
   DEFAULT_NEW_NODE_TEXT,
   markdownToMindMap,
   mindMapToMarkdown,
@@ -651,9 +652,9 @@ function _onSettingsChange(s: Partial<MindMapSettings>) {
   if (s.lineOrigin !== undefined) settings.lineOrigin = s.lineOrigin
   if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
   if (s.lineWidthTaper !== undefined) settings.lineWidthTaper = Math.max(0.3, Math.min(1, s.lineWidthTaper))
-  if (s.elbowRadius !== undefined) settings.elbowRadius = Math.max(2, Math.min(20, s.elbowRadius))
-  if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
-  if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
+if (s.elbowRadius !== undefined) settings.elbowRadius = Math.max(2, Math.min(40, s.elbowRadius))
+if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
+if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
 }
 
 function _onNodeStyleChange(style: NodeStyle) {
@@ -675,7 +676,7 @@ function _resetSettings() {
   layoutMode: 'mindmap',
   taperedEdge: true,
   lineWidthTaper: 0.3,
-  elbowRadius: 8,
+  elbowRadius: 20,
     showOrderBadge: false,
     canvasBg: undefined,
   }
@@ -1291,7 +1292,7 @@ lineOrigin: 'proportional',
   layoutMode: 'mindmap',
   taperedEdge: true,
   lineWidthTaper: 0.3,
-  elbowRadius: 8,
+  elbowRadius: 20,
   showOrderBadge: false,
   canvasBg: undefined,
 })
@@ -1587,11 +1588,13 @@ function variableWidthPath(
       ]
     }
     // Clamp the fillet radius to half of the shortest adjacent segment.
-    const seg1Len = Math.hypot(corners[0].pos.x - from.x, corners[0].pos.y - from.y)
     const seg2Len = Math.hypot(corners[1].pos.x - corners[0].pos.x, corners[1].pos.y - corners[0].pos.y)
     const seg3Len = Math.hypot(to.x - corners[1].pos.x, to.y - corners[1].pos.y)
-    const maxR = Math.min(seg1Len, seg2Len, seg3Len, settings.elbowRadius) * 0.45
-    const radius = Math.max(2, maxR)
+    // Only the child-end corner (corners[1]) gets a fillet.  The
+    // parent-end corner stays a sharp miter so the line meets the
+    // parent cleanly without visual ambiguity.
+    const maxR = Math.min(seg2Len, seg3Len, settings.elbowRadius) * 0.5
+    const childRadius = Math.max(2, maxR)
 
     // Helper: sample a quarter-circle arc at a right-angle corner.
     function arcSamples(c: Corner, r: number, steps: number): { x: number; y: number }[] {
@@ -1612,12 +1615,13 @@ function variableWidthPath(
       return out
     }
 
-    // Build centerline: start → approach c1 → arc c1 → approach c2 → arc c2 → end
+    // Build centerline: start → corner c1 (sharp) → corner c2 (rounded) → end
     cl.push(from)
-    cl.push({ x: corners[0].pos.x - radius * corners[0].d1.x, y: corners[0].pos.y - radius * corners[0].d1.y })
-    for (const p of arcSamples(corners[0], radius, 7)) cl.push(p)
-    cl.push({ x: corners[1].pos.x - radius * corners[1].d1.x, y: corners[1].pos.y - radius * corners[1].d1.y })
-    for (const p of arcSamples(corners[1], radius, 7)) cl.push(p)
+    // Parent-end corner: sharp (parentRadius = 0), just pass through the corner point
+    cl.push(corners[0].pos)
+    // Child-end corner: rounded fillet
+    cl.push({ x: corners[1].pos.x - childRadius * corners[1].d1.x, y: corners[1].pos.y - childRadius * corners[1].d1.y })
+    for (const p of arcSamples(corners[1], childRadius, 7)) cl.push(p)
     cl.push(to)
 
     // Compute cumulative arc-length for width interpolation.
@@ -1734,7 +1738,7 @@ function nodeBg(n: LayoutNode): string {
   // Depth 1 (first-level branches) gets a tinted background that is
   // lighter than the root.  Depth 2+ are transparent so the canvas
   // background shows through — keeps the tree visually airy.
-  if (n.depth === 1) return hexWithAlpha(theme.value.rootBg, 0.08)
+  if (n.depth === 1) return hexWithAlpha(theme.value.rootBg, 0.15)
   return 'transparent'
 }
 function nodeFg(n: LayoutNode): string {
@@ -2755,15 +2759,14 @@ function nodeHasChildren(n: LayoutNode) {
   return !!data && data.children.length > 0
 }
 
-/** How many direct children a collapsed node is hiding.  Reads from
- *  the original data tree (the layout tree's `n.children` is empty
- *  for a collapsed node, so it would always be 0).  Returns 0 if
- *  the node doesn't exist or has no children, so callers can use
- *  the result as a v-if guard. */
+/** How many descendants a collapsed node is hiding (recursive —
+ *  counts ALL descendants, not just direct children).  Reads from
+ *  the original data tree.  Returns 0 if the node doesn't exist
+ *  or has no children. */
 function collapsedChildCount(id: string): number {
   const data = findNode(dataRef.value, id)
   if (!data) return 0
-  return data.children.length
+  return countDescendants(data)
 }
 
 /** Zero-based index of the node in its parent's children array.
@@ -3822,9 +3825,9 @@ defineExpose<MindMapExpose>({
     if (s.lineOrigin !== undefined) settings.lineOrigin = s.lineOrigin
     if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
     if (s.lineWidthTaper !== undefined) settings.lineWidthTaper = Math.max(0.3, Math.min(1, s.lineWidthTaper))
-    if (s.elbowRadius !== undefined) settings.elbowRadius = Math.max(2, Math.min(20, s.elbowRadius))
-    if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
-    if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
+if (s.elbowRadius !== undefined) settings.elbowRadius = Math.max(2, Math.min(40, s.elbowRadius))
+if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
+if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
   },
   getSettings: (): MindMapSettings => ({
     autoBalanceOnChange: settings.autoBalanceOnChange,
@@ -4562,11 +4565,10 @@ onMounted(() => {
   padding: 0.4em 0.4em;
   box-sizing: border-box;
   border-radius: 8px;
-  border: 1px solid;
+  border: 1px solid transparent;
   line-height: 1.2;
   cursor: default;
   transition: box-shadow 0.15s;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   white-space: nowrap;
   z-index: 1;
 }
@@ -4919,15 +4921,21 @@ overflow: hidden;
    *  - left-side node  (n.side === -1) → button on the left edge.
    * Border + icon colour come inline from the node's rainbow branch
    * hue (or grey when rainbow is off); the background is opaque
-   * white so the button reads cleanly against any node fill. */
-  right: -8px;
+   * white so the button reads cleanly against any node fill.
+   * Use a plain square (no border-radius) so it doesn't look like
+   * a circle-within-circle alongside the icon. */
+  right: -7px;
   top: 50%;
   width: 14px;
   height: 14px;
+  border-radius: 3px;
   background: #ffffff;
   border: 1.5px solid;
   transform: translateY(-50%);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .zm-collapse.is-on-left {
   right: auto;
