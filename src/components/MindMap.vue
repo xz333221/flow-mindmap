@@ -152,15 +152,49 @@ const canvasHovered = ref(false)
 // the ghost doesn't snap-to-center but tracks the grab point.
 // srcText is captured at pickup time so the ghost can render
 // without re-running findNode on every pointermove.
+//
+// dropPosition tells the user's intent as they hover a target:
+// 'child'  → insert as last child of the target (green outline)
+// 'before' → insert as the target's previous sibling (line above/left)
+// 'after'  → insert as the target's next sibling (line below/right)
 const dragState = ref<{
   srcId: string
   srcText: string
   pointerOffsetX: number
   pointerOffsetY: number
   currentTargetId: string | null
+  dropPosition: 'before' | 'after' | 'child' | null
 } | null>(null)
 const dragGhostX = ref(0)
 const dragGhostY = ref(0)
+
+// Computed geometry for the drop-indicator line shown during a
+// before/after hover.  Rendered inside .zm-world so it's already
+// in world coordinates — no manual scale/offset math needed.
+const dropIndicator = computed<{
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  horizontal: boolean
+} | null>(() => {
+  const s = dragState.value
+  if (!s || !s.currentTargetId || !s.dropPosition || s.dropPosition === 'child') return null
+  const n = allNodes.value.find((nn) => nn.id === s.currentTargetId)
+  if (!n) return null
+  const halfW = n.width / 2
+  const halfH = n.height / 2
+  if (n._dir === 'down') {
+    // Org mode — siblings are horizontal.  Indicator is a vertical
+    // line on the left (before) or right (after) edge of the node.
+    const x = s.dropPosition === 'before' ? n.x - halfW : n.x + halfW
+    return { x1: x, y1: n.y - halfH, x2: x, y2: n.y + halfH, horizontal: false }
+  }
+  // Mindmap / tree — siblings are vertical.  Indicator is a
+  // horizontal line on the top (before) or bottom (after) edge.
+  const y = s.dropPosition === 'before' ? n.y - halfH : n.y + halfH
+  return { x1: n.x - halfW, y1: y, x2: n.x + halfW, y2: y, horizontal: true }
+})
 
 // Clipboard buffer.  Holds a list of cloned subtrees (with fresh
 // ids) ready to paste, plus the originals' pre-clone ids so the
@@ -2414,6 +2448,7 @@ function onDragPointerMove(e: PointerEvent) {
       pointerOffsetX: pendingDrag.pointerOffsetX,
       pointerOffsetY: pendingDrag.pointerOffsetY,
       currentTargetId: null,
+      dropPosition: null,
     }
     document.body.classList.add('is-dragging')
     pendingDrag = null
@@ -2430,6 +2465,50 @@ function onDragPointerMove(e: PointerEvent) {
   const wy = (e.clientY - wrapperRect.top - panZoom.offsetY.value) / panZoom.scale.value
   const hit = getNodeAtPointer(wx, wy, state.srcId)
   state.currentTargetId = hit?.id ?? null
+
+  // Compute the drop position (before / after / child) based on
+  // the cursor's location within the hit node.  This lets the user
+  // reorder siblings (above/below for vertical layouts, left/right
+  // for org mode) instead of only reparenting.
+  if (hit) {
+    state.dropPosition = computeDropPosition(wx, wy, hit)
+  } else {
+    state.dropPosition = null
+  }
+}
+
+/** Determine whether a drop at the given world-space point should be
+ *  'before', 'after', or 'child' relative to the hit node.
+ *
+ *  The hit zone depends on the layout direction of the hit node:
+ *  - 'down' (org mode): siblings are arranged horizontally, so the
+ *    left ~30% → before, right ~30% → after, middle ~40% → child.
+ *  - 'left' / 'right' (mindmap / tree): siblings are stacked
+ *    vertically, so the top ~30% → before, bottom ~30% → after,
+ *    middle ~40% → child.
+ *
+ *  The root node always returns 'child' (it can't have siblings).
+ */
+function computeDropPosition(
+  wx: number,
+  wy: number,
+  hit: LayoutNode
+): 'before' | 'after' | 'child' {
+  if (hit.isRoot) return 'child'
+  const halfW = hit.width / 2
+  const halfH = hit.height / 2
+  if (hit._dir === 'down') {
+    // Horizontal sibling arrangement (org mode).
+    const dx = wx - hit.x // -halfW … +halfW
+    if (dx < -halfW * 0.3) return 'before'
+    if (dx > halfW * 0.3) return 'after'
+    return 'child'
+  }
+  // Vertical sibling arrangement (mindmap / tree).
+  const dy = wy - hit.y // -halfH … +halfH
+  if (dy < -halfH * 0.3) return 'before'
+  if (dy > halfH * 0.3) return 'after'
+  return 'child'
 }
 
 function onDragPointerUp(_e: PointerEvent) {
@@ -2447,8 +2526,8 @@ function onDragPointerUp(_e: PointerEvent) {
   const state = dragState.value
   if (!state) return
 
-  if (state.currentTargetId) {
-    doMove(state.srcId, state.currentTargetId, 'child')
+  if (state.currentTargetId && state.dropPosition) {
+    doMove(state.srcId, state.currentTargetId, state.dropPosition)
     // The drag's pointerdown didn't emit 'select' (see
     // onNodePointerDown).  Now that the drop succeeded, broadcast
     // the new selection so the host's right-side drawer /
@@ -3787,6 +3866,21 @@ onMounted(() => {
           transform: `translate(${panZoom.offsetX.value}px, ${panZoom.offsetY.value}px) scale(${panZoom.scale.value})`,
         }"
       >
+        <!-- Drop indicator: a coloured line shown on the edge of the
+             target node when the user is hovering for a before/after
+             (sibling) insert.  Rendered in world coordinates so it
+             tracks the layout naturally through pan/zoom. -->
+        <div
+          v-if="dropIndicator"
+          class="zm-drop-indicator"
+          :style="{
+            left: dropIndicator.x1 + 'px',
+            top: dropIndicator.y1 + 'px',
+            width: dropIndicator.horizontal ? (dropIndicator.x2 - dropIndicator.x1) + 'px' : '3px',
+            height: dropIndicator.horizontal ? '3px' : (dropIndicator.y2 - dropIndicator.y1) + 'px',
+            transform: dropIndicator.horizontal ? 'translateY(-1.5px)' : 'translateX(-1.5px)',
+          }"
+        />
         <div
           v-for="n in allNodes"
           :key="n.id"
@@ -3800,7 +3894,9 @@ onMounted(() => {
             'has-image': !!n.image,
             'is-resizing': resizingId === n.id,
             'is-dragging-source': dragState?.srcId === n.id,
-            'is-drop-target': dragState?.currentTargetId === n.id,
+            'is-drop-target': dragState?.currentTargetId === n.id && dragState?.dropPosition === 'child',
+            'is-drop-target-before': dragState?.currentTargetId === n.id && dragState?.dropPosition === 'before',
+            'is-drop-target-after': dragState?.currentTargetId === n.id && dragState?.dropPosition === 'after',
             'is-search-hit': isSearchHit(n.id),
             'is-search-current': isCurrentSearchHit(n.id),
             'is-search-dimmed': isSearchDimmed(n.id),
@@ -4385,6 +4481,25 @@ onMounted(() => {
   outline: 2px solid #4caf50;
   outline-offset: 2px;
   transition: outline-color 0.1s ease;
+}
+/* Sibling-insert hover — a subtle blue tint on the top/bottom (or
+   left/right in org mode) edge of the target so the user knows the
+   node will be inserted as a sibling, not a child. */
+.zm-node.is-drop-target-before {
+  box-shadow: 0 -3px 0 0 #3b82f6, 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+.zm-node.is-drop-target-after {
+  box-shadow: 0 3px 0 0 #3b82f6, 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+/* The standalone indicator line rendered in world space.  Bright
+   blue, slightly thick so it's visible at any zoom level. */
+.zm-drop-indicator {
+  position: absolute;
+  background: #3b82f6;
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 9999;
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.5);
 }
 .zm-drag-ghost {
   position: absolute;
