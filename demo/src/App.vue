@@ -82,6 +82,7 @@ const settings = reactive<MindMapSettings>({
   layoutMode: 'mindmap',
   taperedEdge: true,
   lineWidthTaper: 0.1,
+  uniformLineWidth: false,
   elbowRadius: 20,
   showOrderBadge: false,
 })

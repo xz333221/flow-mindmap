@@ -573,6 +573,18 @@ step="0.01"
         />
       </div>
 
+      <!-- Uniform non-root line width (only relevant in tapered mode) -->
+      <div v-if="settings.taperedEdge" class="zm-settings-field">
+        <span class="zm-settings-label">其他节点相同粗细</span>
+        <button
+          class="zm-toggle"
+          :class="{ 'is-on': settings.uniformLineWidth }"
+          @click="set('uniformLineWidth', !settings.uniformLineWidth)"
+        >
+          <span class="zm-toggle-knob" />
+        </button>
+      </div>
+
       <!-- Order badge -->
       <div class="zm-settings-field">
         <span class="zm-settings-label">显示节点序号</span>

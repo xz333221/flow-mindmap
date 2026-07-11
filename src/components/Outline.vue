@@ -457,6 +457,17 @@ async function copyOutline() {
         <button
           v-if="!props.readonly"
           class="zm-outline-row-action"
+          title="编辑文字"
+          @click.stop="startEdit(row)"
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 20 l4 -1 11 -11 -3 -3 -11 11 z" />
+            <line x1="14" y1="6" x2="18" y2="10" />
+          </svg>
+        </button>
+        <button
+          v-if="!props.readonly"
+          class="zm-outline-row-action"
           title="添加同级"
           @click.stop="emit('addSibling', row.id)"
         >

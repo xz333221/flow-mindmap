@@ -213,6 +213,10 @@ export interface MindMapSettings {
    *  — a level-1 edge is 67% as wide as the root, level-2 is 67%²
    *  ≈ 45%, and so on.  Range 0.1–1.0; 1.0 means no decay. */
   lineWidthTaper: number
+  /** When true, all non-root edges share the same width (= lineWidthEnd),
+   *  giving a uniform "thin" look for every branch regardless of depth.
+   *  Only effective when taperedEdge is true.  Default false. */
+  uniformLineWidth: boolean
   /** Corner radius (px) for the 'rounded-elbow' line style.  Controls
    *  how round the 90° bends are.  Only applied to the child-end corner;
    *  the parent-end corner stays sharp.  Default 20.  Range 2–40. */

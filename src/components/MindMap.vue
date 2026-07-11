@@ -652,6 +652,7 @@ function _onSettingsChange(s: Partial<MindMapSettings>) {
   if (s.lineOrigin !== undefined) settings.lineOrigin = s.lineOrigin
   if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
   if (s.lineWidthTaper !== undefined) settings.lineWidthTaper = Math.max(0.1, Math.min(1, s.lineWidthTaper))
+  if (s.uniformLineWidth !== undefined) settings.uniformLineWidth = s.uniformLineWidth
 if (s.elbowRadius !== undefined) settings.elbowRadius = Math.max(2, Math.min(40, s.elbowRadius))
 if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
 if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
@@ -676,6 +677,7 @@ function _resetSettings() {
   layoutMode: 'mindmap',
   taperedEdge: true,
   lineWidthTaper: 0.3,
+  uniformLineWidth: false,
   elbowRadius: 20,
     showOrderBadge: false,
     canvasBg: undefined,
@@ -690,9 +692,10 @@ function _resetSettings() {
   settings.rootLineStyle = defaults.rootLineStyle
   settings.lineOrigin = defaults.lineOrigin
   settings.layoutMode = defaults.layoutMode
-  settings.taperedEdge = defaults.taperedEdge
-  settings.lineWidthTaper = defaults.lineWidthTaper
-  settings.elbowRadius = defaults.elbowRadius
+settings.taperedEdge = defaults.taperedEdge
+settings.lineWidthTaper = defaults.lineWidthTaper
+settings.uniformLineWidth = defaults.uniformLineWidth
+settings.elbowRadius = defaults.elbowRadius
   settings.showOrderBadge = defaults.showOrderBadge
   settings.canvasBg = defaults.canvasBg
 }
@@ -1292,6 +1295,7 @@ lineOrigin: 'proportional',
   layoutMode: 'mindmap',
   taperedEdge: true,
   lineWidthTaper: 0.3,
+  uniformLineWidth: false,
   elbowRadius: 20,
   showOrderBadge: false,
   canvasBg: undefined,
@@ -1320,7 +1324,9 @@ function edgeLineStyle(fromIsRoot: boolean): LineStyle {
 //     interpolate smoothly.
 function lineWidthForDepth(depth: number): number {
   return settings.taperedEdge
-    ? taperedParentWidth(depth)
+    ? settings.uniformLineWidth && depth > 0
+      ? settings.lineWidthEnd
+      : taperedParentWidth(depth)
     : continuousWidth(depth)
 }
 function endWidthForDepth(depth: number): number {
@@ -3836,6 +3842,7 @@ defineExpose<MindMapExpose>({
     if (s.lineOrigin !== undefined) settings.lineOrigin = s.lineOrigin
     if (s.taperedEdge !== undefined) settings.taperedEdge = s.taperedEdge
     if (s.lineWidthTaper !== undefined) settings.lineWidthTaper = Math.max(0.1, Math.min(1, s.lineWidthTaper))
+    if (s.uniformLineWidth !== undefined) settings.uniformLineWidth = s.uniformLineWidth
 if (s.elbowRadius !== undefined) settings.elbowRadius = Math.max(2, Math.min(40, s.elbowRadius))
 if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
 if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
@@ -3853,6 +3860,7 @@ if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
     layoutMode: settings.layoutMode,
     taperedEdge: settings.taperedEdge,
     lineWidthTaper: settings.lineWidthTaper,
+    uniformLineWidth: settings.uniformLineWidth,
     elbowRadius: settings.elbowRadius,
     showOrderBadge: settings.showOrderBadge,
     canvasBg: settings.canvasBg,
@@ -4193,7 +4201,7 @@ onMounted(() => {
             v-if="nodeHasChildren(n) && !isCollapsed(n.id)"
             class="zm-btn zm-collapse"
             :class="{ 'is-on-left': n.side === -1 }"
-            :style="{ color: branchColor.get(n.id) ?? '#64748b', borderColor: branchColor.get(n.id) ?? '#64748b' }"
+            :style="{ color: branchColor.get(n.id) ?? '#64748b' }"
             title="折叠"
             @mousedown.stop
             @click.stop="toggleCollapse(n.id)"
@@ -4930,20 +4938,16 @@ overflow: hidden;
   /* Position the toggle on the "line-out" side of the node:
    *  - right-side node (n.side === 1) → button on the right edge
    *  - left-side node  (n.side === -1) → button on the left edge.
-   * Border + icon colour come inline from the node's rainbow branch
-   * hue (or grey when rainbow is off); the background is opaque
-   * white so the button reads cleanly against any node fill.
-   * Use a plain square (no border-radius) so it doesn't look like
-   * a circle-within-circle alongside the icon. */
-  right: -7px;
+   * No border / background — the Icon 'minus' already renders as a
+   * circled minus sign, so an outer container would create a
+   * "square-with-circle" look.  We just let the icon show through. */
+  right: -9px;
   top: 50%;
   width: 14px;
   height: 14px;
-  border-radius: 3px;
-  background: #ffffff;
-  border: 1.5px solid;
+  background: transparent;
+  border: none;
   transform: translateY(-50%);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4954,7 +4958,6 @@ overflow: hidden;
 }
 .zm-collapse:hover {
   transform: translateY(-50%) scale(1.15);
-  background: #ffffff;
 }
 /* xmind-style collapsed child-count badge.  Sits on the line-out
  * side of the node (right edge for right-side nodes, left edge for
