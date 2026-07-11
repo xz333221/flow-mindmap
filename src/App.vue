@@ -282,11 +282,11 @@ const settings = reactive<MindMapSettings>({
   rootLineStyle: 'arc',
   lineOrigin: 'proportional',
   layoutMode: 'mindmap',
-  taperedEdge: true,
-  lineWidthTaper: 0.1,
-  uniformLineWidth: false,
-  elbowRadius: 20,
-  showOrderBadge: false,
+taperedEdge: true,
+lineWidthTaper: 0.1,
+uniformLineWidth: true,
+elbowRadius: 20,
+showOrderBadge: false,
   canvasBg: undefined,
 })
 
@@ -319,11 +319,11 @@ function resetSettings() {
     rootLineStyle: 'arc',
     lineOrigin: 'proportional',
     layoutMode: 'mindmap',
-    taperedEdge: true,
-    lineWidthTaper: 0.1,
-    uniformLineWidth: false,
-    elbowRadius: 20,
-    showOrderBadge: false,
+taperedEdge: true,
+lineWidthTaper: 0.1,
+uniformLineWidth: true,
+elbowRadius: 20,
+showOrderBadge: false,
     canvasBg: undefined,
   }
   Object.assign(settings, defaults)

@@ -335,7 +335,7 @@ step="0.1"
 
       <!-- Line style (other nodes) -->
       <div class="zm-settings-field zm-line-style-field">
-        <span class="zm-settings-label">其他节点线条</span>
+        <span class="zm-settings-label">非根节点线条</span>
         <div class="zm-line-style-group">
           <button
             v-for="opt in LINE_STYLE_OPTIONS"
@@ -575,7 +575,7 @@ step="0.01"
 
       <!-- Uniform non-root line width (only relevant in tapered mode) -->
       <div v-if="settings.taperedEdge" class="zm-settings-field">
-        <span class="zm-settings-label">其他节点相同粗细</span>
+        <span class="zm-settings-label">非根节点相同粗细</span>
         <button
           class="zm-toggle"
           :class="{ 'is-on': settings.uniformLineWidth }"

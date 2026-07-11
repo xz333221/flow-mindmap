@@ -215,7 +215,7 @@ export interface MindMapSettings {
   lineWidthTaper: number
   /** When true, all non-root edges share the same width (= lineWidthEnd),
    *  giving a uniform "thin" look for every branch regardless of depth.
-   *  Only effective when taperedEdge is true.  Default false. */
+   *  Only effective when taperedEdge is true.  Default true. */
   uniformLineWidth: boolean
   /** Corner radius (px) for the 'rounded-elbow' line style.  Controls
    *  how round the 90° bends are.  Only applied to the child-end corner;
