@@ -1545,13 +1545,22 @@ function variableWidthPath(
     // Start
     eleft.push({ x: epts[0].x + enerm[0].x * ehw[0], y: epts[0].y + enerm[0].y * ehw[0] })
     eright.push({ x: epts[0].x - enerm[0].x * ehw[0], y: epts[0].y - enerm[0].y * ehw[0] })
-    // Corners (miter)
+    // Corners (miter) — correct formula: (n1+n2) · 2w / |n1+n2|²
     for (let i = 1; i < epts.length - 1; i++) {
       const n1 = enerm[i - 1]
       const n2 = enerm[i]
       const w = ehw[i]
-      eleft.push({ x: epts[i].x + n1.x * w + n2.x * w, y: epts[i].y + n1.y * w + n2.y * w })
-      eright.push({ x: epts[i].x - n1.x * w - n2.x * w, y: epts[i].y - n1.y * w - n2.y * w })
+      const sx = n1.x + n2.x
+      const sy = n1.y + n2.y
+      const sl2 = sx * sx + sy * sy
+      if (sl2 < 1e-6) {
+        eleft.push({ x: epts[i].x + n1.x * w, y: epts[i].y + n1.y * w })
+        eright.push({ x: epts[i].x - n1.x * w, y: epts[i].y - n1.y * w })
+      } else {
+        const f = (2 * w) / sl2
+        eleft.push({ x: epts[i].x + sx * f, y: epts[i].y + sy * f })
+        eright.push({ x: epts[i].x - sx * f, y: epts[i].y - sy * f })
+      }
     }
     // End
     const lastN = enerm[enerm.length - 1]
@@ -1638,7 +1647,7 @@ function variableWidthPath(
     cl.push(corners[0].pos)
     // Child-end corner: rounded fillet
     cl.push({ x: corners[1].pos.x - childRadius * corners[1].d1.x, y: corners[1].pos.y - childRadius * corners[1].d1.y })
-    for (const p of arcSamples(corners[1], childRadius, 7)) cl.push(p)
+    for (const p of arcSamples(corners[1], childRadius, 12)) cl.push(p)
     cl.push(to)
 
     // Compute cumulative arc-length for width interpolation.
@@ -1690,11 +1699,27 @@ function variableWidthPath(
         rleft.push({ x: cl[i].x + n.x * w, y: cl[i].y + n.y * w })
         rright.push({ x: cl[i].x - n.x * w, y: cl[i].y - n.y * w })
       } else {
-        // Miter: sum of the two adjacent segment normals × half-width.
+        // Correct miter join: the offset along the bisector must be
+        // w / sin(α/2) where α is the interior angle.  Since
+        // |n1+n2| = 2·sin(α/2), this simplifies to
+        // (n1+n2) · 2w / |n1+n2|².  The old formula (n1+n2)·w was
+        // only correct for 90° corners; on smooth arc samples (small
+        // angle changes) it over-offsetted by up to 2×, making
+        // rounded corners look much thicker than straight segments.
         const n1 = segNorms[i - 1]
         const n2 = segNorms[i]
-        rleft.push({ x: cl[i].x + (n1.x + n2.x) * w, y: cl[i].y + (n1.y + n2.y) * w })
-        rright.push({ x: cl[i].x - (n1.x + n2.x) * w, y: cl[i].y - (n1.y + n2.y) * w })
+        const sx = n1.x + n2.x
+        const sy = n1.y + n2.y
+        const sl2 = sx * sx + sy * sy
+        if (sl2 < 1e-6) {
+          // Near-180° turn — degenerate, fall back to n1.
+          rleft.push({ x: cl[i].x + n1.x * w, y: cl[i].y + n1.y * w })
+          rright.push({ x: cl[i].x - n1.x * w, y: cl[i].y - n1.y * w })
+        } else {
+          const f = (2 * w) / sl2
+          rleft.push({ x: cl[i].x + sx * f, y: cl[i].y + sy * f })
+          rright.push({ x: cl[i].x - sx * f, y: cl[i].y - sy * f })
+        }
       }
     }
     // Assemble with flat end caps (no semicircular rounding).
@@ -4230,12 +4255,12 @@ onMounted(() => {
             v-if="nodeHasChildren(n) && !isCollapsed(n.id)"
             class="zm-btn zm-collapse"
             :class="{ 'is-on-left': n.side === -1 }"
-            :style="{ color: branchColor.get(n.id) ?? '#64748b' }"
+            :style="{ '--zm-collapse-color': branchColor.get(n.id) ?? '#64748b' }"
             title="折叠"
             @mousedown.stop
             @click.stop="toggleCollapse(n.id)"
           >
-            <Icon name="minus" :size="12" :stroke="2.5" />
+            <span class="zm-collapse-bar" />
           </button>
 
           <!-- Resize handle — bottom-right corner of the node,
@@ -4967,25 +4992,33 @@ overflow: hidden;
   /* Position the toggle on the "line-out" side of the node:
    *  - right-side node (n.side === 1) → button on the right edge
    *  - left-side node  (n.side === -1) → button on the left edge.
-   * White circle background with the branch colour as the icon
-   * colour — matches the Icon 'minus' which is a circled minus,
-   * but we give it an opaque white disc so it reads at any zoom. */
-  right: -8px;
+   * White circle background; the minus bar is a CSS span so there's
+   * no double-circle (the old Icon 'minus' had its own <circle>). */
+  right: -10px;
   top: 50%;
-  width: 16px;
-  height: 16px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background: #ffffff;
   border: none;
   transform: translateY(-50%);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.22);
   display: flex;
   align-items: center;
   justify-content: center;
 }
+.zm-collapse-bar {
+  /* Simple horizontal bar — the only visible "minus" element.
+   * The button's white disc is the circle; no inner SVG circle. */
+  display: block;
+  width: 10px;
+  height: 2.5px;
+  border-radius: 1.5px;
+  background: var(--zm-collapse-color, #64748b);
+}
 .zm-collapse.is-on-left {
   right: auto;
-  left: -8px;
+  left: -10px;
 }
 .zm-collapse:hover {
   transform: translateY(-50%) scale(1.15);
