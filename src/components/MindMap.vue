@@ -1649,24 +1649,53 @@ function variableWidthPath(
       segLens.push(l)
       totalLen += l
     }
-    // Offset polygon via finite-difference normals.
-    const rleft: { x: number; y: number }[] = []
-    const rright: { x: number; y: number }[] = []
-    let acc = 0
-    for (let i = 0; i < cl.length; i++) {
-      const prev = cl[Math.max(0, i - 1)]
-      const next = cl[Math.min(cl.length - 1, i + 1)]
-      const dx = next.x - prev.x
-      const dy = next.y - prev.y
+
+    // Per-segment normals (unit, left-hand perpendicular).
+    // Using per-segment normals instead of finite-difference normals
+    // avoids the "thinning" artifact at sharp corners where the
+    // blended normal would be diagonal and produce a narrower
+    // offset than either adjacent segment expects.
+    const segNorms: { x: number; y: number }[] = []
+    for (let i = 0; i < cl.length - 1; i++) {
+      const dx = cl[i + 1].x - cl[i].x
+      const dy = cl[i + 1].y - cl[i].y
       let len = Math.hypot(dx, dy)
       if (len < 1e-6) len = 1
-      const nx = -dy / len
-      const ny = dx / len
+      segNorms.push({ x: -dy / len, y: dx / len })
+    }
+
+    // Cumulative arc-length → half-width at each point.
+    const halfWidths: number[] = []
+    let acc = 0
+    for (let i = 0; i < cl.length; i++) {
       if (i > 0) acc += segLens[i - 1]
       const t = totalLen > 0 ? acc / totalLen : 0
-      const halfW = (startW + (endW - startW) * t) / 2
-      rleft.push({ x: cl[i].x + nx * halfW, y: cl[i].y + ny * halfW })
-      rright.push({ x: cl[i].x - nx * halfW, y: cl[i].y - ny * halfW })
+      halfWidths.push((startW + (endW - startW) * t) / 2)
+    }
+
+    // Build offset polygons.  At interior points where two segments
+    // meet (sharp corners), use the miter approach: sum the two
+    // adjacent segment normals, each scaled by that point's half-width.
+    // At endpoints (i=0, i=last), just use the single segment normal.
+    const rleft: { x: number; y: number }[] = []
+    const rright: { x: number; y: number }[] = []
+    for (let i = 0; i < cl.length; i++) {
+      const w = halfWidths[i]
+      if (i === 0) {
+        const n = segNorms[0]
+        rleft.push({ x: cl[i].x + n.x * w, y: cl[i].y + n.y * w })
+        rright.push({ x: cl[i].x - n.x * w, y: cl[i].y - n.y * w })
+      } else if (i === cl.length - 1) {
+        const n = segNorms[segNorms.length - 1]
+        rleft.push({ x: cl[i].x + n.x * w, y: cl[i].y + n.y * w })
+        rright.push({ x: cl[i].x - n.x * w, y: cl[i].y - n.y * w })
+      } else {
+        // Miter: sum of the two adjacent segment normals × half-width.
+        const n1 = segNorms[i - 1]
+        const n2 = segNorms[i]
+        rleft.push({ x: cl[i].x + (n1.x + n2.x) * w, y: cl[i].y + (n1.y + n2.y) * w })
+        rright.push({ x: cl[i].x - (n1.x + n2.x) * w, y: cl[i].y - (n1.y + n2.y) * w })
+      }
     }
     // Assemble with flat end caps (no semicircular rounding).
     let rd = `M ${rleft[0].x.toFixed(2)} ${rleft[0].y.toFixed(2)}`
@@ -4206,7 +4235,7 @@ onMounted(() => {
             @mousedown.stop
             @click.stop="toggleCollapse(n.id)"
           >
-            <Icon name="minus" :size="10" :stroke="2.4" />
+            <Icon name="minus" :size="12" :stroke="2.5" />
           </button>
 
           <!-- Resize handle — bottom-right corner of the node,
@@ -4938,16 +4967,18 @@ overflow: hidden;
   /* Position the toggle on the "line-out" side of the node:
    *  - right-side node (n.side === 1) → button on the right edge
    *  - left-side node  (n.side === -1) → button on the left edge.
-   * No border / background — the Icon 'minus' already renders as a
-   * circled minus sign, so an outer container would create a
-   * "square-with-circle" look.  We just let the icon show through. */
-  right: -9px;
+   * White circle background with the branch colour as the icon
+   * colour — matches the Icon 'minus' which is a circled minus,
+   * but we give it an opaque white disc so it reads at any zoom. */
+  right: -8px;
   top: 50%;
-  width: 14px;
-  height: 14px;
-  background: transparent;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
   border: none;
   transform: translateY(-50%);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4958,6 +4989,7 @@ overflow: hidden;
 }
 .zm-collapse:hover {
   transform: translateY(-50%) scale(1.15);
+  background: #ffffff;
 }
 /* xmind-style collapsed child-count badge.  Sits on the line-out
  * side of the node (right edge for right-side nodes, left edge for

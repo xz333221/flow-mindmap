@@ -190,6 +190,10 @@ export function useKeyboard(opts: KeyboardOptions) {
     } else if (e.key === 'F2' && sel) {
       e.preventDefault()
       opts.onStartEdit(sel)
+    } else if (e.key === ' ' && sel) {
+      // Space — start editing the selected node (same as F2).
+      e.preventDefault()
+      opts.onStartEdit(sel)
     } else if (e.key === 'Escape') {
       e.preventDefault()
       opts.onClearSelection()
