@@ -327,14 +327,35 @@ onBeforeUnmount(() => {
           </summary>
           <div v-if="isSectionOpen('nodeops')" class="demo-section-body">
             <div class="demo-btn-grid">
-              <button data-testid="op-select-root" @click="selectRoot">selectRoot</button>
-              <button data-testid="op-addchild" :disabled="!selectedId" @click="act('addChild', () => { if (selectedId) mmRef?.addChild(selectedId) })">addChild</button>
-              <button data-testid="op-addsibling" :disabled="!selectedId || selectedId === 'root'" @click="act('addSibling', () => { if (selectedId) mmRef?.addSibling(selectedId) })">addSibling</button>
-              <button data-testid="op-remove" :disabled="!selectedId || selectedId === 'root'" @click="act('removeNode', () => { if (selectedId) mmRef?.removeNode(selectedId) })">removeNode</button>
-              <button data-testid="op-duplicate" :disabled="!selectedId" @click="act('duplicateNode', () => { if (selectedId) mmRef?.duplicateNode(selectedId) })">duplicateNode</button>
-              <button data-testid="op-settext" :disabled="!selectedId" @click="act('setNodeText', () => { if (selectedId) mmRef?.setNodeText(selectedId, `编辑于 ${Date.now() % 10000}`) })">setNodeText</button>
+              <button class="demo-btn demo-btn--accent" data-testid="op-select-root" @click="selectRoot">
+                <svg class="demo-btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5"/><circle cx="8" cy="8" r="2"/></svg>
+                selectRoot
+              </button>
+              <button class="demo-btn demo-btn--accent" data-testid="op-addchild" :disabled="!selectedId" @click="act('addChild', () => { if (selectedId) mmRef?.addChild(selectedId) })">
+                <svg class="demo-btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v8M5 8l3 3 3-3"/></svg>
+                addChild
+              </button>
+              <button class="demo-btn demo-btn--accent" data-testid="op-addsibling" :disabled="!selectedId || selectedId === 'root'" @click="act('addSibling', () => { if (selectedId) mmRef?.addSibling(selectedId) })">
+                <svg class="demo-btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M8 4v10"/></svg>
+                addSibling
+              </button>
+              <button class="demo-btn demo-btn--danger" data-testid="op-remove" :disabled="!selectedId || selectedId === 'root'" @click="act('removeNode', () => { if (selectedId) mmRef?.removeNode(selectedId) })">
+                <svg class="demo-btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+                removeNode
+              </button>
+              <button class="demo-btn" data-testid="op-duplicate" :disabled="!selectedId" @click="act('duplicateNode', () => { if (selectedId) mmRef?.duplicateNode(selectedId) })">
+                <svg class="demo-btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="6" y="6" width="7" height="7" rx="1"/></svg>
+                duplicateNode
+              </button>
+              <button class="demo-btn" data-testid="op-settext" :disabled="!selectedId" @click="act('setNodeText', () => { if (selectedId) mmRef?.setNodeText(selectedId, `编辑于 4304`) })">
+                <svg class="demo-btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l1.5-1.5L12 4l1.5 1.5-7.5 7.5z"/><path d="M11 5l1.5 1.5"/></svg>
+                setNodeText
+              </button>
             </div>
-            <button class="demo-btn demo-btn--full" data-testid="op-move" :disabled="!selectedNode" @click="act('moveNode', () => { if (selectedId && selectedId !== 'root') mmRef?.moveNode(selectedId, 'root', 'child') })">{{ t('移动到根节点子级', 'moveNode → root child') }}</button>
+            <button class="demo-btn demo-btn--full demo-btn--accent" data-testid="op-move" :disabled="!selectedNode" @click="act('moveNode', () => { if (selectedId && selectedId !== 'root') mmRef?.moveNode(selectedId, 'root', 'child') })">
+              <svg class="demo-btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13L13 3"/><path d="M9 3h4v4"/></svg>
+              {{ t('移动到根节点子级', 'moveNode → root child') }}
+            </button>
           </div>
         </details>
 
@@ -346,12 +367,30 @@ onBeforeUnmount(() => {
           </summary>
           <div v-if="isSectionOpen('nodeext')" class="demo-section-body">
             <div class="demo-btn-grid">
-              <button data-testid="op-style" :disabled="!selectedId" @click="act('applyNodeStyle', () => { if (selectedId) mmRef?.applyNodeStyle(selectedId, { bg: '#fef08a', borderColor: '#ca8a04', fontWeight: 600 }) })">{{ t('高亮样式', 'Style highlight') }}</button>
-              <button data-testid="op-style-clear" :disabled="!selectedId" @click="act('clearStyle', () => { if (selectedId) mmRef?.applyNodeStyle(selectedId, {}) })">{{ t('清除样式', 'Clear style') }}</button>
-              <button data-testid="op-link" :disabled="!selectedId" @click="act('applyNodeLink', () => { if (selectedId) mmRef?.applyNodeLink(selectedId, 'https://example.com') })">{{ t('设置链接', 'setLink') }}</button>
-              <button data-testid="op-link-clear" :disabled="!selectedId" @click="act('removeLink', () => { if (selectedId) mmRef?.removeNodeLink(selectedId) })">{{ t('清除链接', 'clearLink') }}</button>
-              <button data-testid="op-note" :disabled="!selectedId" @click="act('applyNodeNote', () => { if (selectedId) mmRef?.applyNodeNote(selectedId, 'demo note text') })">{{ t('设置笔记', 'setNote') }}</button>
-              <button data-testid="op-note-clear" :disabled="!selectedId" @click="act('removeNote', () => { if (selectedId) mmRef?.removeNodeNote(selectedId) })">{{ t('清除笔记', 'clearNote') }}</button>
+              <button class="demo-btn demo-btn--accent" data-testid="op-style" :disabled="!selectedId" @click="act('applyNodeStyle', () => { if (selectedId) mmRef?.applyNodeStyle(selectedId, { bg: `#fef08a`, borderColor: `#ca8a04`, fontWeight: 600 }) })">
+                <svg class="demo-btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5l1.6 3.6 4 .3-2.8 2.7.8 3.9-3.6-1.9-3.6 1.9.8-3.9L2.4 6.7l4-.3z"/></svg>
+                {{ t('高亮样式', 'Style highlight') }}
+              </button>
+              <button class="demo-btn demo-btn--ghost" data-testid="op-style-clear" :disabled="!selectedId" @click="act('clearStyle', () => { if (selectedId) mmRef?.applyNodeStyle(selectedId, {}) })">
+                <svg class="demo-btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+                {{ t('清除样式', 'Clear style') }}
+              </button>
+              <button class="demo-btn demo-btn--accent" data-testid="op-link" :disabled="!selectedId" @click="act('applyNodeLink', () => { if (selectedId) mmRef?.applyNodeLink(selectedId, 'https://example.com') })">
+                <svg class="demo-btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="8" r="2"/><circle cx="11" cy="8" r="2"/><path d="M6.5 8h3"/></svg>
+                {{ t('设置链接', 'setLink') }}
+              </button>
+              <button class="demo-btn demo-btn--ghost" data-testid="op-link-clear" :disabled="!selectedId" @click="act('removeLink', () => { if (selectedId) mmRef?.removeNodeLink(selectedId) })">
+                <svg class="demo-btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+                {{ t('清除链接', 'clearLink') }}
+              </button>
+              <button class="demo-btn demo-btn--accent" data-testid="op-note" :disabled="!selectedId" @click="act('applyNodeNote', () => { if (selectedId) mmRef?.applyNodeNote(selectedId, 'demo note text') })">
+                <svg class="demo-btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 4h9M3.5 8h9M3.5 12h6"/></svg>
+                {{ t('设置笔记', 'setNote') }}
+              </button>
+              <button class="demo-btn demo-btn--ghost" data-testid="op-note-clear" :disabled="!selectedId" @click="act('removeNote', () => { if (selectedId) mmRef?.removeNodeNote(selectedId) })">
+                <svg class="demo-btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+                {{ t('清除笔记', 'clearNote') }}
+              </button>
             </div>
           </div>
         </details>
@@ -826,6 +865,70 @@ html, body, #app {
   gap: 4px;
 }
 .demo-btn-grid .demo-btn { width: 100%; }
+.demo-btn-icon {
+  width: 13px; height: 13px;
+  flex-shrink: 0;
+  opacity: 0.75;
+  transition: opacity var(--t-fast);
+}
+.demo-btn:hover:not(:disabled) .demo-btn-icon { opacity: 1; }
+
+/* Accent — indigo: primary / positive actions */
+.demo-btn--accent {
+  color: var(--indigo-600);
+  background: var(--indigo-50);
+  border-color: rgba(99, 102, 241, 0.18);
+}
+.demo-btn--accent:hover:not(:disabled) {
+  color: var(--indigo-600);
+  background: #ede9fe;
+  border-color: var(--indigo-400);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.10);
+}
+.demo-btn--accent:focus-visible {
+  outline-color: var(--indigo-500);
+}
+
+/* Danger — rose: destructive actions */
+.demo-btn--danger {
+  color: #be123c;
+  background: #fff1f2;
+  border-color: rgba(244, 63, 94, 0.18);
+}
+.demo-btn--danger:hover:not(:disabled) {
+  color: #9f1239;
+  background: #ffe4e6;
+  border-color: rgba(244, 63, 94, 0.40);
+  box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.10);
+}
+.demo-btn--danger:focus-visible {
+  outline-color: #e11d48;
+}
+
+/* Ghost — quiet revert / clear actions (sits next to --accent) */
+.demo-btn--ghost {
+  color: var(--ink-600);
+  background: transparent;
+  border-color: transparent;
+}
+.demo-btn--ghost:hover:not(:disabled) {
+  color: var(--ink-700);
+  background: var(--ink-100);
+  border-color: var(--line-strong);
+  box-shadow: none;
+}
+
+/* Disabled variants — neutralize the tint so muted state reads cleanly */
+.demo-btn--accent:disabled,
+.demo-btn--danger:disabled,
+.demo-btn--ghost:disabled {
+  background: var(--bg-elev);
+  color: var(--ink-500);
+  border-color: var(--line);
+  box-shadow: none;
+  opacity: 0.55;
+}
+
 
 /* ──────────────────── Canvas ──────────────────── */
 
