@@ -3,7 +3,7 @@
 A modern, minimalist mind mapping tool — xmind-style, embeddable as a Vue 3 component.
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/xz333221/flow-mindmap@v0.5.11/docs/screenshots/overview.png" alt="flow-mindmap overview" width="780" />
+  <img src="https://cdn.jsdelivr.net/gh/xz333221/flow-mindmap@v0.5.12/docs/screenshots/overview.png" alt="flow-mindmap overview" width="780" />
 </p>
 
 ## 特性
@@ -24,13 +24,13 @@ A modern, minimalist mind mapping tool — xmind-style, embeddable as a Vue 3 co
 
 | mindmap(默认) | tree(右向树) | org(向下组织结构) |
 | :-: | :-: | :-: |
-| ![](https://cdn.jsdelivr.net/gh/xz333221/flow-mindmap@v0.5.11/docs/screenshots/layout-mindmap.png) | ![](https://cdn.jsdelivr.net/gh/xz333221/flow-mindmap@v0.5.11/docs/screenshots/layout-tree.png) | ![](https://cdn.jsdelivr.net/gh/xz333221/flow-mindmap@v0.5.11/docs/screenshots/layout-org.png) |
+| ![](https://cdn.jsdelivr.net/gh/xz333221/flow-mindmap@v0.5.12/docs/screenshots/layout-mindmap.png) | ![](https://cdn.jsdelivr.net/gh/xz333221/flow-mindmap@v0.5.12/docs/screenshots/layout-tree.png) | ![](https://cdn.jsdelivr.net/gh/xz333221/flow-mindmap@v0.5.12/docs/screenshots/layout-org.png) |
 
 ### 可调画板
 
 右键画布 → 设置 打开右侧抽屉,所有视觉项实时生效:
 
-![settings panel](https://cdn.jsdelivr.net/gh/xz333221/flow-mindmap@v0.5.11/docs/screenshots/settings-panel.png)
+![settings panel](https://cdn.jsdelivr.net/gh/xz333221/flow-mindmap@v0.5.12/docs/screenshots/settings-panel.png)
 
 
 ## 安装
