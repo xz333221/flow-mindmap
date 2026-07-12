@@ -520,20 +520,21 @@ async function copyOutline() {
 .zm-outline-search-input {
   flex: 1;
   min-width: 0;
-  padding: 4px 8px;
+  padding: 5px 10px;
   font: inherit;
   font-size: 12px;
   color: #1e293b;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
-  border-radius: 6px;
+  border-radius: 8px;
   outline: none;
   box-sizing: border-box;
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
 .zm-outline-search-input:focus {
   border-color: #3b82f6;
   background: #ffffff;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 .zm-outline-search-input::placeholder {
   color: #94a3b8;
@@ -586,8 +587,9 @@ async function copyOutline() {
   color: #64748b;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
-  border-radius: 5px;
-  cursor: pointer;
+border-radius: 5px;
+cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
   transition: all 0.1s;
 }
 .zm-outline-action-btn:hover {
@@ -750,9 +752,9 @@ async function copyOutline() {
   display: inline-flex;
 }
 .zm-outline-row-action:hover {
-  background: #e0e7ff;
-  color: #4338ca;
-  border-color: #c7d2fe;
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
 }
 .zm-outline-row-action img {
   /* The bundled SVGs use a hardcoded mid-grey fill.  Tint

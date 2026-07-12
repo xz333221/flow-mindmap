@@ -5198,23 +5198,23 @@ overflow: hidden;
  */
 .zm-canvas-fab {
   position: absolute;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
   background: #ffffff;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #e8eaed;
   border-radius: 999px;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
   color: #475569;
   cursor: pointer;
   z-index: 11;
   opacity: 0;
   pointer-events: none;
   transform: translateY(4px);
-  transition: opacity 0.18s ease, transform 0.18s ease, background 0.1s, color 0.1s;
+  transition: opacity 0.18s ease, transform 0.18s ease, background 0.1s, color 0.1s, box-shadow 0.12s;
 }
 .zm-canvas-fab.is-visible {
   opacity: 1;
@@ -5222,9 +5222,9 @@ overflow: hidden;
   transform: translateY(0);
 }
 .zm-canvas-fab:hover {
-  background: #f1f5f9;
+  background: #f8fafc;
   color: #1e293b;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.1), 0 1px 4px rgba(15, 23, 42, 0.06);
 }
 .zm-canvas-fab:active {
   transform: scale(0.94);
@@ -5246,11 +5246,13 @@ overflow: hidden;
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 10px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  padding: 7px 12px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid rgba(226, 232, 240, 0.6);
   border-radius: 999px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
   z-index: 10;
   transition: opacity 0.18s ease, transform 0.18s ease;
 }
@@ -5276,13 +5278,14 @@ overflow: hidden;
   justify-content: center;
   border: none;
   background: transparent;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   color: #475569;
+  transition: background 0.12s, color 0.12s;
 }
 .zm-tb-btn:hover {
   background: #f1f5f9;
-  color: #1e293b;
+  color: #0f172a;
 }
 .zm-tb-btn img {
   /* The bundled SVGs use a hardcoded mid-grey fill.  Tint
@@ -5301,7 +5304,7 @@ overflow: hidden;
 .zm-tb-divider {
   width: 1px;
   height: 18px;
-  background: #e2e8f0;
+  background: rgba(226, 232, 240, 0.7);
   margin: 0 4px;
 }
 .zm-tb-tip {

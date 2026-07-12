@@ -119,8 +119,8 @@ function onBackdropClick() {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #ffffff;
-  border-right: 1px solid #e2e8f0;
+  background: #fafbfc;
+  border-right: 1px solid #e8eaed;
   overflow: hidden;
   flex-shrink: 0;
 }
@@ -130,23 +130,25 @@ function onBackdropClick() {
   bottom: 0;
   height: 100%;
   z-index: 40;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(15, 23, 42, 0.04);
 }
 .zm-drawer--left.zm-drawer--canvas {
   left: 0;
-  border-right: 1px solid #e2e8f0;
+  border-right: 1px solid #e8eaed;
 }
 .zm-drawer--right.zm-drawer--canvas {
   right: 0;
   border-right: none;
-  border-left: 1px solid #e2e8f0;
+  border-left: 1px solid #e8eaed;
 }
 .zm-drawer-canvas-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(15, 23, 42, 0.28);
+  background: rgba(15, 23, 42, 0.18);
   z-index: 39;
   cursor: pointer;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
 }
 .zm-drawer-enter-active,
 .zm-drawer-leave-active {
@@ -192,36 +194,38 @@ function onBackdropClick() {
 }
 .zm-drawer--right {
   border-right: none;
-  border-left: 1px solid #e2e8f0;
+  border-left: 1px solid #e8eaed;
 }
 .zm-drawer-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 16px;
-  border-bottom: 1px solid #f1f5f9;
+  padding: 16px 20px;
+  border-bottom: 1px solid #f0f1f3;
   flex-shrink: 0;
+  background: #ffffff;
 }
 .zm-drawer-title {
   margin: 0;
   flex: 1;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
-  color: #1e293b;
-  letter-spacing: 0.02em;
+  color: #0f172a;
+  letter-spacing: -0.01em;
 }
 .zm-drawer-close {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border: none;
   background: transparent;
   color: #94a3b8;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transition: background 0.12s, color 0.12s;
 }
 .zm-drawer-close:hover {
   background: #f1f5f9;

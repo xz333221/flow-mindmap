@@ -667,18 +667,20 @@ const selectedId = computed(() => selectedNode.value?.id ?? null)
   top: 12px;
   right: 12px;
   z-index: 10;
-  width: 32px;
-  height: 32px;
-  border: 1px solid #e2e8f0;
-  background: #ffffff;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #e8eaed;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   color: #475569;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
-  transition: background 0.1s, color 0.1s, transform 0.1s;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+  transition: background 0.12s, color 0.12s, transform 0.12s;
 }
 .zm-app-preview-exit:hover {
   background: #f1f5f9;
