@@ -52,7 +52,8 @@
         "typecheck": "vue-tsc --noEmit",
         "lint": "eslint . --ext .vue,.ts,.js --max-warnings 0",
         "test": "vitest run",
-        "test:watch": "vitest"
+        "test:watch": "vitest",
+        "screenshots": "node scripts/screenshots.mjs"
     },
     "peerDependencies": {
         "vue": "^3.4.0"

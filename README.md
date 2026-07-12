@@ -2,6 +2,12 @@
 
 A modern, minimalist mind mapping tool — xmind-style, embeddable as a Vue 3 component.
 
+<p align="center">
+  <img src="https://cdn.jsdelivr.net/gh/xz333221/flow-mindmap@v0.5.11/docs/screenshots/overview.png" alt="flow-mindmap overview" width="780" />
+</p>
+
+## 特性
+
 - 纯 SVG 渲染,矢量缩放无损
 - 拖拽、缩放、平移画布
 - 键盘快捷键: `Tab` 添加子节点 / `Enter` 添加同级 / `F2` 编辑 / `Delete` 删除节点
@@ -11,6 +17,21 @@ A modern, minimalist mind mapping tool — xmind-style, embeddable as a Vue 3 co
 - 撤销/重做、JSON 导入导出
 - 扁平化 SVG 线框图标,无任何 Emoji
 - Apache-2.0 开源协议,可在 npm 安装作为组件使用
+
+## 预览
+
+### 三种布局
+
+| mindmap(默认) | tree(右向树) | org(向下组织结构) |
+| :-: | :-: | :-: |
+| ![](https://cdn.jsdelivr.net/gh/xz333221/flow-mindmap@v0.5.11/docs/screenshots/layout-mindmap.png) | ![](https://cdn.jsdelivr.net/gh/xz333221/flow-mindmap@v0.5.11/docs/screenshots/layout-tree.png) | ![](https://cdn.jsdelivr.net/gh/xz333221/flow-mindmap@v0.5.11/docs/screenshots/layout-org.png) |
+
+### 可调画板
+
+右键画布 → 设置 打开右侧抽屉,所有视觉项实时生效:
+
+![settings panel](https://cdn.jsdelivr.net/gh/xz333221/flow-mindmap@v0.5.11/docs/screenshots/settings-panel.png)
+
 
 ## 安装
 
