@@ -3900,6 +3900,11 @@ defineExpose<MindMapExpose>({
 if (s.elbowRadius !== undefined) settings.elbowRadius = Math.max(2, Math.min(40, s.elbowRadius))
 if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
 if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
+    if (s.layoutMode !== undefined && settings.layoutMode !== s.layoutMode) {
+      settings.layoutMode = s.layoutMode
+      triggerRef()
+      nextTick(() => resetView())
+    }
   },
   getSettings: (): MindMapSettings => ({
     autoBalanceOnChange: settings.autoBalanceOnChange,
