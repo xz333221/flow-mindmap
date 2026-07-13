@@ -585,6 +585,31 @@ step="0.01"
         </button>
       </div>
 
+      <!-- Branch gap (extra spacing between first-level branches) -->
+      <div class="zm-settings-field">
+        <span class="zm-settings-label">一级分支间距 <span class="zm-settings-sub">{{ settings.branchGap }}px</span></span>
+        <input
+          class="zm-settings-number"
+          type="number"
+          step="2"
+          min="0"
+          max="80"
+          :value="settings.branchGap"
+          @change="(e) => set('branchGap', parseFloat((e.target as HTMLInputElement).value) || 0)"
+        />
+      </div>
+      <div class="zm-slider">
+        <div class="zm-slider-track" />
+        <input
+          type="range"
+          min="0"
+          max="80"
+          step="2"
+          :value="settings.branchGap"
+          @input="(e) => set('branchGap', parseFloat((e.target as HTMLInputElement).value))"
+        />
+      </div>
+
       <!-- Order badge -->
       <div class="zm-settings-field">
         <span class="zm-settings-label">显示节点序号</span>

@@ -400,6 +400,10 @@ export interface LayoutOptions {
    *  min-width).  The internal tier table is tuned for 14px; values
    *  scale linearly.  Default 14. */
   baseFontSize?: number
+  /** Extra vertical gap (px) between first-level branches (children
+   *  of the root).  Adds to the base V_GAP so each top-level subtree
+   *  gets more breathing room.  Default 0 (no extra gap). */
+  branchGap?: number
   /**
    * When true, layout() leaves each LayoutNode's existing x/y in
    * place — it still does the doLayout split / redirect / stack
@@ -444,13 +448,14 @@ export function layout(
   const mode: LayoutMode = options.mode ?? 'mindmap'
   const preservePositions = options.preservePositions === true
   const baseFontSize = options.baseFontSize ?? 14
+  const branchGap = options.branchGap ?? 0
   const lr = buildLayout(root, 0, null, 1, 'right', baseFontSize, options.richHeights, options.richWidths)
 
   // 1.html interleaves calcSubtreeH with doLayout.  We split into two
   // passes: extents first (post-order, so leaves are computed before
   // their parents), then doLayout.  Functionally equivalent.
-  computeSubtreeExtents(lr)
-  applyDoLayout(lr, mode, preservePositions)
+  computeSubtreeExtents(lr, branchGap)
+  applyDoLayout(lr, mode, preservePositions, branchGap)
 
   // Place root at (0, 0) per 1.html convention.
   lr.x = 0
@@ -473,7 +478,7 @@ export function layout(
 // the old stackAt(0)-from-top code path — single-child parents end
 // up with their child at the same y as the parent.
 // =====================================================================
-function applyDoLayout(root: LayoutNode, mode: LayoutMode, preservePositions: boolean = false): void {
+function applyDoLayout(root: LayoutNode, mode: LayoutMode, preservePositions: boolean = false, branchGap: number = 0): void {
   if (mode === 'mindmap') {
     // Split root's children so that the *sum of subtree heights* on
     // each side is as close to half of the total as possible, while
@@ -555,11 +560,11 @@ function applyDoLayout(root: LayoutNode, mode: LayoutMode, preservePositions: bo
     // implicitly via its doLayout arms.
     if (rightKids.length > 0) {
       const rightParent: LayoutNode = { ...root, children: rightKids }
-      layoutHorizontal(rightParent, 'right', H_GAP, true, preservePositions)
+      layoutHorizontal(rightParent, 'right', H_GAP, true, preservePositions, branchGap)
     }
     if (leftKids.length > 0) {
       const leftParent: LayoutNode = { ...root, children: leftKids }
-      layoutHorizontal(leftParent, 'left', H_GAP, true, preservePositions)
+      layoutHorizontal(leftParent, 'left', H_GAP, true, preservePositions, branchGap)
     }
   } else if (mode === 'tree') {
     // Force every node in the tree to the right side.  The layout's
@@ -574,12 +579,12 @@ function applyDoLayout(root: LayoutNode, mode: LayoutMode, preservePositions: bo
       for (const c of n.children) forceRight(c)
     }
     for (const c of root.children) c._dir = 'right'
-    layoutHorizontal(root, 'right', H_GAP, true, preservePositions)
+    layoutHorizontal(root, 'right', H_GAP, true, preservePositions, branchGap)
     forceRight(root)
   } else {
     // 'org' — all children fan downward
     for (const c of root.children) c._dir = 'down'
-    layoutVertical(root, H_GAP, preservePositions)
+    layoutVertical(root, H_GAP, preservePositions, branchGap)
   }
 }
 
@@ -610,11 +615,15 @@ function layoutHorizontal(
   dir: 'right' | 'left',
   hGap: number,
   applyClockwise: boolean,
-  preserve: boolean = false
+  preserve: boolean = false,
+  branchGap: number = 0
 ): void {
   if (node.children.length === 0) return
+  // Root-level children get extra spacing (branchGap) so each
+  // top-level branch has visual separation as a distinct block.
+  const vGap = applyClockwise ? V_GAP + branchGap : V_GAP
   const totalH = node.children.reduce(
-    (s, c, i) => s + c._subtreeH + (i > 0 ? V_GAP : 0),
+    (s, c, i) => s + c._subtreeH + (i > 0 ? vGap : 0),
     0
   )
   const sign = dir === 'right' ? 1 : -1
@@ -637,8 +646,8 @@ function layoutHorizontal(
       child.y = cy + step * child._subtreeH / 2
     }
     child._dir = dir
-    cy += step * (child._subtreeH + V_GAP)
-    layoutHorizontal(child, dir, hGap, false, preserve)
+    cy += step * (child._subtreeH + vGap)
+    layoutHorizontal(child, dir, hGap, false, preserve, 0)
   })
 }
 
@@ -646,24 +655,26 @@ function layoutHorizontal(
 // layoutVertical — 1.html JS L413-424.  Mirrored horizontally.
 // Children stack horizontally; the row is centered on the parent's x.
 // =====================================================================
-function layoutVertical(node: LayoutNode, vGap: number, preserve: boolean = false): void {
+function layoutVertical(node: LayoutNode, vGap: number, preserve: boolean = false, branchGap: number = 0): void {
   if (node.children.length === 0) return
+  // Root-level children get extra spacing in org mode too.
+  const gap = node.depth === 0 ? V_GAP + branchGap : V_GAP
   const totalW = node.children.reduce(
-    (s, c, i) => s + c._subtreeW + (i > 0 ? V_GAP * 2 : 0),
+    (s, c, i) => s + c._subtreeW + (i > 0 ? gap * 2 : 0),
     0
   )
   let cx = node.x - totalW / 2
   // Depth-dependent gap (same curve as horizontal mode) so deeper
   // org-chart tiers also sit closer together.
-  const gap = hGapForDepth(node.depth)
+  const hGap = hGapForDepth(node.depth)
   node.children.forEach((child) => {
     if (!preserve) {
       child.x = cx + child._subtreeW / 2
-      child.y = node.y + node.height / 2 + gap + child.height / 2
+      child.y = node.y + node.height / 2 + hGap + child.height / 2
     }
     child._dir = 'down'
-    cx += child._subtreeW + V_GAP * 2
-    layoutVertical(child, vGap, preserve)
+    cx += child._subtreeW + gap * 2
+    layoutVertical(child, vGap, preserve, 0)
   })
 }
 
@@ -752,7 +763,7 @@ function buildLayout(
 // max(own h, sum) means a tall parent can be the "tall pole" of its
 // own subtree; the children then sit centered on it.
 // =====================================================================
-function computeSubtreeExtents(root: LayoutNode): void {
+function computeSubtreeExtents(root: LayoutNode, branchGap: number = 0): void {
   const stack: LayoutNode[] = [root]
   // Build a post-order traversal: keep pushing children; the array
   // is then in pre-order, so we iterate in reverse to get post-order.
@@ -767,6 +778,9 @@ function computeSubtreeExtents(root: LayoutNode): void {
       n._subtreeW = n.width
       continue
     }
+    // Root-level children get extra spacing so each top-level
+    // branch is visually separated as a distinct block.
+    const vGap = n.depth === 0 ? V_GAP + branchGap : V_GAP
     let totalH = 0
     let totalW = 0
     for (const c of n.children) {
@@ -774,8 +788,8 @@ function computeSubtreeExtents(root: LayoutNode): void {
       totalW += c._subtreeW
     }
     if (n.children.length > 1) {
-      totalH += V_GAP * (n.children.length - 1)
-      totalW += V_GAP * 2 * (n.children.length - 1)
+      totalH += vGap * (n.children.length - 1)
+      totalW += vGap * 2 * (n.children.length - 1)
     }
     n._subtreeH = Math.max(n.height, totalH)
     n._subtreeW = Math.max(n.width, totalW)

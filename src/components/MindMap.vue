@@ -656,6 +656,7 @@ function _onSettingsChange(s: Partial<MindMapSettings>) {
 if (s.elbowRadius !== undefined) settings.elbowRadius = Math.max(2, Math.min(40, s.elbowRadius))
 if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
 if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
+if (s.branchGap !== undefined) settings.branchGap = Math.max(0, Math.min(80, s.branchGap))
 }
 
 function _onNodeStyleChange(style: NodeStyle) {
@@ -681,6 +682,7 @@ function _resetSettings() {
   elbowRadius: 20,
     showOrderBadge: false,
     canvasBg: undefined,
+    branchGap: 20,
   }
   settings.autoBalanceOnChange = defaults.autoBalanceOnChange
   settings.lineWidthStart = defaults.lineWidthStart
@@ -698,6 +700,7 @@ settings.uniformLineWidth = defaults.uniformLineWidth
 settings.elbowRadius = defaults.elbowRadius
   settings.showOrderBadge = defaults.showOrderBadge
   settings.canvasBg = defaults.canvasBg
+settings.branchGap = defaults.branchGap
 }
 
 function _onDataConsumedMode() {
@@ -1299,6 +1302,7 @@ lineOrigin: 'proportional',
   elbowRadius: 20,
   showOrderBadge: false,
   canvasBg: undefined,
+  branchGap: 20,
 })
 
 /** Resolve the effective line style for an edge. Edges originating
@@ -1909,6 +1913,7 @@ const layoutResult = computed(() => {
     baseFontSize: theme.value.fontSize,
     richHeights: richHeights.value,
     richWidths: richWidths.value,
+    branchGap: settings.branchGap,
   })
 })
 
@@ -3900,6 +3905,7 @@ defineExpose<MindMapExpose>({
 if (s.elbowRadius !== undefined) settings.elbowRadius = Math.max(2, Math.min(40, s.elbowRadius))
 if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
 if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
+if (s.branchGap !== undefined) settings.branchGap = Math.max(0, Math.min(80, s.branchGap))
     if (s.layoutMode !== undefined && settings.layoutMode !== s.layoutMode) {
       settings.layoutMode = s.layoutMode
       triggerRef()
@@ -3923,6 +3929,7 @@ if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
     elbowRadius: settings.elbowRadius,
     showOrderBadge: settings.showOrderBadge,
     canvasBg: settings.canvasBg,
+    branchGap: settings.branchGap,
   }),
   setBranchPalette: (id) => {
     if (!id) return
@@ -4999,15 +5006,15 @@ overflow: hidden;
    *  - left-side node  (n.side === -1) → button on the left edge.
    * White circle background; the minus bar is a CSS span so there's
    * no double-circle (the old Icon 'minus' had its own <circle>). */
-  right: -10px;
+  right: -8px;
   top: 50%;
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: #ffffff;
   border: none;
   transform: translateY(-50%);
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.22);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -5016,17 +5023,17 @@ overflow: hidden;
   /* Simple horizontal bar — the only visible "minus" element.
    * The button's white disc is the circle; no inner SVG circle. */
   display: block;
-  width: 10px;
-  height: 2.5px;
-  border-radius: 1.5px;
+  width: 7px;
+  height: 2px;
+  border-radius: 1px;
   background: var(--zm-collapse-color, #64748b);
 }
 .zm-collapse.is-on-left {
   right: auto;
-  left: -10px;
+  left: -8px;
 }
 .zm-collapse:hover {
-  transform: translateY(-50%) scale(1.15);
+  transform: translateY(-50%) scale(1.2);
   background: #ffffff;
 }
 /* xmind-style collapsed child-count badge.  Sits on the line-out

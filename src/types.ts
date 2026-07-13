@@ -229,6 +229,11 @@ export interface MindMapSettings {
   /** Canvas background colour.  Falls back to theme.bgColor when
    *  undefined.  Set via the settings panel. */
   canvasBg?: string
+  /** Extra vertical gap (px) between first-level branches (direct
+   *  children of the root).  Adds to the base V_GAP so each top-level
+   *  subtree gets more visual separation as a distinct block.
+   *  Default 20.  Range 0–80. */
+  branchGap: number
 }
 
 export interface NodeStyle {

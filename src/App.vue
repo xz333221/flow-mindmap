@@ -288,8 +288,8 @@ uniformLineWidth: true,
 elbowRadius: 20,
 showOrderBadge: false,
   canvasBg: undefined,
+  branchGap: 20,
 })
-
 // Read the live per-node style from the canvas so the settings
 // panel can reflect the current state (immediate-apply model).
 const currentNodeStyle = computed<NodeStyle>(() => {
@@ -325,6 +325,7 @@ uniformLineWidth: true,
 elbowRadius: 20,
 showOrderBadge: false,
     canvasBg: undefined,
+    branchGap: 20,
   }
   Object.assign(settings, defaults)
   mindMapRef.value?.applySettings(defaults)
