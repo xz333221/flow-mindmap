@@ -673,8 +673,8 @@ function _onNodeStyleChange(style: NodeStyle) {
 function _resetSettings() {
   const defaults: MindMapSettings = {
     autoBalanceOnChange: true,
-  lineWidthStart: 16.0,
-  lineWidthEnd: 0.6,
+  lineWidthStart: 10,
+  lineWidthEnd: 2,
   rainbowBranch: true,
   branchPaletteId: 'default',
   customPalettes: [],
@@ -1316,8 +1316,8 @@ const effectiveBg = computed(() => settings.canvasBg || theme.value.bgColor)
 // ---------------------------------------------------------------------------
 const settings = reactive<MindMapSettings>({
   autoBalanceOnChange: true,
-  lineWidthStart: 16.0,
-  lineWidthEnd: 3.6,
+  lineWidthStart: 10,
+  lineWidthEnd: 2,
   rainbowBranch: true,
   branchPaletteId: 'default',
   customPalettes: [],
