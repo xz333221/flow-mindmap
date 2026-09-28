@@ -352,6 +352,14 @@ pnpm dev      # http://localhost:7851  — 应用 demo
 pnpm build    # 打包为 npm 库
 ```
 
+发版走 `scripts/release.mjs`（版本号 +1 → 类型检查/单测/冒烟 → 构建 → 发布物自检 → commit + tag + push → `npm publish` → 核对线上 tarball）：
+
+```bash
+pnpm release                # 全流程，patch 版本 +1
+pnpm release -- --dry-run   # 只打印计划，不改文件、不发布
+pnpm release -- --help      # 全部参数
+```
+
 ## 协议
 
 [Apache-2.0](./LICENSE) © xuze
