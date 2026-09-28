@@ -39,6 +39,7 @@
  *   pnpm release -- --skip-readme      # 不动 README 里的 jsDelivr @vX.Y.Z
  *   pnpm release -- --dist-tag=next    # 预发布版默认自动用 beta 之类的 tag,可用它覆盖
  *   pnpm release -- --skip-verify-published     # 发布后不去核对线上发布物
+ *   pnpm release -- --verify-only=0.6.3         # 只核对线上发布物(不构建/不发布),可事后重跑
  *   pnpm release -- --poll-interval=20 --poll-timeout=900   # 发布后校验的重试节奏(秒)
  *   pnpm release -- --yes              # 所有确认一律按 Y(非交互环境同样按 Y)
  *
@@ -148,6 +149,11 @@ const POLL_TIMEOUT_MS = readNumberArg('--poll-timeout', 600) * 1000
 
 const BUMP_KIND = readStringArg('--bump', 'patch')
 const VERSION_OVERRIDE = readStringArg('--version', '')
+
+// `--verify-only` / `--verify-only=0.6.3`:只跑第 9 步(发布后校验),不做别的。
+// 用途:轮询超时后重新确认、或事后核查某个已发布版本。不带 = 时取 package.json 里的版本。
+const VERIFY_ONLY_VERSION = readStringArg('--verify-only', '')
+const VERIFY_ONLY = hasFlag('--verify-only') || VERIFY_ONLY_VERSION !== ''
 
 // 白名单:只有这些路径会进 release commit(目录写目录名,前缀匹配)。
 // dist/ 在 .gitignore 里,只走 npm 的 files 白名单发布,不进 git。
@@ -1080,10 +1086,17 @@ function tarAvailable() {
 
 // 把线上 tarball 的清单拉出来,对着 package.json 该有的东西逐条核对。
 // tar 不可用(极老的 Windows)时返回 null,由调用方降级成"只确认版本可见"。
+//
+// 注意 tar 的调用方式:先切到 tarball 所在目录(os.tmpdir()),只传**文件名**。
+// 不能传绝对路径 —— Windows 上 `tar -tzf C:/Users/.../x.tgz` 会被 GNU tar 当成
+// 远程主机写法(`主机:路径`),报 "Cannot connect to C: resolve failed"(实测踩过)。
+// 相对文件名里没有冒号,msys 的 GNU tar 和 Windows 自带的 bsdtar 都能认。
 function inspectPublishedTarball(file, pkg) {
+  const dir = path.dirname(file)
+  const base = path.basename(file)
   let entries
   try {
-    entries = capture(`tar -tzf ${q(file)}`, { timeout: 120000 })
+    entries = capture(`tar -tzf ${base}`, { cwd: dir, timeout: 120000 })
       .split(/\r?\n/)
       .map((s) => s.trim())
       .filter(Boolean)
@@ -1106,7 +1119,7 @@ function inspectPublishedTarball(file, pkg) {
   // 包里那份 package.json 的版本号必须就是这次发的版本(防"发的是上一份产物")
   let innerVersion = null
   try {
-    const raw = capture(`tar -xzOf ${q(file)} package/package.json`, { timeout: 60000 })
+    const raw = capture(`tar -xzOf ${base} package/package.json`, { cwd: dir, timeout: 60000 })
     innerVersion = JSON.parse(raw).version
   } catch (err) {
     problems.push(`读包内 package.json 失败:${err.message || err}`)
@@ -1233,6 +1246,14 @@ async function main() {
   if (SCREENSHOTS) console.log(yellow('--screenshots: 会重跑 README 截图'))
   if (SKIP_README) console.log(yellow('--skip-readme: 不动 README 的 jsDelivr 版本号'))
   console.log(gray(`包管理器: ${PM} ${PM_VERSION} / registry: ${NPM_REGISTRY}\n`))
+
+  // 只做发布后校验:不进构建/提交/发布,连环境自检都跳过(事后核查不该被工作区状态拦住)
+  if (VERIFY_ONLY) {
+    const version = VERIFY_ONLY_VERSION || readLocalVersion()
+    console.log(cyan(`只核对线上发布物:${PKG_NAME}@${version}(--verify-only)`))
+    await verifyPublished(version, resolveDistTag(version))
+    return
+  }
 
   try {
     ensureDeps()
