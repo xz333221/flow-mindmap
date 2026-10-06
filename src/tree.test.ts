@@ -386,9 +386,22 @@ notes about this card
     expect(card.text).toBe('Docs') // link label overrides the heading text
     expect(card.image?.src).toBe('https://example.com/p.png')
     expect(card.link?.url).toBe('https://example.com/docs')
+    // The node has ONE note slot: the explicit ```note fence is
+    // authoring intent, the body prose is only inferred from "the
+    // lines under a heading", so the fence wins and the body yields.
     expect(card.note?.text).toBe('notes about this card')
-    // The body line is a separate child of Card.
-    expect(card.children.some((c) => c.text === 'A short body line.')).toBe(true)
+  })
+
+  it('body prose with no fence still lands in the note', () => {
+    // The other half of the same rule — prose only loses when the
+    // author wrote an explicit fence.
+    const md = `## Topic
+first line
+second line
+## Sub`
+    const r = markdownToMindMap(md)
+    expect(r.children[0].note?.text).toBe('first line\nsecond line')
+    expect(r.children[0].children).toEqual([])
   })
 })
 

@@ -525,17 +525,19 @@ export function markdownToMindMap(md: string, rootText: string = '导入的导�
     const node: MindMapNode = { id: uid(), text: headingText, children: [] }
     if (p.image) node.image = { ...p.image }
     if (p.link) node.link = { url: p.link.url }
+    // Body prose becomes the heading's note, not a child node —
+    // the prose describes the heading rather than being a sibling
+    // topic.  mindMapToMarkdown round-trips note as a ```note
+    // fence, so this is lossless.  A heading can have both
+    // sub-headings AND body prose (the prose belongs to the
+    // heading, not to its kids), so no children-guard here.
+    //
+    // The node has ONE note slot, and an explicit ```note fence is
+    // authoring intent while the body is merely inferred from "the
+    // lines under a heading" — so the fence wins and the body
+    // yields.  Writing both means the fence is the note.
     if (p.note) node.note = { text: p.note.text }
-    if (p.body) {
-      // Body prose becomes the heading's note, not a child
-      // node — the prose describes the heading rather than
-      // being a sibling topic.  mindMapToMarkdown round-trips
-      // note as a ```note fence, so this is lossless.  We
-      // always attach body (no children-guard needed), because
-      // a heading can have both sub-headings AND body prose
-      // (the prose belongs to the heading, not to its kids).
-      node.note = { text: p.body }
-    }
+    else if (p.body) node.note = { text: p.body }
     parent.children.push(node)
     stack.push(node)
     levelStack.push(p.level)
