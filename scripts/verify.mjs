@@ -268,6 +268,91 @@ await page.screenshot({ path: `${outDir}/10-fan-compact.png`, fullPage: true })
 await page.waitForTimeout(200)
 await page.screenshot({ path: `${outDir}/11-fan-balanced.png`, fullPage: true })
 
+// ---------------------------------------------------------------------------
+// Multi-select: every picked node wears the SAME ring, and dragging one
+// member of the set carries the rest along.  Reload onto the #fan fixture
+// so no drawer is covering the canvas.
+await page.goto(`${url}#fan`, { waitUntil: 'networkidle' })
+await page.waitForSelector('.zm-node', { timeout: 8000 })
+await page.waitForTimeout(500)
+
+const nodeIds = (selector) =>
+  page.evaluate(
+    (sel) => Array.from(document.querySelectorAll(sel)).map((n) => n.dataset.nodeId),
+    selector
+  )
+
+// 1. Two selected nodes must look identical — the ring used to be split
+//    into a loud "primary" and a washed-out "secondary".
+await page.locator('[data-node-id="n_a"]').click()
+await page.locator('[data-node-id="n_b"]').click({ modifiers: ['Shift'] })
+await page.waitForTimeout(200)
+const pickedIds = (await nodeIds('.zm-node.is-selected')).sort()
+const ringColors = await page.evaluate(() =>
+  Array.from(document.querySelectorAll('.zm-node.is-selected')).map(
+    (n) => getComputedStyle(n).outlineColor
+  )
+)
+console.log(`selected: ${pickedIds.join(',')} rings: ${ringColors.join(' / ')}`)
+if (pickedIds.join(',') !== 'n_a,n_b') {
+  console.error(`shift-click should select n_a + n_b, got ${pickedIds.join(',')}`)
+  process.exit(1)
+}
+if (ringColors.length !== 2 || new Set(ringColors).size !== 1) {
+  console.error(`selection rings must be identical, got ${ringColors.join(' / ')}`)
+  process.exit(1)
+}
+await page.screenshot({ path: `${outDir}/12-multi-select.png`, fullPage: true })
+
+// 2. Grab ONE of the selected nodes and drop it on a third — both must move.
+const centreOf = async (id) => {
+  const b = await page.locator(`[data-node-id="${id}"]`).boundingBox()
+  return { x: b.x + b.width / 2, y: b.y + b.height / 2 }
+}
+const from = await centreOf('n_a')
+const to = await centreOf('n_c')
+await page.mouse.move(from.x, from.y)
+await page.mouse.down()
+await page.mouse.move(from.x + 30, from.y + 30, { steps: 6 })
+await page.mouse.move(to.x, to.y, { steps: 12 })
+await page.waitForTimeout(200)
+const ghostBadge = (await page.locator('.zm-drag-ghost-count').textContent().catch(() => ''))?.trim()
+await page.screenshot({ path: `${outDir}/13-multi-drag.png`, fullPage: true })
+if (ghostBadge !== '+1') {
+  console.error(`multi-drag ghost should advertise "+1", got "${ghostBadge}"`)
+  process.exit(1)
+}
+await page.mouse.up()
+await page.waitForTimeout(400)
+
+// Both dragged nodes stay selected after the drop (a stray canvas click
+// used to wipe the selection right after pointerup).
+const stillSelected = (await nodeIds('.zm-node.is-selected')).sort()
+if (stillSelected.join(',') !== 'n_a,n_b') {
+  console.error(`dragged set should stay selected, got ${stillSelected.join(',')}`)
+  process.exit(1)
+}
+
+// Read the resulting tree back through the outline drawer: its rows are
+// the tree flattened depth-first, in DOM order.
+await page.locator('.zm-canvas-fab-outline').click()
+await page.waitForTimeout(300)
+const outlineIds = await page.evaluate(() =>
+  Array.from(document.querySelectorAll('.zm-outline-row')).map((r) => r.dataset.outlineId)
+)
+await page.screenshot({ path: `${outDir}/14-after-multi-drag.png`, fullPage: true })
+const expectedOrder = ['root', 'n_c', 'n_a', 'n_b', 'n_d', 'n_e', 'n_f', 'n_g', 'n_h', 'n_i']
+console.log(`outline after drag: ${outlineIds.join(' ')}`)
+if (outlineIds.join(',') !== expectedOrder.join(',')) {
+  console.error(
+    `multi-drag should nest n_a + n_b under n_c.\n  expected: ${expectedOrder.join(' ')}\n  got:      ${outlineIds.join(' ')}`
+  )
+  process.exit(1)
+}
+console.log('multi-select drag: 2 nodes moved as a set ✓')
+await page.locator('.zm-drawer--left .zm-drawer-close').click()
+await page.waitForTimeout(200)
+
 await browser.close()
 
 if (errors.length) {

@@ -160,12 +160,18 @@ const canvasHovered = ref(false)
 // srcText is captured at pickup time so the ghost can render
 // without re-running findNode on every pointermove.
 //
+// `srcIds` is the whole drag set — pressing a node that belongs to
+// a multi-selection drags EVERY selected node at once, so the list
+// can hold more than one id (see `onNodePointerDown`).  The first
+// entry is the anchor: it supplies the ghost label and the grab
+// offset; the rest ride along.
+//
 // dropPosition tells the user's intent as they hover a target:
 // 'child'  → insert as last child of the target (green outline)
 // 'before' → insert as the target's previous sibling (line above/left)
 // 'after'  → insert as the target's next sibling (line below/right)
 const dragState = ref<{
-  srcId: string
+  srcIds: string[]
   srcText: string
   pointerOffsetX: number
   pointerOffsetY: number
@@ -2522,6 +2528,52 @@ function doMove(srcId: string, targetId: string, position: 'before' | 'after' | 
   return false
 }
 
+/** Multi-node variant of `doMove` — the landing half of a drag that
+ *  picked up a whole multi-selection.
+ *
+ *  All-or-nothing: every source is validated against the target
+ *  BEFORE anything moves.  A partially applied batch (three nodes
+ *  dropped, the fourth refused as a cycle) would leave the tree in
+ *  a shape the user never asked for and can't easily undo, so one
+ *  illegal source abandons the whole drag.
+ *
+ *  The batch shares a single history entry and a single `change`
+ *  emit — undo brings back the entire move, not one node at a time.
+ */
+function doMoveMany(
+  srcIds: string[],
+  targetId: string,
+  position: 'before' | 'after' | 'child'
+): boolean {
+  const srcs = srcIds.filter((id) => id !== targetId)
+  if (srcs.length === 0) return false
+  for (const id of srcs) {
+    // Root never moves (findParent returns null for it).
+    if (!findParent(dataRef.value, id)) return false
+    // Cycle guard: the target must not live inside this source's
+    // subtree.  Checked up front so the batch can be abandoned
+    // whole instead of half-applied.
+    const node = findNode(dataRef.value, id)
+    if (node && findNode(node, targetId)) return false
+  }
+  if (srcs.length === 1) return doMove(srcs[0], targetId, position)
+  // Insertion order decides the final arrangement.  `moveNode`
+  // splices each source in at the target's slot: for 'before' /
+  // 'child' that means a forward walk keeps the on-canvas order,
+  // but 'after' always lands immediately behind the target, so the
+  // list has to be walked backwards to come out the same way round.
+  const order = position === 'after' ? [...srcs].reverse() : srcs
+  let moved = false
+  for (const id of order) {
+    if (moveNode(dataRef.value, id, targetId, position)) moved = true
+  }
+  if (!moved) return false
+  record()
+  triggerRef()
+  emit('change', dataRef.value)
+  return true
+}
+
 /** Move the selected node one slot up (dy=-1) or down (dy=+1) among
  *  its siblings.  For left-side root children the visual order is
  *  reversed (clockwise sweep), so "up" maps to the next data sibling
@@ -2621,11 +2673,13 @@ function onNodeClick(e: MouseEvent, n: LayoutNode) {
 /** Find the topmost node under a world-space pointer position.
  *  Iterates in render order (root-first) and returns the LAST
  *  hit so overlapping nodes resolve to the visually-topmost
- *  sibling.  Skips `excludeId` (the drag source). */
-function getNodeAtPointer(wx: number, wy: number, excludeId: string | null): LayoutNode | null {
+ *  sibling.  Skips every id in `excludeIds` (the whole drag
+ *  set — dropping a node onto itself or onto a drag-mate is not
+ *  a destination). */
+function getNodeAtPointer(wx: number, wy: number, excludeIds: Set<string>): LayoutNode | null {
   let hit: LayoutNode | null = null
   for (const n of allNodes.value) {
-    if (n.id === excludeId) continue
+    if (excludeIds.has(n.id)) continue
     const halfW = n.width / 2
     const halfH = n.height / 2
     if (
@@ -2638,13 +2692,50 @@ function getNodeAtPointer(wx: number, wy: number, excludeId: string | null): Lay
   return hit
 }
 
+/** Pre-order index of every node id — the order the user reads the
+ *  map in.  Used to sort a drag set so a multi-node drop inserts
+ *  the nodes in the sequence they appear on screen, regardless of
+ *  the order the user happened to shift-click them in. */
+function treeOrderIndex(): Map<string, number> {
+  const order = new Map<string, number>()
+  let i = 0
+  const walk = (n: MindMapNode) => {
+    order.set(n.id, i++)
+    for (const c of n.children) walk(c)
+  }
+  walk(dataRef.value)
+  return order
+}
+
+function orderedDragSources(ids: string[]): string[] {
+  const idx = treeOrderIndex()
+  return [...ids].sort((a, b) => (idx.get(a) ?? 0) - (idx.get(b) ?? 0))
+}
+
+/** Reduce a drag set to its topmost members: a node with an
+ *  ancestor also in the set is dropped, because moving that
+ *  ancestor carries it along.  Without this, dragging
+ *  "副业 + 核心" would move 核心 with its parent AND again on its
+ *  own, scrambling the tree. */
+function topmostSources(ids: string[]): string[] {
+  const set = new Set(ids)
+  return ids.filter((id) => {
+    let p = findParent(dataRef.value, id)
+    while (p) {
+      if (set.has(p.id)) return false
+      p = findParent(dataRef.value, p.id)
+    }
+    return true
+  })
+}
+
 // Pending drag state — set on pointerdown, promoted to the reactive
 // `dragState` only after the pointer moves beyond DRAG_THRESHOLD.
 // This prevents the ghost chip and source-dimming from flashing on a
 // simple click/press.  A plain object (not reactive) since it's only
 // read by the three drag handlers below.
 interface PendingDrag {
-  srcId: string
+  srcIds: string[]
   srcText: string
   pointerOffsetX: number
   pointerOffsetY: number
@@ -2714,9 +2805,30 @@ function onNodePointerDown(e: PointerEvent, n: LayoutNode) {
   // and source-dimming only appear once the pointer moves past
   // DRAG_THRESHOLD, so a plain press/click doesn't flash the
   // drag UI.
+  //
+  // Which nodes come along: pressing a node that is already part
+  // of a multi-selection picks up the WHOLE selection (the
+  // Explorer / Figma convention — a multi-selection is a unit).
+  // Pressing anything else drags just that node and, on drop,
+  // replaces the selection with it.  The set is pruned down to its
+  // topmost members and sorted into reading order so the drop
+  // lands them predictably.
+  const sel = selectedIds.value
+  const srcIds =
+    sel.size > 1 && sel.has(n.id)
+      ? topmostSources(orderedDragSources([...sel]))
+      : [n.id]
+  // The pressed node labels the ghost when it survived the prune;
+  // otherwise the first surviving source stands in for it.
+  const anchorId = srcIds.includes(n.id) ? n.id : srcIds[0]
+  const anchorText =
+    anchorId === n.id
+      ? n.text
+      : allNodes.value.find((x) => x.id === anchorId)?.text ?? n.text
+
   pendingDrag = {
-    srcId: n.id,
-    srcText: n.text,
+    srcIds,
+    srcText: anchorText,
     pointerOffsetX,
     pointerOffsetY,
     startX: e.clientX,
@@ -2742,7 +2854,7 @@ function onDragPointerMove(e: PointerEvent) {
     }
     // Promote: show the ghost, dim the source, add the grabbing cursor.
     dragState.value = {
-      srcId: pendingDrag.srcId,
+      srcIds: pendingDrag.srcIds,
       srcText: pendingDrag.srcText,
       pointerOffsetX: pendingDrag.pointerOffsetX,
       pointerOffsetY: pendingDrag.pointerOffsetY,
@@ -2762,7 +2874,7 @@ function onDragPointerMove(e: PointerEvent) {
   // Screen → world for hit-testing against the layout.
   const wx = (e.clientX - wrapperRect.left - panZoom.offsetX.value) / panZoom.scale.value
   const wy = (e.clientY - wrapperRect.top - panZoom.offsetY.value) / panZoom.scale.value
-  const hit = getNodeAtPointer(wx, wy, state.srcId)
+  const hit = getNodeAtPointer(wx, wy, new Set(state.srcIds))
   state.currentTargetId = hit?.id ?? null
 
   // Compute the drop position (before / after / child) based on
@@ -2849,15 +2961,21 @@ function onDragPointerUp(_e: PointerEvent) {
         dataPos = dataPos === 'before' ? 'after' : 'before'
       }
     }
-    doMove(state.srcId, state.currentTargetId, dataPos)
+    doMoveMany(state.srcIds, state.currentTargetId, dataPos)
     // The drag's pointerdown didn't emit 'select' (see
     // onNodePointerDown).  Now that the drop succeeded, broadcast
     // the new selection so the host's right-side drawer /
-    // outline / status bar reflect the moved node.  Replace any
-    // prior selection with just the moved node — drag is a
-    // single-node gesture.
-    selectedIds.value = new Set([state.srcId])
+    // outline / status bar reflect the hop.  A multi-node drag
+    // keeps its whole set selected — every moved node wears the
+    // ring, so the user can immediately drag the same group again.
+    selectedIds.value = new Set(state.srcIds)
     emitSelection()
+    // A click event follows the pointerup whenever down and up
+    // landed on different elements, and its target resolves to the
+    // shared ancestor (.zm-world) — which would reach
+    // `onCanvasClick` and wipe the selection we just set.  Swallow
+    // that one click.
+    suppressNextCanvasClick = true
   }
 
   dragState.value = null
@@ -3163,7 +3281,7 @@ function onRelationHandleMove(e: PointerEvent) {
     // means "slide along my edge" instead).
     const rel = findRelation(dataRef.value, s.id)
     const selfId = rel ? (s.end === 'from' ? rel.fromId : rel.toId) : null
-    const hit = getNodeAtPointer(s.wx, s.wy, selfId)
+    const hit = getNodeAtPointer(s.wx, s.wy, new Set(selfId ? [selfId] : []))
     s.hoverNodeId = hit?.id ?? null
   }
 }
@@ -4773,7 +4891,9 @@ onMounted(() => {
       />
 
       <!-- Drag ghost — follows the pointer, scaled to match the
-           canvas so it stays visually consistent as the user zooms. -->
+           canvas so it stays visually consistent as the user zooms.
+           A multi-node drag adds a "+N" badge naming how many extra
+           nodes are riding along. -->
       <div
         v-if="dragState"
         class="zm-drag-ghost"
@@ -4783,7 +4903,12 @@ onMounted(() => {
           transform: `scale(${panZoom.scale.value})`,
           transformOrigin: 'top left',
         }"
-      >{{ dragState.srcText }}</div>
+      >
+        <span class="zm-drag-ghost-text">{{ dragState.srcText }}</span>
+        <span v-if="dragState.srcIds.length > 1" class="zm-drag-ghost-count"
+          >+{{ dragState.srcIds.length - 1 }}</span
+        >
+      </div>
 
       <div
         class="zm-world"
@@ -4813,12 +4938,11 @@ onMounted(() => {
           :data-node-id="n.id"
           :class="{
             'is-root': n.isRoot,
-            'is-selected': selectedId === n.id,
-            'is-selected-secondary': selectedId !== n.id && selectedIds.has(n.id),
+            'is-selected': selectedIds.has(n.id),
             'is-editing': editingId === n.id,
             'has-image': !!n.image,
             'is-resizing': resizingId === n.id,
-            'is-dragging-source': dragState?.srcId === n.id,
+            'is-dragging-source': dragState?.srcIds.includes(n.id) ?? false,
             'is-drop-target': dragState?.currentTargetId === n.id && dragState?.dropPosition === 'child',
             'is-drop-target-before': dragState?.currentTargetId === n.id && dragState?.dropPosition === 'before',
             'is-drop-target-after': dragState?.currentTargetId === n.id && dragState?.dropPosition === 'after',
@@ -5471,26 +5595,43 @@ onMounted(() => {
   color: #333;
   white-space: nowrap;
   max-width: 200px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  will-change: transform, left, top;
+}
+.zm-drag-ghost-text {
+  /* min-width:0 lets the flex item shrink below its content width
+   * so the ellipsis actually engages on a long label. */
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  will-change: transform, left, top;
+}
+/* "+N" badge on a multi-node drag.  flex:none keeps it whole even
+ * when the label is being truncated. */
+.zm-drag-ghost-count {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: #4caf50;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 body.is-dragging { cursor: grabbing !important; user-select: none; }
 .zm-node.is-root {
   font-weight: 600;
 }
+/* Every selected node wears the SAME ring — no primary / secondary
+ * distinction.  `selectedIds` is the whole truth here; the set's
+ * first id (the "primary", still exposed as `selectedId`) only
+ * decides which node the toolbar / drawer acts on, not how loud
+ * the outline is. */
 .zm-node.is-selected {
   outline: 2px solid #3b82f6;
   outline-offset: 2px;
   z-index: 3;
-}
-/* Multi-select "secondary" ring — softer than the primary so the
- * user can still tell at a glance which node is the primary
- * (the loud blue) while seeing every other picked node. */
-.zm-node.is-selected-secondary {
-  outline: 2px solid #bfdbfe;
-  outline-offset: 2px;
-  z-index: 2;
 }
 .zm-text {
   /* The text span now hosts the text label + inline link/note

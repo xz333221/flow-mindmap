@@ -303,9 +303,11 @@ describe('multi-select', () => {
 
     await clickNode(wrapper, 'b', { shift: true })
     expect(nodeEl(wrapper, 'a').classes()).toContain('is-selected')
-    expect(nodeEl(wrapper, 'b').classes()).toContain('is-selected-secondary')
+    // Both members of the set wear the same ring — there is no
+    // primary/secondary split in the styling.
+    expect(nodeEl(wrapper, 'b').classes()).toContain('is-selected')
 
-    // Toggling 'a' off via shift+click — 'b' remains the primary.
+    // Toggling 'a' off via shift+click — 'b' remains selected.
     await clickNode(wrapper, 'a', { shift: true })
     expect(nodeEl(wrapper, 'a').classes()).not.toContain('is-selected')
     expect(nodeEl(wrapper, 'b').classes()).toContain('is-selected')
@@ -322,6 +324,233 @@ describe('multi-select', () => {
 
     const ids = exposed.getSelectedIds()
     expect(ids.sort()).toEqual(['a', 'a1', 'b'].sort())
+  })
+})
+
+describe('multi-select drag', () => {
+  /** A slightly wider tree than `sampleData`: 'a' has two children
+   *  so before/after drops have somewhere unambiguous to land
+   *  (targeting a ROOT child would hit the left-side mirroring
+   *  rule for the node's own `_dir`). */
+  const dragSetData = (): MindMapNode => ({
+    id: 'root',
+    text: 'Root',
+    children: [
+      { id: 'a', text: 'A', children: [
+        { id: 'a1', text: 'A1', children: [] },
+        { id: 'a2', text: 'A2', children: [] },
+      ] },
+      { id: 'b', text: 'B', children: [] },
+      { id: 'c', text: 'C', children: [] },
+    ],
+  })
+
+  function findIn(n: MindMapNode, id: string): MindMapNode | null {
+    if (n.id === id) return n
+    for (const c of n.children) {
+      const f = findIn(c, id)
+      if (f) return f
+    }
+    return null
+  }
+
+  /** Client coords of a node's centre, read back from the DOM the
+   *  component actually rendered — a node's inline `left`/`top` ARE
+   *  its world position.  Deliberately NOT re-run through
+   *  `layout()`: that second copy would drift from the options
+   *  MindMap actually lays out with, and the drop would land on
+   *  whatever box happens to sit at the stale coordinate.
+   *  `halfH` lets a caller aim at the before / child / after zones
+   *  the drop logic partitions the box into. */
+  function nodePoint(
+    wrapper: ReturnType<typeof mount>,
+    id: string
+  ): { clientX: number; clientY: number; halfH: number } {
+    const el = nodeEl(wrapper, id).element as HTMLElement
+    const worldEl = wrapper.find('.zm-world').element as HTMLElement
+    const m = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)\s*scale\(([-\d.]+)\)/.exec(
+      worldEl.style.transform || ''
+    )
+    const tx = m ? parseFloat(m[1]) : 0
+    const ty = m ? parseFloat(m[2]) : 0
+    const sc = m ? parseFloat(m[3]) : 1
+    return {
+      clientX: parseFloat(el.style.left) * sc + tx,
+      clientY: parseFloat(el.style.top) * sc + ty,
+      halfH: (parseFloat(el.style.height) / 2) * sc,
+    }
+  }
+
+  /** pointerdown on `pressId`, then move + release at the target
+   *  point.  The press carries dummy coords so the move to the
+   *  target clears DRAG_THRESHOLD (a press and a move at the same
+   *  point would stay in the click dead-zone and never promote).
+   *  Returns the last tree handed to `change`. */
+  async function dragOnto(
+    wrapper: ReturnType<typeof mount>,
+    pressId: string,
+    point: { clientX: number; clientY: number },
+    onChange: ReturnType<typeof vi.fn>
+  ): Promise<MindMapNode> {
+    await nodeEl(wrapper, pressId).trigger('pointerdown', {
+      button: 0, pointerId: 1, clientX: 5, clientY: 5,
+    })
+    await flushPromises()
+    await dispatchPointer('pointermove', { pointerId: 1, ...point })
+    await flushPromises()
+    await dispatchPointer('pointerup', { pointerId: 1, ...point })
+    await flushPromises()
+    return onChange.mock.calls.at(-1)?.[0] as MindMapNode
+  }
+
+  it('dragging one member of a multi-selection moves the whole set', async () => {
+    const data = dragSetData()
+    const onChange = vi.fn()
+    const wrapper = mount(MindMap, { props: { data }, attrs: { onChange } })
+    await flushPromises()
+    const exposed = wrapper.vm as unknown as { getSelectedIds: () => string[] }
+
+    await clickNode(wrapper, 'b')
+    await clickNode(wrapper, 'c', { shift: true })
+    expect(exposed.getSelectedIds().sort()).toEqual(['b', 'c'])
+
+    const from = nodePoint(wrapper, 'b')
+    const to = nodePoint(wrapper, 'a1')
+    await nodeEl(wrapper, 'b').trigger('pointerdown', {
+      button: 0, pointerId: 1, clientX: from.clientX, clientY: from.clientY,
+    })
+    await flushPromises()
+    await dispatchPointer('pointermove', { pointerId: 1, clientX: to.clientX, clientY: to.clientY })
+    await flushPromises()
+
+    // Every source dims, not just the grabbed one, and the ghost
+    // advertises the passengers.
+    expect(nodeEl(wrapper, 'b').classes()).toContain('is-dragging-source')
+    expect(nodeEl(wrapper, 'c').classes()).toContain('is-dragging-source')
+    expect(wrapper.find('.zm-drag-ghost-count').text()).toBe('+1')
+
+    await dispatchPointer('pointerup', { pointerId: 1, clientX: to.clientX, clientY: to.clientY })
+    await flushPromises()
+
+    const tree = onChange.mock.calls.at(-1)?.[0] as MindMapNode
+    expect(tree.children.map((c) => c.id)).toEqual(['a'])
+    expect(findIn(tree, 'a1')!.children.map((c) => c.id)).toEqual(['b', 'c'])
+    // The moved set stays selected, so the user can drag it again.
+    expect(exposed.getSelectedIds().sort()).toEqual(['b', 'c'])
+  })
+
+  it('a selected ancestor absorbs its selected descendant (single move)', async () => {
+    const data = dragSetData()
+    const onChange = vi.fn()
+    const wrapper = mount(MindMap, { props: { data }, attrs: { onChange } })
+    await flushPromises()
+
+    // 'a' and its own child 'a1' are both selected.  Moving 'a'
+    // already carries 'a1' — moving it again would tear the tree.
+    await clickNode(wrapper, 'a')
+    await clickNode(wrapper, 'a1', { shift: true })
+
+    const from = nodePoint(wrapper, 'a')
+    const to = nodePoint(wrapper, 'b')
+    await nodeEl(wrapper, 'a').trigger('pointerdown', {
+      button: 0, pointerId: 1, clientX: from.clientX, clientY: from.clientY,
+    })
+    await flushPromises()
+    await dispatchPointer('pointermove', { pointerId: 1, clientX: to.clientX, clientY: to.clientY })
+    await flushPromises()
+
+    // Only one node is actually being dragged → no "+N" badge.
+    expect(wrapper.find('.zm-drag-ghost-count').exists()).toBe(false)
+    expect(nodeEl(wrapper, 'a').classes()).toContain('is-dragging-source')
+    expect(nodeEl(wrapper, 'a1').classes()).not.toContain('is-dragging-source')
+
+    await dispatchPointer('pointerup', { pointerId: 1, clientX: to.clientX, clientY: to.clientY })
+    await flushPromises()
+
+    const tree = onChange.mock.calls.at(-1)?.[0] as MindMapNode
+    expect(findIn(tree, 'b')!.children.map((c) => c.id)).toEqual(['a'])
+    expect(findIn(tree, 'a')!.children.map((c) => c.id)).toEqual(['a1', 'a2'])
+    expect(tree.children.map((c) => c.id)).toEqual(['b', 'c'])
+  })
+
+  it('pressing a node outside the selection drags only that node', async () => {
+    const data = dragSetData()
+    const onChange = vi.fn()
+    const wrapper = mount(MindMap, { props: { data }, attrs: { onChange } })
+    await flushPromises()
+    const exposed = wrapper.vm as unknown as { getSelectedIds: () => string[] }
+
+    await clickNode(wrapper, 'b')
+    await clickNode(wrapper, 'c', { shift: true })
+
+    // 'a' is not in the selection, so grabbing it picks up 'a' alone
+    // (dropping it on 'a1' would be a cycle — a1 lives inside a).
+    const to = nodePoint(wrapper, 'b')
+    const tree = await dragOnto(wrapper, 'a', to, onChange)
+
+    expect(findIn(tree, 'b')!.children.map((c) => c.id)).toEqual(['a'])
+    // 'c' was selected but never grabbed, so it stays put.
+    expect(tree.children.map((c) => c.id)).toEqual(['b', 'c'])
+    // The selection collapsed onto the node the user actually moved.
+    expect(exposed.getSelectedIds()).toEqual(['a'])
+  })
+
+  it('multi-drop before a target keeps the on-canvas order', async () => {
+    const data = dragSetData()
+    const onChange = vi.fn()
+    const wrapper = mount(MindMap, { props: { data }, attrs: { onChange } })
+    await flushPromises()
+
+    await clickNode(wrapper, 'b')
+    await clickNode(wrapper, 'c', { shift: true })
+
+    const t = nodePoint(wrapper, 'a1')
+    // Upper third of 'a1' → 'before'.
+    const point = { clientX: t.clientX, clientY: t.clientY - t.halfH * 0.6 }
+    const tree = await dragOnto(wrapper, 'b', point, onChange)
+
+    // 'moveNode' splices 'before' at the target's slot, so a
+    // forward walk is what preserves B-then-C.
+    expect(findIn(tree, 'a')!.children.map((c) => c.id)).toEqual(['b', 'c', 'a1', 'a2'])
+  })
+
+  it('multi-drop after a target keeps the on-canvas order', async () => {
+    const data = dragSetData()
+    const onChange = vi.fn()
+    const wrapper = mount(MindMap, { props: { data }, attrs: { onChange } })
+    await flushPromises()
+
+    await clickNode(wrapper, 'b')
+    await clickNode(wrapper, 'c', { shift: true })
+
+    const t = nodePoint(wrapper, 'a2')
+    // Lower third of 'a2' → 'after'.
+    const point = { clientX: t.clientX, clientY: t.clientY + t.halfH * 0.6 }
+    const tree = await dragOnto(wrapper, 'b', point, onChange)
+
+    // 'after' inserts directly behind the target every time, so the
+    // list has to be walked backwards for B to end up before C.
+    expect(findIn(tree, 'a')!.children.map((c) => c.id)).toEqual(['a1', 'a2', 'b', 'c'])
+  })
+
+  it('a drop that would cycle is abandoned whole (no partial move)', async () => {
+    const data = dragSetData()
+    const onChange = vi.fn()
+    const wrapper = mount(MindMap, { props: { data }, attrs: { onChange } })
+    await flushPromises()
+
+    // Select 'b' and 'a'; drop onto 'a1', which lives inside 'a'.
+    // 'a' cannot legally land there, so the batch is refused rather
+    // than moving 'b' on its own.
+    await clickNode(wrapper, 'b')
+    await clickNode(wrapper, 'a', { shift: true })
+
+    const to = nodePoint(wrapper, 'a1')
+    const tree = await dragOnto(wrapper, 'b', to, onChange)
+
+    expect(onChange).not.toHaveBeenCalled()
+    expect(tree).toBeUndefined()
+    expect(findIn(data, 'b')).toBeTruthy()
   })
 })
 

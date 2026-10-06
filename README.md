@@ -10,6 +10,7 @@ A modern, minimalist mind mapping tool — xmind-style, embeddable as a Vue 3 co
 
 - 纯 SVG 渲染,矢量缩放无损
 - 拖拽、缩放、平移画布
+- 多选: `Shift+点击` 追加/取消,拖动任一选中节点即可整组搬移(拖到节点上成为其子节点,拖到上/下边缘调整为同级)
 - 键盘快捷键: `Tab` 添加子节点 / `Enter` 添加同级 / `F2` 编辑 / `Delete` 删除节点
 - 一键折叠/展开子树
 - 多种布局模式: mindmap(默认) / tree(右向树) / org(向下组织结构)
