@@ -48,9 +48,10 @@ await page.keyboard.press('Enter')
 await page.waitForTimeout(200)
 await page.screenshot({ path: `${outDir}/04-after-edit.png` })
 
-// zoom in via toolbar
-await page.locator('.zm-tb-btn').first().click()
-await page.locator('.zm-tb-btn').first().click()
+// zoom in via toolbar (addressed by title — the toolbar's leftmost
+// button is the outline trigger, so .first() would miss the zoom-in)
+await page.locator('.zm-tb-btn[title="放大"]').click()
+await page.locator('.zm-tb-btn[title="放大"]').click()
 await page.waitForTimeout(150)
 await page.screenshot({ path: `${outDir}/05-zoomed.png` })
 
@@ -160,10 +161,10 @@ await page.waitForTimeout(150)
 // smoke test — re-add when/if balance UI returns to the toolbar.
 
 // App layout: drawers are closed by default — open them, then assert
-// their content renders.  The outline opens via the canvas FAB
-// (top-left); the data drawer opens via the canvas right-click
+// their content renders.  The outline opens via the leftmost button
+// of the bottom toolbar; the data drawer opens via the canvas right-click
 // menu → "查看数据".
-await page.locator('.zm-canvas-fab-outline').click()
+await page.locator('.zm-tb-outline').click()
 await page.waitForTimeout(250)
 // Right-click on the canvas background to open the context menu,
 // then click "查看数据".
@@ -207,7 +208,7 @@ if (!download.suggestedFilename().endsWith('.json')) {
   process.exit(1)
 }
 
-// close the outline drawer and re-open it via the FAB
+// close the outline drawer and re-open it via the toolbar button
 await page.locator('.zm-drawer--left .zm-drawer-close').click()
 await page.waitForTimeout(300)
 const outlineAfterClose = await page.locator('.zm-outline-row').count()
@@ -215,7 +216,7 @@ if (outlineAfterClose !== 0) {
   console.error(`expected 0 outline rows after close, got ${outlineAfterClose}`)
   process.exit(1)
 }
-await page.locator('.zm-canvas-fab-outline').click()
+await page.locator('.zm-tb-outline').click()
 await page.waitForTimeout(300)
 const outlineAfterReopen = await page.locator('.zm-outline-row').count()
 if (outlineAfterReopen < 14) {
@@ -335,7 +336,7 @@ if (stillSelected.join(',') !== 'n_a,n_b') {
 
 // Read the resulting tree back through the outline drawer: its rows are
 // the tree flattened depth-first, in DOM order.
-await page.locator('.zm-canvas-fab-outline').click()
+await page.locator('.zm-tb-outline').click()
 await page.waitForTimeout(300)
 const outlineIds = await page.evaluate(() =>
   Array.from(document.querySelectorAll('.zm-outline-row')).map((r) => r.dataset.outlineId)

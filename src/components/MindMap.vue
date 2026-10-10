@@ -85,9 +85,9 @@ const props = withDefaults(
     lineColors?: string[]
     /**
      * When true, hides the built-in canvas action buttons
-     * (top-right preview toggle, top-left outline view).  Use this
-     * when the consumer already exposes equivalent controls in
-     * their surrounding chrome and doesn't want duplicates.  Default
+     * (top-right preview toggle, bottom-toolbar outline trigger).
+     * Use this when the consumer already exposes equivalent controls
+     * in their surrounding chrome and doesn't want duplicates.  Default
      * false so the npm package ships with a discoverable, ready-to-use
      * UI.
      */
@@ -123,7 +123,7 @@ const emit = defineEmits<{
    *  re-serialized markdown representation. */
   (e: 'markdownChange', markdown: string): void
   /** Fired when the user clicks the canvas action buttons
-   *  (top-right preview toggle, top-left outline view) or
+   *  (top-right preview toggle, bottom-toolbar outline trigger) or
    *  corresponding entries on the canvas context menu.  The
    *  parent decides how to render them (drawer / dialog /
    *  separate route) — MindMap only signals intent. */
@@ -529,26 +529,19 @@ const contextMenu = ref<MenuState | null>(null)
 // Esc / scroll listeners.
 const canvasMenu = ref<{ x: number; y: number } | null>(null)
 
-// Canvas action buttons -- top-right preview toggle and top-left
-// outline view.  Always visible so the npm package ships with a
-// discoverable, ready-to-use UI; the host just listens to the
-// canvas-toggle-preview / canvas-outline events and handles
-// preview mode + drawer state itself.  hideCanvasActions lets a
-// consumer opt out (e.g. when they already have their own buttons
-// in the surrounding chrome).
+// Canvas action button -- the top-right preview toggle.  Always
+// visible so the npm package ships with a discoverable, ready-to-use
+// UI; the host just listens to the canvas-toggle-preview event and
+// handles preview mode itself.  hideCanvasActions lets a consumer opt
+// out (e.g. when they already have their own buttons in the
+// surrounding chrome); it also hides the toolbar's outline trigger.
 // Match the bottom toolbar's visibility: always show in non-preview
-// mode (the FABs are a discoverable nav control), but only show in
+// mode (the FAB is a discoverable nav control), but only show in
 // preview mode while the cursor is over the canvas (otherwise the
 // user is just viewing -- don't clutter the chrome).
 const fabPreviewClass = computed(() => {
   const visible = !props.hideCanvasActions && (!props.previewMode || canvasHovered.value)
   return ['zm-canvas-fab', 'zm-canvas-fab-preview', visible ? 'is-visible' : '']
-    .filter(Boolean)
-    .join(' ')
-})
-const fabOutlineClass = computed(() => {
-  const visible = !props.hideCanvasActions && (!props.previewMode || canvasHovered.value)
-  return ['zm-canvas-fab', 'zm-canvas-fab-outline', visible ? 'is-visible' : '']
     .filter(Boolean)
     .join(' ')
 })
@@ -575,7 +568,7 @@ function onCanvasContextMenu(e: MouseEvent) {
   // Don't open the canvas menu when the right-click lands on a control
   // (toolbar, fab, note button, etc).
   const target = e.target as HTMLElement | null
-  if (target?.closest('.zm-toolbar, button, input, textarea, .zm-canvas-fab-preview, .zm-canvas-fab-outline')) return
+  if (target?.closest('.zm-toolbar, button, input, textarea, .zm-canvas-fab-preview')) return
   // If the right button was just used to drag-pan the canvas (moved
   // beyond the threshold), suppress both our menu AND the native
   // browser context menu — the user intended to pan, not to open a
@@ -768,7 +761,7 @@ function _toggleCollapse(id: string) {
   _outlineCollapsed.value = next
 }
 
-// Override the canvas outline FAB to also toggle the built-in drawer.
+// The toolbar's outline button also toggles the built-in drawer.
 function _onCanvasOutline() {
   if (props.builtInDrawers) {
     _showOutline.value = !_showOutline.value
@@ -5244,20 +5237,15 @@ onMounted(() => {
         @close="closeCanvasMenu"
       />
 
-      <!-- FABs. See fabPreviewClass and fabOutlineClass. -->
+      <!-- FAB. See fabPreviewClass.  The outline trigger lives in the
+           bottom toolbar (leftmost slot) so the canvas chrome keeps a
+           single control cluster instead of two corners. -->
       <button
         :class="fabPreviewClass"
         :title="props.previewMode ? '退出预览模式' : '进入预览模式'"
         @click="emit('canvas-toggle-preview')"
       >
         <Icon :name="props.previewMode ? 'eye-off' : 'eye'" :size="16" />
-      </button>
-      <button
-        :class="fabOutlineClass"
-        title="显示大纲视图"
-        @click="_onCanvasOutline"
-      >
-        <Icon name="outline" :size="16" />
       </button>
 
     <!-- Bottom toolbar.  Always rendered; the parent's previewMode
@@ -5267,9 +5255,10 @@ onMounted(() => {
                           out on leave.  Pointer-events follow
                           opacity so the toolbar doesn't catch
                           clicks while invisible.
-         Inside, the "secondary" group (add child/sibling, layout
-         mode, import) is non-preview-only — those buttons mutate
-         data, which preview mode disallows.
+         Inside, the leftmost "大纲视图" trigger and the "secondary"
+         group (add child/sibling, layout mode, import) are
+         non-preview-only — drawers are closed in preview mode and
+         those edit buttons mutate data, which preview disallows.
 
          IMPORTANT: this toolbar MUST live inside .zm-canvas (not
          a sibling).  .zm-canvas's @mouseleave fires when the
@@ -5283,6 +5272,16 @@ onMounted(() => {
       class="zm-toolbar"
       :class="{ 'is-preview-only': props.previewMode, 'is-hovered': canvasHovered }"
     >
+      <!-- 大纲视图: leftmost slot of the toolbar.  Non-preview only —
+           every drawer is force-closed in preview mode, so the button
+           would have nothing to toggle there. -->
+      <template v-if="!props.previewMode && !props.hideCanvasActions">
+        <button class="zm-tb-btn zm-tb-outline" title="显示大纲视图" @click="_onCanvasOutline">
+          <Icon name="outline" />
+        </button>
+        <span class="zm-tb-divider" />
+      </template>
+
       <!-- 缩放比例 + 放大 / 缩小 / 重置视图: always visible, also
            show in preview mode (the canvas still needs to be
            navigable in preview). -->
@@ -6212,15 +6211,14 @@ overflow: hidden;
   user-select: none;
   vertical-align: middle;
 }
-/* Canvas action FABs -- top-right preview toggle, top-left
- * outline view.  Always visible by default so the npm package
- * ships with a discoverable, ready-to-use UI.  Hidden when
- * the consumer passes hideCanvasActions.
+/* Canvas action FAB -- top-right preview toggle.  Always visible by
+ * default so the npm package ships with a discoverable, ready-to-use
+ * UI.  Hidden when the consumer passes hideCanvasActions.
  *
- * Styled to match the bottom toolbar (rounded pill, soft
- * shadow, monoline icon).  Position is relative to the
- * .zm-canvas wrapper (which is the offset parent) so the
- * buttons track the canvas regardless of panning / scaling.
+ * Styled to match the bottom toolbar (rounded pill, soft shadow,
+ * monoline icon).  Position is relative to the .zm-canvas wrapper
+ * (which is the offset parent) so the button tracks the canvas
+ * regardless of panning / scaling.
  */
 .zm-canvas-fab {
   position: absolute;
@@ -6258,10 +6256,6 @@ overflow: hidden;
 .zm-canvas-fab-preview {
   top: 16px;
   right: 16px;
-}
-.zm-canvas-fab-outline {
-  top: 16px;
-  left: 16px;
 }
 
 .zm-toolbar {
