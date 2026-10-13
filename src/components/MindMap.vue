@@ -552,14 +552,19 @@ const fabPreviewClass = computed(() => {
 // component root (so the canvas AND the toolbar stay visible and
 // usable while fullscreen).  The browser can also leave fullscreen on
 // its own (Esc), so we mirror the real state off `fullscreenchange`
-// rather than tracking a boolean we flip ourselves.  Entering
-// fullscreen changes the viewport size, so we re-center the view to
-// fit the new bounds instead of leaving the map stranded off-screen.
+// rather than tracking a boolean we flip ourselves.
 const isFullscreen = ref(false)
 
 function onFullscreenChange() {
   isFullscreen.value = document.fullscreenElement === rootRef.value
-  if (isFullscreen.value) nextTick(() => resetView())
+  // The canvas box changes size in BOTH directions, but the pan offset
+  // is a pixel value derived from that box -- the offset we fit for the
+  // fullscreen size is meaningless once we're back to the inline box,
+  // and the map ends up stranded off-screen (the user has to drag
+  // around to find it).  So re-fit on every transition, not just on
+  // enter.  Double rAF: `fullscreenchange` can fire before the element
+  // has been re-laid-out, and resetView() reads the container's rect.
+  requestAnimationFrame(() => requestAnimationFrame(() => resetView()))
 }
 
 function toggleFullscreen() {
