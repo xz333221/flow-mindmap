@@ -313,5 +313,19 @@ defineProps<{
       <circle cx="19" cy="5" r="2.5" />
       <path d="M7 17 C 10 12, 14 12, 17 7" stroke-dasharray="3 2.2" />
     </template>
+    <!-- fullscreen: four corner brackets pointing OUT — enter fullscreen. -->
+    <template v-else-if="name === 'fullscreen'">
+      <polyline points="4 9 4 4 9 4" />
+      <polyline points="15 4 20 4 20 9" />
+      <polyline points="20 15 20 20 15 20" />
+      <polyline points="9 20 4 20 4 15" />
+    </template>
+    <!-- fullscreen-exit: the same brackets pointing IN — exit fullscreen. -->
+    <template v-else-if="name === 'fullscreen-exit'">
+      <polyline points="9 4 9 9 4 9" />
+      <polyline points="20 9 15 9 15 4" />
+      <polyline points="15 20 15 15 20 15" />
+      <polyline points="4 15 9 15 9 20" />
+    </template>
   </svg>
 </template>

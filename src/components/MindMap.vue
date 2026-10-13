@@ -135,6 +135,8 @@ const emit = defineEmits<{
 }>()
 
 const wrapperRef = ref<HTMLElement | null>(null)
+// Root element -- the fullscreen target (see toggleFullscreen).
+const rootRef = ref<HTMLElement | null>(null)
 const editingId = ref<string | null>(null)
 const editText = ref('')
 // Multi-select model: a Set of node ids.  `selectedId` is a
@@ -545,6 +547,36 @@ const fabPreviewClass = computed(() => {
     .filter(Boolean)
     .join(' ')
 })
+
+// Fullscreen -- the toolbar's last button toggles fullscreen on the
+// component root (so the canvas AND the toolbar stay visible and
+// usable while fullscreen).  The browser can also leave fullscreen on
+// its own (Esc), so we mirror the real state off `fullscreenchange`
+// rather than tracking a boolean we flip ourselves.  Entering
+// fullscreen changes the viewport size, so we re-center the view to
+// fit the new bounds instead of leaving the map stranded off-screen.
+const isFullscreen = ref(false)
+
+function onFullscreenChange() {
+  isFullscreen.value = document.fullscreenElement === rootRef.value
+  if (isFullscreen.value) nextTick(() => resetView())
+}
+
+function toggleFullscreen() {
+  if (document.fullscreenElement) {
+    void document.exitFullscreen?.().catch(() => {})
+    return
+  }
+  const el = rootRef.value
+  if (!el) return
+  void el.requestFullscreen?.().catch((err) => {
+    console.warn('[flow-mindmap] 进入全屏失败:', err)
+  })
+}
+
+onMounted(() => document.addEventListener('fullscreenchange', onFullscreenChange))
+onBeforeUnmount(() => document.removeEventListener('fullscreenchange', onFullscreenChange))
+
 function onNodeContextMenu(e: MouseEvent, n: LayoutNode) {
   if (props.previewMode) return
   e.preventDefault()
@@ -4715,6 +4747,7 @@ onMounted(() => {
 
 <template>
   <div
+    ref="rootRef"
     class="zm-mindmap"
     :style="{ background: effectiveBg, fontSize: theme.fontSize + 'px' }"
   >
@@ -5317,7 +5350,19 @@ onMounted(() => {
       <button class="zm-tb-btn" title="全部展开" @click="expandAll">
         <Icon name="expand-all" />
       </button>
-      <!-- <span class="zm-tb-divider" /> -->
+      <span class="zm-tb-divider" />
+      <!-- Fullscreen: view-only, so it stays available in preview
+           mode too (a read-only embed still wants to fill the
+           screen).  Lives at the end of the always-visible group so
+           it doesn't disturb positional selectors of the earlier
+           buttons. -->
+      <button
+        class="zm-tb-btn"
+        :title="isFullscreen ? '退出全屏' : '全屏查看'"
+        @click="toggleFullscreen"
+      >
+        <Icon :name="isFullscreen ? 'fullscreen-exit' : 'fullscreen'" />
+      </button>
 
       <!-- Non-preview-only: edit + layout.  Import/export live in
            the right-click context menu so the toolbar stays clean. -->
@@ -5487,6 +5532,14 @@ onMounted(() => {
   overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   user-select: none;
+}
+/* Fullscreen: the root takes over the viewport.  Browsers already
+ * size the fullscreen element to the screen, but pinning 100vw/100vh
+ * keeps the absolutely-positioned canvas filling the whole screen
+ * instead of collapsing to whatever size the host gave the wrapper. */
+.zm-mindmap:fullscreen {
+  width: 100vw;
+  height: 100vh;
 }
 .zm-canvas {
   position: absolute;
