@@ -2771,9 +2771,52 @@ interface PendingDrag {
   pointerOffsetY: number
   startX: number
   startY: number
+  // Set when the press landed on the node's label text.  While the
+  // pointer stays inside this box the gesture paints a text selection
+  // instead of moving the node; leaving the box hands the gesture back
+  // to the drag.  `labelCaret` is the caret captured at press time and
+  // anchors the selection.
+  labelBox: { left: number; top: number; right: number; bottom: number } | null
+  labelCaret: Range | null
 }
 let pendingDrag: PendingDrag | null = null
 const DRAG_THRESHOLD = 4 // px of movement before a drag becomes "active"
+
+/** Caret range at a screen point.  `caretRangeFromPoint` is the
+ *  Chromium / Safari spelling; Firefox only ships the newer
+ *  `caretPositionFromPoint`. */
+function caretRangeAt(x: number, y: number): Range | null {
+  const doc = document as Document & {
+    caretRangeFromPoint?: (x: number, y: number) => Range | null
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
+  }
+  if (typeof doc.caretRangeFromPoint === 'function') return doc.caretRangeFromPoint(x, y)
+  const pos = doc.caretPositionFromPoint?.(x, y)
+  if (!pos) return null
+  const range = document.createRange()
+  range.setStart(pos.offsetNode, pos.offset)
+  range.collapse(true)
+  return range
+}
+
+/** Paint the label selection from the press-time caret to wherever the
+ *  pointer is now.  Direction-agnostic — the user may drag backwards
+ *  past the starting character. */
+function paintLabelSelection(anchor: Range, x: number, y: number) {
+  const head = caretRangeAt(x, y)
+  const sel = window.getSelection()
+  if (!head || !sel) return
+  const range = document.createRange()
+  if (anchor.compareBoundaryPoints(Range.START_TO_START, head) <= 0) {
+    range.setStart(anchor.startContainer, anchor.startOffset)
+    range.setEnd(head.startContainer, head.startOffset)
+  } else {
+    range.setStart(head.startContainer, head.startOffset)
+    range.setEnd(anchor.startContainer, anchor.startOffset)
+  }
+  sel.removeAllRanges()
+  sel.addRange(range)
+}
 
 function onNodePointerDown(e: PointerEvent, n: LayoutNode) {
   if (props.previewMode) return
@@ -2856,6 +2899,30 @@ function onNodePointerDown(e: PointerEvent, n: LayoutNode) {
       ? n.text
       : allNodes.value.find((x) => x.id === anchorId)?.text ?? n.text
 
+  // Pressing on the label text starts a text-selection gesture: while
+  // the pointer stays inside the label we paint the selection by hand
+  // (a native selection would cancel the pointer stream and the node
+  // drag could never take over), and only leave the label →
+  // promote-to-drag handover is handled in `onDragPointerMove`.
+  //
+  // Two cases keep the old press behaviour: touch (no hover/I-beam on
+  // a finger, so the label press must move the node) and an open
+  // inline editor (the press has to reach the browser so the editor
+  // blurs and commits — see the `preventDefault` below).
+  const labelEl =
+    e.pointerType === 'touch' || editingId.value !== null || richEditingId.value !== null
+      ? null
+      : (target?.closest('.zm-text-label') as HTMLElement | null)
+  const labelRect = labelEl?.getBoundingClientRect()
+  const labelBox = labelRect
+    ? {
+        left: labelRect.left - 8,
+        top: labelRect.top - 8,
+        right: labelRect.right + 8,
+        bottom: labelRect.bottom + 8,
+      }
+    : null
+
   pendingDrag = {
     srcIds,
     srcText: anchorText,
@@ -2863,7 +2930,15 @@ function onNodePointerDown(e: PointerEvent, n: LayoutNode) {
     pointerOffsetY,
     startX: e.clientX,
     startY: e.clientY,
+    labelBox,
+    labelCaret: labelBox ? caretRangeAt(e.clientX, e.clientY) : null,
   }
+
+  // Suppress the browser's own selection gesture on the label — it
+  // would cancel the pointer on the first move (pointercancel) and the
+  // node-drag takeover would never happen.  `paintLabelSelection`
+  // draws the selection instead, using the same carets.
+  if (labelBox) e.preventDefault()
 
   // Listen on window so we catch move/up regardless of which DOM
   // element the pointer is over (incl. the empty canvas).  Using
@@ -2877,6 +2952,29 @@ function onDragPointerMove(e: PointerEvent) {
   // If we have a pending drag, check whether it should be promoted
   // to an active drag (pointer moved past the threshold).
   if (pendingDrag) {
+    // Started on the label: keep painting the text selection as long
+    // as the pointer stays inside the text box.  No ghost, no dimming —
+    // the user is highlighting the title, not moving the node.
+    const box = pendingDrag.labelBox
+    if (box) {
+      const inside =
+        e.clientX >= box.left &&
+        e.clientX <= box.right &&
+        e.clientY >= box.top &&
+        e.clientY <= box.bottom
+      if (inside) {
+        if (pendingDrag.labelCaret) {
+          paintLabelSelection(pendingDrag.labelCaret, e.clientX, e.clientY)
+        }
+        return
+      }
+      // Leaving the label promotes the gesture back to a node drag;
+      // drop the half-built selection so the ghost isn't dragging a
+      // blue-highlighted label around.
+      window.getSelection()?.removeAllRanges()
+      pendingDrag.labelBox = null
+      pendingDrag.labelCaret = null
+    }
     const dx = e.clientX - pendingDrag.startX
     const dy = e.clientY - pendingDrag.startY
     if (Math.abs(dx) <= DRAG_THRESHOLD && Math.abs(dy) <= DRAG_THRESHOLD) {
@@ -5643,13 +5741,17 @@ onMounted(() => {
   position: absolute;
   pointer-events: none;
   z-index: 10000;
-  padding: 4px 10px;
-  background: #fff;
-  border: 1px solid #4caf50;
-  border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 5px 12px;
+  /* Solid accent chip — the ghost reads as "this is what you're
+   * carrying", so it's filled rather than outlined (no border, no
+   * soft rounded outline box). */
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  border-radius: 2px;
+  box-shadow: 0 8px 20px -6px rgba(15, 23, 42, 0.45);
   font-size: 13px;
-  color: #333;
+  font-weight: 500;
   white-space: nowrap;
   max-width: 200px;
   display: flex;
@@ -5669,14 +5771,19 @@ onMounted(() => {
 .zm-drag-ghost-count {
   flex: none;
   padding: 1px 6px;
-  border-radius: 8px;
-  background: #4caf50;
-  color: #fff;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1d4ed8;
   font-size: 11px;
   font-weight: 600;
   line-height: 1.5;
 }
+/* While a node is being carried, nothing on the page is selectable —
+ * including the label, which is selectable at rest.  Without the
+ * second rule the browser would keep extending the selection the drag
+ * started on. */
 body.is-dragging { cursor: grabbing !important; user-select: none; }
+body.is-dragging .zm-text-label { user-select: none; -webkit-user-select: none; }
 .zm-node.is-root {
   font-weight: 600;
 }
@@ -5730,7 +5837,16 @@ body.is-dragging { cursor: grabbing !important; user-select: none; }
   overflow: hidden;
 }
 .zm-text-label {
-  pointer-events: none;
+  /* Hit-testable and selectable so the drag handler can recognise
+   * "the press landed on the text" and paint the selection itself.
+   * The press is `preventDefault`ed (see `onNodePointerDown`): the
+   * browser's own selection gesture would fire `pointercancel` and we
+   * would lose the pointer stream needed to resume the node drag when
+   * the cursor leaves the label. */
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
   overflow: hidden;
   /* `pre-line` preserves \n line breaks (from Shift+Enter in the
    *  edit textarea) while collapsing runs of whitespace, so the

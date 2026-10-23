@@ -78,6 +78,29 @@ describe('drag-to-reparent', () => {
     expect(wrapper.find('.zm-drag-ghost').exists()).toBe(true)
   })
 
+  it('press on the label parks the drag until the pointer leaves the text', async () => {
+    const data = sampleData()
+    const wrapper = mount(MindMap, { props: { data } })
+    await flushPromises()
+
+    const label = nodeEl(wrapper, 'a').find('.zm-text-label')
+    expect(label.exists()).toBe(true)
+    // The label is selectable, so the drag must not start while the
+    // pointer is still inside its box — that gesture belongs to the
+    // browser's text selection.
+    await label.trigger('pointerdown', { button: 0, pointerId: 1, clientX: 10, clientY: 10 })
+    await dispatchPointer('pointermove', { pointerId: 1, clientX: 30, clientY: 30 })
+    await flushPromises()
+    expect(wrapper.find('.zm-drag-ghost').exists()).toBe(false)
+    expect(nodeEl(wrapper, 'a').classes()).not.toContain('is-dragging-source')
+
+    // Leaving the label hands the gesture back to the node drag.
+    await dispatchPointer('pointermove', { pointerId: 1, clientX: 1200, clientY: 1200 })
+    await flushPromises()
+    expect(wrapper.find('.zm-drag-ghost').exists()).toBe(true)
+    expect(nodeEl(wrapper, 'a').classes()).toContain('is-dragging-source')
+  })
+
   it('pointerdown on root is a no-op (root is not draggable)', async () => {
     const data = sampleData()
     const wrapper = mount(MindMap, { props: { data } })
