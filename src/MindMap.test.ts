@@ -830,3 +830,90 @@ describe('relations (联系)', () => {
     expect(wrapper2.find('.zm-relation-path').exists()).toBe(true)
   })
 })
+
+/** A map tall enough that the initial fit is < 100% — the bulk
+ *  expand/collapse buttons must re-fit it, and a small sample tree
+ *  (3 nodes at scale 1) can't tell whether they did. */
+const tallData = (): MindMapNode => ({
+  id: 'root',
+  text: 'Root',
+  children: Array.from({ length: 8 }, (_, i) => ({
+    id: `c${i}`,
+    text: `Child ${i}`,
+    children: Array.from({ length: 5 }, (_, j) => ({
+      id: `c${i}-${j}`,
+      text: `Leaf ${i}-${j}`,
+      children: [],
+    })),
+  })),
+})
+
+/** Screen position (canvas-relative) of a node's centre, derived from
+ *  its inline world coords plus the .zm-world transform — happy-dom
+ *  can't lay out child elements, so getBoundingClientRect is useless
+ *  here. */
+function nodeScreenPos(wrapper: ReturnType<typeof mount>, id: string) {
+  const el = nodeEl(wrapper, id).element as HTMLElement
+  const world = wrapper.find('.zm-world').element as HTMLElement
+  const m = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)\s*scale\(([-\d.]+)\)/.exec(
+    world.style.transform || ''
+  )
+  const [, tx, ty, sc] = m ? m.map(Number) : [0, 0, 0, 1]
+  const wx = parseFloat(el.style.left)
+  const wy = parseFloat(el.style.top)
+  return { x: wx * sc + tx, y: wy * sc + ty }
+}
+
+describe('viewport follows expand / collapse', () => {
+  it('"全部收起" re-fits the map to the canvas centre', async () => {
+    const wrapper = mount(MindMap, { props: { data: tallData() } })
+    await flushPromises()
+
+    await wrapper.find('.zm-tb-btn[title="全部收起"]').trigger('click')
+    await flushPromises()
+
+    // Only the root is left; the fit must land it in the middle of
+    // the 1000x1000 canvas (see the getBoundingClientRect stub).
+    // Without a refit the old offsets survive and the root stays
+    // wherever the tall map had put it.
+    const pos = nodeScreenPos(wrapper, 'root')
+    expect(Math.abs(pos.x - 500)).toBeLessThan(2)
+    expect(Math.abs(pos.y - 500)).toBeLessThan(2)
+  })
+
+  it('"全部展开" re-fits so the map is back on screen', async () => {
+    const wrapper = mount(MindMap, { props: { data: tallData() } })
+    await flushPromises()
+
+    await wrapper.find('.zm-tb-btn[title="全部收起"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('.zm-tb-btn[title="全部展开"]').trigger('click')
+    await flushPromises()
+
+    const root = nodeScreenPos(wrapper, 'root')
+    const first = nodeScreenPos(wrapper, 'c0')
+    const last = nodeScreenPos(wrapper, 'c7-4')
+    // Every extreme of the map stays inside the canvas.
+    for (const p of [root, first, last]) {
+      expect(p.x).toBeGreaterThan(0)
+      expect(p.x).toBeLessThan(1000)
+      expect(p.y).toBeGreaterThan(0)
+      expect(p.y).toBeLessThan(1000)
+    }
+  })
+
+  it('collapsing a single node keeps it under the cursor', async () => {
+    const wrapper = mount(MindMap, { props: { data: tallData() } })
+    await flushPromises()
+
+    // Collapsing the root shrinks the map to a single node, which is
+    // the biggest world-coordinate shift a single toggle can cause.
+    const before = nodeScreenPos(wrapper, 'root')
+    await nodeEl(wrapper, 'root').find('.zm-collapse').trigger('click')
+    await flushPromises()
+    const after = nodeScreenPos(wrapper, 'root')
+
+    expect(after.x).toBeCloseTo(before.x, 1)
+    expect(after.y).toBeCloseTo(before.y, 1)
+  })
+})

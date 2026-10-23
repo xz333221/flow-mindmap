@@ -354,6 +354,86 @@ console.log('multi-select drag: 2 nodes moved as a set ✓')
 await page.locator('.zm-drawer--left .zm-drawer-close').click()
 await page.waitForTimeout(200)
 
+// Bulk expand / collapse must leave the map centred in the canvas.
+// These buttons rebuild the whole tree, and layout re-normalises world
+// coordinates, so without a re-fit the map (or the lone root) ends up
+// outside the viewport and the user stares at an empty canvas.
+const mapFrame = () =>
+  page.evaluate(() => {
+    const c = document.querySelector('.zm-canvas').getBoundingClientRect()
+    const nodes = [...document.querySelectorAll('.zm-node')]
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const n of nodes) {
+      const r = n.getBoundingClientRect()
+      minX = Math.min(minX, r.left); minY = Math.min(minY, r.top)
+      maxX = Math.max(maxX, r.right); maxY = Math.max(maxY, r.bottom)
+    }
+    const inside = nodes.filter((n) => {
+      const r = n.getBoundingClientRect()
+      return r.left >= c.left - 1 && r.right <= c.right + 1 && r.top >= c.top - 1 && r.bottom <= c.bottom + 1
+    }).length
+    return {
+      dx: Math.round((minX + maxX) / 2 - (c.left + c.width / 2)),
+      dy: Math.round((minY + maxY) / 2 - (c.top + c.height / 2)),
+      total: nodes.length,
+      inside,
+    }
+  })
+
+// Start from a zoomed / panned viewport — that is where the missing
+// re-fit used to strand the map off-screen.
+await page.locator('.zm-tb-btn[title="放大"]').click()
+await page.locator('.zm-tb-btn[title="放大"]').click()
+await page.mouse.move(640, 400)
+await page.mouse.down({ button: 'right' })
+await page.mouse.move(1050, 680, { steps: 10 })
+await page.mouse.up({ button: 'right' })
+await page.waitForTimeout(200)
+
+for (const title of ['全部收起', '展开一级', '展开二级', '全部展开']) {
+  await page.locator(`.zm-tb-btn[title="${title}"]`).click()
+  await page.waitForTimeout(500)
+  const f = await mapFrame()
+  console.log(`${title}: centre offset dx=${f.dx} dy=${f.dy}, nodes in view ${f.inside}/${f.total}`)
+  if (Math.abs(f.dx) > 60 || Math.abs(f.dy) > 60) {
+    console.error(`${title} left the map off-centre (dx=${f.dx}, dy=${f.dy})`)
+    process.exit(1)
+  }
+  if (f.inside !== f.total) {
+    console.error(`${title} left ${f.total - f.inside} node(s) outside the canvas`)
+    process.exit(1)
+  }
+}
+await page.screenshot({ path: `${outDir}/15-bulk-expand-centred.png`, fullPage: true })
+
+// Collapsing a single node must not throw it out from under the cursor.
+const anchorId = await page.evaluate(() => {
+  const c = document.querySelector('.zm-canvas').getBoundingClientRect()
+  for (const n of document.querySelectorAll('.zm-node')) {
+    const r = n.getBoundingClientRect()
+    const inView =
+      r.left > c.left + 80 && r.right < c.right - 80 && r.top > c.top + 80 && r.bottom < c.bottom - 80
+    if (inView && n.querySelector('.zm-collapse')) return n.dataset.nodeId
+  }
+  return null
+})
+if (!anchorId) {
+  console.error('no collapsible node in view to test the anchor')
+  process.exit(1)
+}
+const nodeBox = () => page.locator(`[data-node-id="${anchorId}"]`).boundingBox()
+const beforeBox = await nodeBox()
+await page.locator(`[data-node-id="${anchorId}"] .zm-collapse`).click()
+await page.waitForTimeout(500)
+const afterBox = await nodeBox()
+const jumpX = Math.round(afterBox.x - beforeBox.x)
+const jumpY = Math.round(afterBox.y - beforeBox.y)
+console.log(`single-node collapse on "${anchorId}": jumped dx=${jumpX} dy=${jumpY}`)
+if (Math.abs(jumpX) > 2 || Math.abs(jumpY) > 2) {
+  console.error(`collapsed node jumped out from under the cursor (dx=${jumpX}, dy=${jumpY})`)
+  process.exit(1)
+}
+
 await browser.close()
 
 if (errors.length) {

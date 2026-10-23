@@ -178,21 +178,48 @@ export function usePanZoom(opts: PanZoomOptions) {
     updateMarquee(wx, wy)
   }
 
-  function resetView(
-    layoutWidth: number,
-    layoutHeight: number,
-    rootY: number,
-    padding = 60
-  ) {
+  /** Fit the whole map into the viewport and center it.
+   *
+   *  `vb*` is the layout's content bounding box in world space —
+   *  NOT the root's position.  Centering on the root only works in
+   *  mindmap mode (where the root sits in the middle of its
+   *  branches); in tree / org mode the root is at the very top, so
+   *  centering on it pushes nearly the entire map below the fold.
+   */
+  function resetView(vbX: number, vbY: number, vbW: number, vbH: number, padding = 60) {
     const container = opts.getContainer()
     if (!container) return
     const rect = container.getBoundingClientRect()
-    const sx = (rect.width - padding * 2) / layoutWidth
-    const sy = (rect.height - padding * 2) / layoutHeight
-    const fit = Math.min(1, Math.max(0.3, Math.min(sx, sy)))
+    const sx = (rect.width - padding * 2) / vbW
+    const sy = (rect.height - padding * 2) / vbH
+    // Never zoom past 100% just to fill the viewport, but do allow
+    // the full zoom-out range so a large map can actually fit
+    // instead of getting clipped at an arbitrary 30% floor.
+    const fit = Math.min(1, Math.max(minScale, Math.min(sx, sy)))
     scale.value = fit
-    offsetX.value = rect.width / 2
-    offsetY.value = rect.height / 2 - rootY * fit
+    offsetX.value = rect.width / 2 - (vbX + vbW / 2) * fit
+    offsetY.value = rect.height / 2 - (vbY + vbH / 2) * fit
+  }
+
+  /** Remember where a world point currently sits on screen
+   *  (container-relative), so a re-layout can pin it back. */
+  function captureAnchor(worldX: number, worldY: number) {
+    return {
+      screenX: worldX * scale.value + offsetX.value,
+      screenY: worldY * scale.value + offsetY.value,
+    }
+  }
+
+  /** Put `world` back at the captured screen spot, keeping the
+   *  current zoom — used after a re-layout to keep the node the user
+   *  just clicked from jumping out from under the cursor. */
+  function restoreAnchor(
+    worldX: number,
+    worldY: number,
+    anchor: { screenX: number; screenY: number }
+  ) {
+    offsetX.value = anchor.screenX - worldX * scale.value
+    offsetY.value = anchor.screenY - worldY * scale.value
   }
 
   /** Reset zoom to exactly 100% (scale = 1) while keeping the
@@ -254,5 +281,7 @@ export function usePanZoom(opts: PanZoomOptions) {
     setOnMarqueeEnd,
     resetView,
     centerOn,
+    captureAnchor,
+    restoreAnchor,
   }
 }

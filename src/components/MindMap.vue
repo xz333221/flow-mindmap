@@ -2484,10 +2484,34 @@ function doRemove(nodeId: string) {
   }
 }
 
+/** Find a node in the *laid-out* tree (world coordinates). */
+function findLayoutNode(id: string): LayoutNode | null {
+  const stack: LayoutNode[] = [layoutResult.value.root]
+  while (stack.length) {
+    const n = stack.pop()!
+    if (n.id === id) return n
+    stack.push(...n.children)
+  }
+  return null
+}
+
 function toggleCollapse(id: string) {
+  // Collapsing / expanding re-runs the layout, which re-normalises
+  // world coordinates (the topmost node is pinned to a fixed y).
+  // Every node can therefore move in world space, so keeping the
+  // old offsets makes the map — including the node just clicked —
+  // jump out from under the cursor.  Pin the clicked node's screen
+  // position across the re-layout instead.
+  const before = findLayoutNode(id)
+  const anchor = before ? panZoom.captureAnchor(before.x, before.y) : null
   if (collapsedIds.value.has(id)) collapsedIds.value.delete(id)
   else collapsedIds.value.add(id)
   triggerRef()
+  if (!anchor) return
+  nextTick(() => {
+    const after = findLayoutNode(id)
+    if (after) panZoom.restoreAnchor(after.x, after.y, anchor)
+  })
 }
 
 /** Walk the data tree, calling `visit(node, depth)` for each node.
@@ -2506,6 +2530,20 @@ function walkTreeDepth(visit: (n: MindMapNode, depth: number) => void) {
   }
 }
 
+/** Re-run the layout and pull the viewport back onto the map.
+ *
+ *  The bulk buttons change the tree's footprint wholesale, and the
+ *  layout re-normalises world coordinates (the topmost node is
+ *  pinned to a fixed y), so every node moves in world space.  With
+ *  the old offsets the map can end up entirely outside the canvas —
+ *  the user clicks "展开一级" and lands on an empty screen.  Refit
+ *  rather than preserve a zoom level that belonged to a map shape
+ *  that no longer exists. */
+function refitAfterBulkChange() {
+  triggerRef()
+  nextTick(() => resetView())
+}
+
 /** Collapse every node that has children, leaving only the root
  *  expanded.  Click again to peek at branches. */
 function collapseAll() {
@@ -2515,7 +2553,7 @@ function collapseAll() {
       collapsedIds.value.add(n.id)
     }
   })
-  triggerRef()
+  refitAfterBulkChange()
 }
 
 /** Expand only the top-level (level-1) branches.  Every node at
@@ -2527,13 +2565,13 @@ function expandToLevel(maxDepth: number) {
       collapsedIds.value.add(n.id)
     }
   })
-  triggerRef()
+  refitAfterBulkChange()
 }
 
 /** Expand every node in the tree. */
 function expandAll() {
   collapsedIds.value = new Set()
-  triggerRef()
+  refitAfterBulkChange()
 }
 
 /** External edit hook (used by the outline panel's inline edit).
@@ -3783,7 +3821,7 @@ function lineAnchor(
 
 function resetView() {
   const r = layoutResult.value
-  panZoom.resetView(r.width, r.height, r.root.y)
+  panZoom.resetView(r.vbX, r.vbY, r.vbW, r.vbH)
 }
 
 function runBalance() {
