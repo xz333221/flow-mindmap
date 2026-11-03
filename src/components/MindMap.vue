@@ -31,6 +31,7 @@ import {
   DEFAULT_NEW_NODE_TEXT,
   markdownToMindMap,
   mindMapToMarkdown,
+  subtreeToOutlineText,
 } from '../tree'
 import type { MindMapNode, MindMapTheme, MindMapExpose, MindMapSettings, NodeStyle, MindMapImage, MindMapRelation, LineOrigin, LineStyle } from '../types'
 import { usePanZoom } from '../composables/usePanZoom'
@@ -897,6 +898,18 @@ function menuAddRelation() {
   const id = contextMenu.value?.nodeId
   if (!id) return
   startRelationMode(id)
+}
+/** 右键菜单「复制节点及子节点」— put the branch (self + whole
+ *  subtree) on the system clipboard as an indented outline that
+ *  includes every per-node extra.  Deliberately does NOT touch the
+ *  internal paste buffer: this is an "export to another app"
+ *  action, not a copy-for-paste-inside-the-canvas. */
+function menuCopySubtree() {
+  const id = contextMenu.value?.nodeId
+  if (!id) return
+  const node = findNode(dataRef.value, id)
+  if (!node) return
+  writeSystemClipboard(subtreeToOutlineText(node))
 }
 
 // ---------------------------------------------------------------------------
@@ -5391,6 +5404,7 @@ onMounted(() => {
         @add-tag="menuAddTag"
         @remove-tags="menuRemoveTags"
         @add-relation="menuAddRelation"
+        @copy-subtree="menuCopySubtree"
         @close="closeContextMenu"
       />
 

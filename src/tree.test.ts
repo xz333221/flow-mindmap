@@ -14,6 +14,7 @@ import {
   countDescendants,
   markdownToMindMap,
   mindMapToMarkdown,
+  subtreeToOutlineText,
   markdownToRichMindMap,
   addRelation,
   removeRelation,
@@ -426,6 +427,52 @@ describe('mindMapToMarkdown — round-trip', () => {
     expect(reparsed.image?.src).toBe('https://example.com/p.png')
     expect(reparsed.link?.url).toBe('https://example.com')
     expect(reparsed.note?.text).toBe('line 1\nline 2')
+  })
+})
+
+describe('subtreeToOutlineText', () => {
+  it('emits the whole subtree as bullets with every per-node extra', () => {
+    const branch: MindMapNode = {
+      id: 'a',
+      text: 'Java',
+      children: [
+        { id: 'a1', text: '基础语法', children: [] },
+        {
+          id: 'a2',
+          text: '集合框架',
+          children: [{ id: 'a2x', text: 'Map 体系', children: [] }],
+        },
+      ],
+      markers: ['priority-1', 'star'],
+      tags: ['后端', '学习'],
+      link: { url: 'https://example.com/java' },
+      image: { src: 'https://example.com/j.png', naturalW: 10, naturalH: 10, width: 10, height: 10 },
+      note: { text: '第一行\n第二行' },
+      richContent: { kind: 'code', raw: '```js\nconst a = 1\n```', lang: 'js' },
+    }
+
+    const text = subtreeToOutlineText(branch)
+    const lines = text.split('\n')
+
+    // Subtree root is unbulleted, every descendant is a `- ` bullet
+    // with two spaces of indent per level.
+    expect(lines[0]).toBe('Java')
+    expect(lines).toContain('  - 基础语法')
+    expect(lines).toContain('  - 集合框架')
+    expect(lines).toContain('    - Map 体系')
+    // Markers use their human-readable labels, tags get `#`.
+    expect(lines).toContain('  标记: 优先级 1, 星标')
+    expect(lines).toContain('  标签: #后端 #学习')
+    expect(lines).toContain('  链接: https://example.com/java')
+    expect(lines).toContain('  图片: https://example.com/j.png')
+    // Multi-line payloads keep their line breaks, indented one deeper.
+    expect(text).toContain('  笔记:\n    第一行\n    第二行')
+    expect(text).toContain('  代码块 (js):\n    ```js\n    const a = 1\n    ```')
+  })
+
+  it('copies a leaf node as just its text', () => {
+    const leaf: MindMapNode = { id: 'x', text: '孤立节点', children: [] }
+    expect(subtreeToOutlineText(leaf)).toBe('孤立节点')
   })
 })
 

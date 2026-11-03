@@ -1,4 +1,5 @@
-import type { MindMapNode, MindMapImage, MindMapRelation } from './types'
+import type { MindMapNode, MindMapImage, MindMapRelation, RichContent } from './types'
+import { markerLabel } from './core/markers'
 
 export function uid(): string {
   return 'n_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
@@ -590,6 +591,65 @@ export function mindMapToMarkdown(n: MindMapNode, depth = 1): string {
   if (n.richContent) s += n.richContent.raw + '\n'
   for (const c of n.children) s += mindMapToMarkdown(c, depth + 1)
   return s
+}
+
+/** Label used for a node's rich body in `subtreeToOutlineText`. */
+const RICH_KIND_LABEL: Record<RichContent['kind'], string> = {
+  code: '代码块',
+  table: '表格',
+  list: '列表',
+  paragraph: '正文',
+}
+
+/**
+ * Serialize `n` and its whole subtree as an indented plain-text
+ * outline that carries every per-node extra — text, markers, tags,
+ * link, image, rich body, note.  This is what the node context
+ * menu's "复制节点及子节点" action puts on the system clipboard.
+ *
+ * Unlike `mindMapToMarkdown` the result is NOT meant to re-import
+ * into a map (node ids are dropped, metadata is rendered as
+ * `标签: 值` lines), so readability wins over round-trip fidelity:
+ * one glance shows the whole branch, which is also what you want
+ * when pasting into a chat / LLM.
+ */
+export function subtreeToOutlineText(n: MindMapNode): string {
+  const lines: string[] = []
+
+  /** Emit a `label` line followed by `body`, one indent deeper. */
+  const pushBlock = (indent: string, label: string, body: string) => {
+    lines.push(indent + label)
+    for (const line of body.split(/\r?\n/)) lines.push(indent + '  ' + line)
+  }
+
+  const walk = (node: MindMapNode, depth: number) => {
+    const indent = '  '.repeat(depth)
+    // The subtree root is unbulleted (it's the "title" of the copy),
+    // descendants get `- ` bullets like the outline drawer.
+    lines.push((depth === 0 ? '' : indent + '- ') + (node.text || ''))
+    // Metadata sits one level under the node's own line so it reads
+    // as "this node's details" and stays out of the child bullets.
+    const meta = indent + '  '
+    if (node.markers?.length) {
+      lines.push(meta + '标记: ' + node.markers.map(markerLabel).join(', '))
+    }
+    if (node.tags?.length) {
+      lines.push(meta + '标签: ' + node.tags.map((t) => '#' + t).join(' '))
+    }
+    if (node.link?.url) lines.push(meta + '链接: ' + node.link.url)
+    if (node.image?.src) lines.push(meta + '图片: ' + node.image.src)
+    if (node.richContent) {
+      const lang = node.richContent.kind === 'code' && node.richContent.lang
+        ? ` (${node.richContent.lang})`
+        : ''
+      pushBlock(meta, RICH_KIND_LABEL[node.richContent.kind] + lang + ':', node.richContent.raw)
+    }
+    if (node.note?.text) pushBlock(meta, '笔记:', node.note.text)
+    for (const c of node.children) walk(c, depth + 1)
+  }
+
+  walk(n, 0)
+  return lines.join('\n')
 }
 
 // ── rich-content parser ─────────────────────────────────────

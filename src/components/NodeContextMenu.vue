@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import Icon from './Icon.vue'
 import { MARKER_LIB, markerSvg, markerLabel } from '../core/markers'
 
@@ -64,10 +64,54 @@ const emit = defineEmits<{
   /** Start a relationship line ("联系") from this node — the user
    *  then clicks the target node to complete it. */
   (e: 'addRelation'): void
+  /** Copy this node and its whole subtree as plain text (text,
+   *  note, link, image, code / table, markers, tags). */
+  (e: 'copySubtree'): void
   (e: 'close'): void
 }>()
 
 interface ClampedPos { left: number; top: number }
+// Real rendered size, measured after mount and kept in sync by a
+// ResizeObserver (the marker picker expands the menu).  Before the
+// first measurement we fall back to the row-count estimate below —
+// the initial mount is patched in the same frame, so nothing
+// visibly jumps.
+const menuEl = ref<HTMLElement | null>(null)
+const measured = ref<{ width: number; height: number } | null>(null)
+let resizeObserver: ResizeObserver | null = null
+
+onMounted(() => {
+  const el = menuEl.value
+  if (!el) return
+  const sync = () => {
+    measured.value = { width: el.offsetWidth, height: el.offsetHeight }
+  }
+  sync()
+  resizeObserver = new ResizeObserver(sync)
+  resizeObserver.observe(el)
+})
+
+const estimatedSize = computed(() => {
+  // Count visible rows: 3 base (image/link/note), +1 each for
+  // "remove" rows that follow an existing item, +1 for code,
+  // +1 for table, +2 for tags row + relation row, +1 for the
+  // copy-subtree row.
+  const rows =
+    3 +
+    (props.hasImage ? 1 : 0) +
+    (props.hasLink ? 1 : 0) +
+    (props.hasNote ? 1 : 0) +
+    1 +
+    (props.hasCode ? 1 : 0) +
+    1 +
+    (props.hasTable ? 1 : 0) +
+    1 +
+    (props.nodeTags.length > 0 ? 1 : 0) +
+    1 +
+    1
+  return { width: 180, height: 4 + rows * 28 }
+})
+
 const clamped = computed<ClampedPos>(() => {
   // Default: place top-left at the cursor with a small offset so
   // the cursor isn't right on the first item.
@@ -77,23 +121,7 @@ const clamped = computed<ClampedPos>(() => {
   // the canvas instead of spilling off-screen.
   if (props.container) {
     const rect = props.container.getBoundingClientRect()
-    const menuWidth = 180
-    // Count visible rows: 3 base (image/link/note), +1 each for
-    // "remove" rows that follow an existing item, +1 for code,
-    // +1 for table, +2 for tags row + relation row.
-    const rows =
-      3 +
-      (props.hasImage ? 1 : 0) +
-      (props.hasLink ? 1 : 0) +
-      (props.hasNote ? 1 : 0) +
-      1 +
-      (props.hasCode ? 1 : 0) +
-      1 +
-      (props.hasTable ? 1 : 0) +
-      1 +
-      (props.nodeTags.length > 0 ? 1 : 0) +
-      1
-    const menuHeight = 4 + rows * 28
+    const { width: menuWidth, height: menuHeight } = measured.value ?? estimatedSize.value
     if (left + menuWidth > rect.right) {
       left = Math.max(rect.left + 4, props.x - menuWidth - 2)
     }
@@ -148,6 +176,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onWindowKey, true)
   window.removeEventListener('wheel', onWindowScroll, true)
   window.removeEventListener('scroll', onWindowScroll, true)
+  resizeObserver?.disconnect()
+  resizeObserver = null
 })
 
 function run(handler: () => void) {
@@ -158,6 +188,7 @@ function run(handler: () => void) {
 
 <template>
   <div
+    ref="menuEl"
     class="zm-node-menu"
     :style="{ left: clamped.left + 'px', top: clamped.top + 'px' }"
     @contextmenu.prevent
@@ -248,6 +279,15 @@ function run(handler: () => void) {
     <button class="zm-node-menu-item" @click.stop="run(() => emit('addRelation'))">
       <Icon name="relation" :size="13" />
       <span>添加联系</span>
+    </button>
+
+    <div class="zm-node-menu-divider" />
+
+    <!-- Copy this branch (self + descendants + all their extras) as
+         plain text onto the system clipboard. -->
+    <button class="zm-node-menu-item" @click.stop="run(() => emit('copySubtree'))">
+      <Icon name="copy" :size="13" />
+      <span>复制节点及子节点</span>
     </button>
   </div>
 </template>

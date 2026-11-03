@@ -327,5 +327,10 @@ defineProps<{
       <polyline points="15 20 15 15 20 15" />
       <polyline points="4 15 9 15 9 20" />
     </template>
+    <!-- copy: two offset rounded rects — the standard clipboard glyph. -->
+    <template v-else-if="name === 'copy'">
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15 H4 a1 1 0 0 1 -1 -1 V5 a1 1 0 0 1 1 -1 h9 a1 1 0 0 1 1 1 v1" />
+    </template>
   </svg>
 </template>
