@@ -917,3 +917,39 @@ describe('viewport follows expand / collapse', () => {
     expect(after.y).toBeCloseTo(before.y, 1)
   })
 })
+
+describe('fullscreen background', () => {
+  afterEach(() => {
+    // The ref is installed per-test with defineProperty; drop it again
+    // so the next suite sees the real (null) value.
+    delete (document as unknown as Record<string, unknown>).fullscreenElement
+  })
+
+  it('keeps the configured background when it is opaque', async () => {
+    const wrapper = mount(MindMap, {
+      props: { data: sampleData(), theme: { bgColor: '#123456' } },
+    })
+    await flushPromises()
+    expect((wrapper.element as HTMLElement).style.background).toBe('#123456')
+  })
+
+  it('falls back to the page colour when fullscreen meets a transparent canvas', async () => {
+    const wrapper = mount(MindMap, {
+      props: { data: sampleData(), theme: { bgColor: 'transparent' } },
+    })
+    await flushPromises()
+    const root = wrapper.element as HTMLElement
+
+    // Inline box: transparency is intentional (host shows its own card).
+    expect(root.style.background).toBe('transparent')
+
+    Object.defineProperty(document, 'fullscreenElement', { value: root, configurable: true })
+    document.dispatchEvent(new Event('fullscreenchange'))
+    await flushPromises()
+
+    // Fullscreen: painting transparent would expose the UA's black
+    // backdrop, so the canvas must be opaque.
+    expect(root.style.background).not.toContain('transparent')
+    expect(root.style.background).toBeTruthy()
+  })
+})

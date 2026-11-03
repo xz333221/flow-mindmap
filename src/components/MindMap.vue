@@ -1360,6 +1360,39 @@ rainbowBranch: props.theme?.rainbowBranch ?? false,
 
 const effectiveBg = computed(() => settings.canvasBg || theme.value.bgColor)
 
+/** Backgrounds that mean "let whatever is behind show through". */
+function isTransparentColor(value: string): boolean {
+  const v = value.trim().toLowerCase().replace(/\s+/g, '')
+  return v === '' || v === 'none' || v === 'transparent' || v === 'rgba(0,0,0,0)'
+}
+
+/**
+ * The host page's own background colour, used to stand in for a
+ * transparent canvas.  Walks body → html so a page that only paints
+ * `html` still reports a usable colour.
+ */
+function readPageBackground(): string {
+  if (typeof window === 'undefined') return '#ffffff'
+  for (const el of [document.body, document.documentElement]) {
+    if (!el) continue
+    const bg = getComputedStyle(el).backgroundColor
+    if (!isTransparentColor(bg)) return bg
+  }
+  return '#ffffff'
+}
+
+/**
+ * Colour actually painted on the canvas.  Usually just `effectiveBg`,
+ * but fullscreen puts the map on the UA's black backdrop: a host that
+ * asked for `transparent` (to show its own card / gradient through)
+ * would get dark labels on black.  Borrow the page colour there.
+ */
+const displayBg = computed(() =>
+  isFullscreen.value && isTransparentColor(effectiveBg.value)
+    ? readPageBackground()
+    : effectiveBg.value,
+)
+
 // ---------------------------------------------------------------------------
 // User-controllable settings (settings panel / applySettings)
 // ---------------------------------------------------------------------------
@@ -4903,7 +4936,7 @@ onMounted(() => {
   <div
     ref="rootRef"
     class="zm-mindmap"
-    :style="{ background: effectiveBg, fontSize: theme.fontSize + 'px' }"
+    :style="{ background: displayBg, fontSize: theme.fontSize + 'px' }"
   >
     <div
       ref="wrapperRef"
