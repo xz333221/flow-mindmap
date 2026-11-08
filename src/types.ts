@@ -282,6 +282,11 @@ export interface MindMapSettings {
   /** Canvas background colour.  Falls back to theme.bgColor when
    *  undefined.  Set via the settings panel. */
   canvasBg?: string
+  /** Which built-in canvas skin to paint with — 'light' (default) or
+   *  'dark'.  Only supplies the six base colours (canvas / root /
+   *  branch / text / line); anything passed through the `theme` prop
+   *  still wins field-by-field.  See `LIGHT_THEME` / `DARK_THEME`. */
+  themeMode?: 'light' | 'dark'
   /** Extra vertical gap (px) between first-level branches (direct
    *  children of the root).  Adds to the base V_GAP so each top-level
    *  subtree gets more visual separation as a distinct block.

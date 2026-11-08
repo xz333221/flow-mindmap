@@ -2,6 +2,7 @@
 import { computed, reactive } from 'vue'
 import type { MindMapSettings, LineStyle, LineOrigin, BranchPalette, NodeStyle } from '../types'
 import { BUILTIN_PALETTES, parsePaletteInput } from '../core/palettes'
+import { THEME_PRESETS, resolveThemePreset, type ThemeMode } from '../core/themes'
 
 const props = defineProps<{
   settings: MindMapSettings
@@ -144,6 +145,25 @@ const PALETTE = ['#f87171', '#fb923c', '#fbbf24', '#a3e635', '#34d399', '#22d3ee
 // Canvas background color presets
 const CANVAS_BG_PRESETS = ['#f8fafc', '#ffffff', '#e2e8f0', '#1e2937', '#0f172a', '#fef3c7', '#dbeafe', '#dcfce7', '#fce7f3', '#f1f5f9']
 
+// Built-in skin picker.  `themeMode` is optional on settings (hosts
+// that predate it don't set it), so normalise the read.
+const activeThemeMode = computed<ThemeMode>(() => props.settings.themeMode ?? 'light')
+const activeThemeBg = computed(() => resolveThemePreset(activeThemeMode.value).theme.bgColor)
+
+/** Switching the skin also drops a canvas-background override that
+ *  still equals the *previous* preset — that value was never a user
+ *  pick, it came from the preset, and keeping it would pin the old
+ *  paper colour under the new theme. */
+function setThemeMode(mode: ThemeMode) {
+  const prevBg = resolveThemePreset(activeThemeMode.value).theme.bgColor
+  const carried = props.settings.canvasBg
+  if (carried && carried.toLowerCase() === prevBg.toLowerCase()) {
+    emit('update:settings', { themeMode: mode, canvasBg: undefined })
+    return
+  }
+  set('themeMode', mode)
+}
+
 /** Build a tiny 4-line preview that mirrors the canvas taper. */
 const PREVIEW_DEPTHS = [0, 1, 2, 3] as const
 const PREVIEW_PALETTE = ['#f87171', '#fb923c', '#34d399', '#818cf8']
@@ -193,6 +213,34 @@ const previewLines = computed(() => {
     <section class="zm-settings-section">
       <h4 class="zm-settings-section-title">画布</h4>
 
+      <!-- Built-in skin: light / dark.  Only the six base colours
+           come from the preset; a host-supplied `theme` prop still
+           wins field-by-field. -->
+      <div class="zm-settings-field">
+        <span class="zm-settings-label">默认主题</span>
+        <div class="zm-theme-group">
+          <button
+            v-for="preset in THEME_PRESETS"
+            :key="'theme-' + preset.id"
+            class="zm-theme-btn"
+            :class="{ 'is-on': activeThemeMode === preset.id }"
+            :title="preset.name + '主题'"
+            @click="setThemeMode(preset.id)"
+          >
+            <span
+              class="zm-theme-preview"
+              :style="{ background: preset.theme.bgColor }"
+            >
+              <i :style="{ background: preset.theme.rootBg }" />
+              <i :style="{ background: preset.theme.branchText }" />
+            </span>
+            <span class="zm-theme-name">{{ preset.name }}</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="zm-settings-divider" />
+
       <!-- Canvas background color -->
       <div class="zm-settings-field">
         <span class="zm-settings-label">画布背景色</span>
@@ -201,7 +249,7 @@ const previewLines = computed(() => {
             <input
               type="color"
               class="zm-color-input"
-              :value="settings.canvasBg || '#f8fafc'"
+              :value="settings.canvasBg || activeThemeBg"
               @input="(e) => set('canvasBg', (e.target as HTMLInputElement).value)"
             />
             <span class="zm-color-input-text">{{ settings.canvasBg || '默认' }}</span>
@@ -1004,6 +1052,59 @@ step="0.01"
 }
 .zm-toggle.is-on .zm-toggle-knob {
   transform: translateX(16px);
+}
+
+/* Theme picker (浅色 / 深色) — filled cards, no outline. */
+.zm-theme-group {
+  display: flex;
+  gap: 8px;
+}
+.zm-theme-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 6px 4px;
+  border: none;
+  border-radius: 9px;
+  background: #eef1f5;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.zm-theme-btn:hover {
+  background: #e4e9f0;
+}
+.zm-theme-btn.is-on {
+  background: #dbeafe;
+  color: #1d4ed8;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.18);
+}
+.zm-theme-preview {
+  width: 54px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 6px;
+}
+.zm-theme-preview i {
+  display: block;
+  width: 19px;
+  height: 9px;
+  border-radius: 3px;
+}
+.zm-theme-preview i + i {
+  width: 15px;
+  height: 3px;
+  border-radius: 2px;
+}
+.zm-theme-name {
+  letter-spacing: 0.02em;
 }
 
 /* Color swatch row */

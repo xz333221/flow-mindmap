@@ -288,8 +288,18 @@ uniformLineWidth: true,
 elbowRadius: 20,
 showOrderBadge: false,
   canvasBg: undefined,
+  themeMode: 'light',
   branchGap: 20,
 })
+// Demo convenience: `?theme=dark` boots straight into the dark skin,
+// so a phone / screenshot check doesn't have to click through the
+// settings drawer first.
+if (
+  typeof location !== 'undefined' &&
+  new URLSearchParams(location.search).get('theme') === 'dark'
+) {
+  settings.themeMode = 'dark'
+}
 // Read the live per-node style from the canvas so the settings
 // panel can reflect the current state (immediate-apply model).
 const currentNodeStyle = computed<NodeStyle>(() => {
@@ -325,6 +335,7 @@ uniformLineWidth: true,
 elbowRadius: 20,
 showOrderBadge: false,
     canvasBg: undefined,
+    themeMode: 'light',
     branchGap: 20,
   }
   Object.assign(settings, defaults)
@@ -361,6 +372,7 @@ onMounted(() => {
     lineStyle: settings.lineStyle,
     rootLineStyle: settings.rootLineStyle,
     lineOrigin: settings.lineOrigin,
+    themeMode: settings.themeMode,
   })
 })
 onBeforeUnmount(() => {

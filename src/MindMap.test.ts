@@ -953,3 +953,55 @@ describe('fullscreen background', () => {
     expect(root.style.background).toBeTruthy()
   })
 })
+
+describe('theme skins', () => {
+  const rootEl = (wrapper: ReturnType<typeof mount>) => wrapper.element as HTMLElement
+
+  /** Perceived lightness of an `rgb()` / `#rrggbb` string. */
+  function lum(color: string): number {
+    const nums = color.match(/\d+/g)
+    if (!nums) return NaN
+    const [r, g, b] = nums.slice(0, 3).map(Number)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+  }
+
+  it('paints the light skin by default', async () => {
+    const wrapper = mount(MindMap, { props: { data: sampleData() } })
+    await flushPromises()
+    expect(rootEl(wrapper).getAttribute('data-theme')).toBe('light')
+    expect(rootEl(wrapper).style.background).toBe('#f8fafc')
+  })
+
+  it('applySettings({ themeMode: "dark" }) repaints paper and lifts branch text', async () => {
+    const wrapper = mount(MindMap, { props: { data: sampleData() } })
+    await flushPromises()
+    const exposed = wrapper.vm as unknown as {
+      applySettings: (s: Record<string, unknown>) => void
+    }
+    exposed.applySettings({ themeMode: 'dark' })
+    await flushPromises()
+
+    expect(rootEl(wrapper).getAttribute('data-theme')).toBe('dark')
+    expect(rootEl(wrapper).style.background).toBe('#0f172a')
+
+    // Branch text must move AWAY from the paper.  The light skin
+    // darkens the branch hue; reusing that on a near-black canvas
+    // would paint invisible text (the regression this guards).
+    // `color` is set inline on the node box; the label inherits it.
+    const color = (nodeEl(wrapper, 'a').element as HTMLElement).style.color
+    expect(lum(color)).toBeGreaterThan(140)
+  })
+
+  it('a host-supplied theme colour still wins over the preset', async () => {
+    const wrapper = mount(MindMap, {
+      props: { data: sampleData(), theme: { bgColor: '#123456' } },
+    })
+    await flushPromises()
+    const exposed = wrapper.vm as unknown as {
+      applySettings: (s: Record<string, unknown>) => void
+    }
+    exposed.applySettings({ themeMode: 'dark' })
+    await flushPromises()
+    expect(rootEl(wrapper).style.background).toBe('#123456')
+  })
+})

@@ -11,11 +11,14 @@ import type { MindMapNode, MindMapOptions, MindMapTheme, MindMapExpose, MindMapS
 import { uid, clone, findNode, findParent, removeNode, addChild, addSibling, markdownToMindMap, mindMapToMarkdown, markdownToRichMindMap, richBlockToMarkdown } from './tree'
 import { MARKER_LIB, markerSvg, markerLabel, markerDef, tagColor } from './core/markers'
 import type { MarkerGroup, MarkerDef } from './core/markers'
+import { LIGHT_THEME, DARK_THEME, THEME_PRESETS, resolveThemePreset } from './core/themes'
+import type { ThemeMode, ThemePreset } from './core/themes'
 
-export type { MindMapNode, MindMapOptions, MindMapTheme, MindMapExpose, MindMapSettings, NodeStyle, LineStyle, LayoutMode, LineOrigin, BranchPalette, BranchPaletteId, RichContent, MarkerGroup, MarkerDef }
+export type { MindMapNode, MindMapOptions, MindMapTheme, MindMapExpose, MindMapSettings, NodeStyle, LineStyle, LayoutMode, LineOrigin, BranchPalette, BranchPaletteId, RichContent, MarkerGroup, MarkerDef, ThemeMode, ThemePreset }
 export { MindMap, Outline, Drawer, DataPanel, MarkdownPanel, SettingsPanel, NotePanel, MindMapApp }
 export { uid, clone, findNode, findParent, removeNode, addChild, addSibling, markdownToMindMap, mindMapToMarkdown, markdownToRichMindMap, richBlockToMarkdown }
 export { MARKER_LIB, markerSvg, markerLabel, markerDef, tagColor }
+export { LIGHT_THEME, DARK_THEME, THEME_PRESETS, resolveThemePreset }
 
 /** Package version, injected at build time from package.json. */
 export const VERSION = __PKG_VERSION__

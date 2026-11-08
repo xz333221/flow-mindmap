@@ -8,6 +8,7 @@ import addNodeIcon from '../assets/svg/add-node.svg?url'
 import addSubNodeIcon from '../assets/svg/add-sub-node.svg?url'
 import { layout, type LayoutNode } from '../core/layout'
 import { BUILTIN_PALETTES, resolvePalette, type BranchPalette } from '../core/palettes'
+import { resolveThemePreset } from '../core/themes'
 import {
   addChild,
   addSibling,
@@ -699,6 +700,7 @@ function _onSettingsChange(s: Partial<MindMapSettings>) {
 if (s.elbowRadius !== undefined) settings.elbowRadius = Math.max(2, Math.min(40, s.elbowRadius))
 if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
 if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
+if (s.themeMode !== undefined) settings.themeMode = s.themeMode
 if (s.branchGap !== undefined) settings.branchGap = Math.max(0, Math.min(80, s.branchGap))
 }
 
@@ -1345,13 +1347,41 @@ function measureRichBodies() {
   richWidths.value = nextW
 }
 
+// ---------------------------------------------------------------------------
+// User-controllable settings (settings panel / applySettings)
+// ---------------------------------------------------------------------------
+const settings = reactive<MindMapSettings>({
+  autoBalanceOnChange: true,
+  lineWidthStart: 10,
+  lineWidthEnd: 2,
+  rainbowBranch: true,
+  branchPaletteId: 'default',
+  customPalettes: [],
+lineStyle: 'rounded-elbow',
+rootLineStyle: 'arc',
+lineOrigin: 'xmind',
+  layoutMode: 'mindmap',
+  taperedEdge: true,
+  lineWidthTaper: 0.3,
+  uniformLineWidth: true,
+  elbowRadius: 20,
+  showOrderBadge: false,
+  canvasBg: undefined,
+  themeMode: 'light',
+  branchGap: 20,
+})
+
+/** Active built-in skin.  `themeMode` only carries the six base
+ *  colours; the host's `theme` prop overrides them one by one below. */
+const themePreset = computed(() => resolveThemePreset(settings.themeMode))
+
 const theme = computed<Required<MindMapTheme>>(() => ({
-rootBg: props.theme?.rootBg ?? '#1f2937',
-rootText: props.theme?.rootText ?? '#ffffff',
-branchBg: props.theme?.branchBg ?? '#ffffff',
-branchText: props.theme?.branchText ?? '#1f2937',
-lineColor: props.theme?.lineColor ?? '#94a3b8',
-bgColor: props.theme?.bgColor ?? '#f8fafc',
+rootBg: props.theme?.rootBg ?? themePreset.value.theme.rootBg,
+rootText: props.theme?.rootText ?? themePreset.value.theme.rootText,
+branchBg: props.theme?.branchBg ?? themePreset.value.theme.branchBg,
+branchText: props.theme?.branchText ?? themePreset.value.theme.branchText,
+lineColor: props.theme?.lineColor ?? themePreset.value.theme.lineColor,
+bgColor: props.theme?.bgColor ?? themePreset.value.theme.bgColor,
 fontSize: props.theme?.fontSize ?? 14,
 lineWidthStart: props.theme?.lineWidthStart ?? 2.2,
 lineWidthEnd: props.theme?.lineWidthEnd ?? 0.8,
@@ -1359,6 +1389,42 @@ rainbowBranch: props.theme?.rainbowBranch ?? false,
 }))
 
 const effectiveBg = computed(() => settings.canvasBg || theme.value.bgColor)
+
+/** True when a CSS colour is dark enough that light text is needed.
+ *  Only `#rgb` / `#rrggbb` / `rgb()` / `rgba()` are parsed; anything
+ *  else (named colours, gradients, `transparent`) counts as light,
+ *  which is the historical behaviour. */
+function isDarkColor(value: string): boolean {
+  const v = value.trim()
+  let r = 0
+  let g = 0
+  let b = 0
+  if (v.startsWith('#')) {
+    const h = v.slice(1)
+    const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
+    if (!/^[0-9a-f]{6}$/i.test(full)) return false
+    r = parseInt(full.slice(0, 2), 16)
+    g = parseInt(full.slice(2, 4), 16)
+    b = parseInt(full.slice(4, 6), 16)
+  } else {
+    const m = v.match(/rgba?\(([^)]+)\)/i)
+    if (!m) return false
+    const parts = m[1].split(',').map((p) => parseFloat(p))
+    r = parts[0] || 0
+    g = parts[1] || 0
+    b = parts[2] || 0
+  }
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 110
+}
+
+/**
+ * Whether the canvas is on dark paper.  Derived from the *resolved*
+ * background rather than from `themeMode`, so a host that passes
+ * `:theme="DARK_THEME"` (and never touches themeMode) still gets the
+ * dark-mode text direction — branch hues lightened instead of
+ * darkened, and the rich-body cards darkened instead of white.
+ */
+const isDarkMode = computed(() => isDarkColor(effectiveBg.value))
 
 /** Backgrounds that mean "let whatever is behind show through". */
 function isTransparentColor(value: string): boolean {
@@ -1392,29 +1458,6 @@ const displayBg = computed(() =>
     ? readPageBackground()
     : effectiveBg.value,
 )
-
-// ---------------------------------------------------------------------------
-// User-controllable settings (settings panel / applySettings)
-// ---------------------------------------------------------------------------
-const settings = reactive<MindMapSettings>({
-  autoBalanceOnChange: true,
-  lineWidthStart: 10,
-  lineWidthEnd: 2,
-  rainbowBranch: true,
-  branchPaletteId: 'default',
-  customPalettes: [],
-lineStyle: 'rounded-elbow',
-rootLineStyle: 'arc',
-lineOrigin: 'xmind',
-  layoutMode: 'mindmap',
-  taperedEdge: true,
-  lineWidthTaper: 0.3,
-  uniformLineWidth: true,
-  elbowRadius: 20,
-  showOrderBadge: false,
-  canvasBg: undefined,
-  branchGap: 20,
-})
 
 /** Resolve the effective line style for an edge. Edges originating
  *  from the root use `rootLineStyle` when set, falling back to the
@@ -1920,8 +1963,10 @@ function nodeBg(n: LayoutNode): string {
   if (n.isRoot) return theme.value.rootBg
   // Depth 3+ are transparent so the canvas background shows through.
   if (n.depth >= 3) return 'transparent'
-  // Depth 1 gets a medium tint; depth 2 gets a lighter tint.
-  const alpha = n.depth === 1 ? 0.15 : 0.08
+  // Depth 1 gets a medium tint; depth 2 gets a lighter tint.  On the
+  // dark skin both alphas step up — the same rgba over a near-black
+  // paper reads almost invisible otherwise.
+  const alpha = n.depth === 1 ? (isDarkMode.value ? 0.22 : 0.15) : (isDarkMode.value ? 0.12 : 0.08)
   if (settings.rainbowBranch) {
     const hue = branchColor.value.get(n.id)
     if (hue) return hexWithAlpha(hue, alpha)
@@ -1934,7 +1979,11 @@ function nodeFg(n: LayoutNode): string {
   if (n.isRoot) return theme.value.rootText
   if (settings.rainbowBranch) {
     const hue = branchColor.value.get(n.id)
-    if (hue) return darken(hue, 0.55)
+    // The branch hue has to move AWAY from the paper, so the two
+    // skins pull in opposite directions: darken on light paper,
+    // lighten on dark paper.  Reusing `darken` in dark mode painted
+    // near-black text on a near-black canvas.
+    if (hue) return isDarkMode.value ? lighten(hue, 0.45) : darken(hue, 0.55)
   }
   return theme.value.branchText
 }
@@ -1975,6 +2024,19 @@ function darken(hex: string, amount: number): string {
   const r = Math.round(parseInt(full.slice(0, 2), 16) * (1 - amount))
   const g = Math.round(parseInt(full.slice(2, 4), 16) * (1 - amount))
   const b = Math.round(parseInt(full.slice(4, 6), 16) * (1 - amount))
+  return `rgb(${r}, ${g}, ${b})`
+}
+
+/** Mix a hex colour toward white.  Used by the dark skin to lift a
+ *  branch hue out of the near-black paper while keeping its identity
+ *  (a straight `lighten` in HSL would wash saturated hues out). */
+function lighten(hex: string, amount: number): string {
+  const h = hex.replace('#', '')
+  const full = h.length === 6 ? h : h.split('').map((c) => c + c).join('')
+  const mix = (channel: number) => Math.round(channel + (255 - channel) * amount)
+  const r = mix(parseInt(full.slice(0, 2), 16))
+  const g = mix(parseInt(full.slice(2, 4), 16))
+  const b = mix(parseInt(full.slice(4, 6), 16))
   return `rgb(${r}, ${g}, ${b})`
 }
 
@@ -4875,6 +4937,7 @@ defineExpose<MindMapExpose>({
 if (s.elbowRadius !== undefined) settings.elbowRadius = Math.max(2, Math.min(40, s.elbowRadius))
 if (s.showOrderBadge !== undefined) settings.showOrderBadge = s.showOrderBadge
 if (s.canvasBg !== undefined) settings.canvasBg = s.canvasBg
+if (s.themeMode !== undefined) settings.themeMode = s.themeMode
 if (s.branchGap !== undefined) settings.branchGap = Math.max(0, Math.min(80, s.branchGap))
     if (s.layoutMode !== undefined && settings.layoutMode !== s.layoutMode) {
       settings.layoutMode = s.layoutMode
@@ -4899,6 +4962,7 @@ if (s.branchGap !== undefined) settings.branchGap = Math.max(0, Math.min(80, s.b
     elbowRadius: settings.elbowRadius,
     showOrderBadge: settings.showOrderBadge,
     canvasBg: settings.canvasBg,
+    themeMode: settings.themeMode,
     branchGap: settings.branchGap,
   }),
   setBranchPalette: (id) => {
@@ -4953,6 +5017,7 @@ onMounted(() => {
   <div
     ref="rootRef"
     class="zm-mindmap"
+    :data-theme="isDarkMode ? 'dark' : 'light'"
     :style="{ background: displayBg, fontSize: theme.fontSize + 'px' }"
   >
     <div
@@ -6160,6 +6225,29 @@ overflow: hidden;
 .zm-rich-edit:focus {
   border-color: #3b82f6;
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+/* ============================================================
+ * Dark skin — only the pieces painted ON the canvas need a nudge.
+ * The floating chrome (toolbar, drawers, context menus) is a white
+ * card either way, so it is deliberately left alone.
+ * ============================================================ */
+/* The framed rich bodies are near-opaque white cards and their text
+ * is `currentColor` (a *lightened* branch hue in dark mode) — keeping
+ * the white fill would make the code/table body invisible. */
+.zm-mindmap[data-theme='dark'] .zm-rich-code,
+.zm-mindmap[data-theme='dark'] .zm-rich-table {
+  background: rgba(15, 23, 42, 0.72);
+}
+.zm-mindmap[data-theme='dark'] .zm-rich-table th {
+  background: rgba(15, 23, 42, 0.5);
+}
+.zm-mindmap[data-theme='dark'] .zm-rich-edit {
+  background: rgba(15, 23, 42, 0.6);
+}
+/* A 10% black shadow is invisible on near-black paper. */
+.zm-mindmap[data-theme='dark'] .zm-node:hover {
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
 }
 .zm-rich-paragraph {
   white-space: pre-wrap;

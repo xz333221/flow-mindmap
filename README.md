@@ -153,6 +153,25 @@ function onMdChange(next: string) {
 | `lineWidthEnd` | `number` | `0.8` | 子端连线粗细(px) |
 | `rainbowBranch` | `boolean` | `false` | 顶层分支按色板循环配色 |
 
+### 内置皮肤:浅色 / 深色
+
+包内导出两套现成配色,直接当 `theme` 用;也可以在运行时用设置面板「画布 → 默认主题」或 `applySettings({ themeMode: 'dark' })` 切换(此时配色来自同一套预设)。
+
+| 皮肤 | 导出常量 | 画布 | 根节点 | 普通节点 | 文字 | 连线 |
+| ---- | -------- | ---- | ------ | -------- | ---- | ---- |
+| 浅色 | `LIGHT_THEME` | `#f8fafc` | `#1f2937` | `#ffffff` | `#1f2937` | `#94a3b8` |
+| 深色 | `DARK_THEME` | `#0f172a` | `#334155` | `#1e293b` | `#e2e8f0` | `#64748b` |
+
+```vue
+<!-- 整套深色 -->
+<MindMap :data="data" :theme="DARK_THEME" />
+
+<!-- 深色打底,只改连线颜色 -->
+<MindMap :data="data" :theme="{ ...DARK_THEME, lineColor: '#a78bfa' }" />
+```
+
+> 深色下分支节点的**文字**会由彩虹色自动提亮(浅色下是压暗),富文本代码块/表格的底也换成半透明深色——这两处都是按“画布背景深浅”自动判定的,传自定义深色背景同样生效。
+
 ## Emits
 
 | 事件 | 载荷 | 说明 |
