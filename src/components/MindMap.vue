@@ -3584,6 +3584,23 @@ function subtreeIds(root: MindMapNode): string[] {
 // menu after a drag-pan.  Reset to false on any non-right-button press.
 let lastPanWasRightButton = false
 
+/** Touch / pen press on the canvas background → pan the view.
+ *
+ *  Mouse is deliberately excluded: on desktop the left button still
+ *  starts a marquee and the right button pans, and both paths are
+ *  driven by mouse events.  A finger has neither, so it gets its own
+ *  pointer-event pan (see `usePanZoom.startTouchPan`). */
+function onCanvasPointerDown(e: PointerEvent) {
+  if (e.pointerType === 'mouse') return
+  const target = e.target as HTMLElement | null
+  if (!target) return
+  // Nodes (incl. the root, whose own pointerdown doesn't stop
+  // propagation), the toolbar, controls and relationship lines own
+  // their gestures — only truly empty canvas pans.
+  if (target.closest('.zm-node, .zm-toolbar, button, input, textarea, .zm-relations')) return
+  panZoom.startTouchPan(e)
+}
+
 function onCanvasMouseDown(e: MouseEvent) {
   const target = e.target as HTMLElement | null
   if (!target) return
@@ -4943,6 +4960,7 @@ onMounted(() => {
       class="zm-canvas"
       :class="{ 'is-relation-mode': !!relationMode }"
       @mousedown="onCanvasMouseDown"
+      @pointerdown="onCanvasPointerDown"
       @contextmenu="onCanvasContextMenu"
       @wheel="panZoom.onWheel"
       @mouseenter="canvasHovered = true"
@@ -5733,6 +5751,11 @@ onMounted(() => {
   position: absolute;
   inset: 0;
   cursor: grab;
+  /* Let the canvas own touch gestures: without this the browser
+     turns a one-finger drag into a page scroll and fires
+     `pointercancel`, so neither canvas panning nor node dragging
+     can follow the finger. */
+  touch-action: none;
 }
 .zm-canvas:active {
   cursor: grabbing;

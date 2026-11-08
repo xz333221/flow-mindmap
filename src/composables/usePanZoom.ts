@@ -122,6 +122,63 @@ export function usePanZoom(opts: PanZoomOptions) {
     window.removeEventListener('mouseup', endPan)
   }
 
+  // One-finger drag on empty canvas (touch / pen) → pan the canvas.
+  //
+  // Touch needs its own path: there is no right button to pan with and
+  // no mousedown→mousemove sequence while a finger is down.  Pointer
+  // events are the only stream that keeps flowing during a touch drag,
+  // and it only keeps flowing at all because `.zm-canvas` carries
+  // `touch-action: none` — otherwise the browser turns the gesture
+  // into a page scroll and fires `pointercancel` on the first move.
+  //
+  // Mouse pointers never come through here (see the guard in
+  // MindMap.vue): marquee selection stays on the left button and pan
+  // on the right one.
+  let panPointerId: number | null = null
+
+  function startTouchPan(e: PointerEvent) {
+    const target = e.target as HTMLElement | null
+    if (!target) return
+    if (target.closest('.zm-node, .zm-toolbar, button, input, textarea')) return
+    isPanning.value = true
+    panMoved.value = false
+    panPointerId = e.pointerId
+    panStart.x = e.clientX
+    panStart.y = e.clientY
+    panStart.ox = offsetX.value
+    panStart.oy = offsetY.value
+    window.addEventListener('pointermove', onTouchPanMove)
+    window.addEventListener('pointerup', endTouchPan)
+    window.addEventListener('pointercancel', endTouchPan)
+    // Stop the browser from also treating this press as a text
+    // selection / synthesized mouse gesture.  `touch-action: none`
+    // has already claimed the drag itself.
+    e.preventDefault()
+  }
+
+  function onTouchPanMove(e: PointerEvent) {
+    if (!isPanning.value || e.pointerId !== panPointerId) return
+    const dx = e.clientX - panStart.x
+    const dy = e.clientY - panStart.y
+    // Same 4px threshold as the mouse path: a tap (or a shaky tap)
+    // must not read as a pan, otherwise the trailing `click` that
+    // deselects would be suppressed / the view would creep.
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) panMoved.value = true
+    offsetX.value = panStart.ox + dx
+    offsetY.value = panStart.oy + dy
+  }
+
+  function endTouchPan(e?: PointerEvent) {
+    // A second finger landing mid-pan sends its own pointerup; ignore
+    // anything that isn't the pointer that started the pan.
+    if (e && panPointerId !== null && e.pointerId !== panPointerId) return
+    isPanning.value = false
+    panPointerId = null
+    window.removeEventListener('pointermove', onTouchPanMove)
+    window.removeEventListener('pointerup', endTouchPan)
+    window.removeEventListener('pointercancel', endTouchPan)
+  }
+
   // Left-button drag on empty canvas → start a marquee selection.
   // Caller passes in the pointer position in *world* coordinates
   // (already converted through scale/offset). We update the
@@ -273,6 +330,7 @@ export function usePanZoom(opts: PanZoomOptions) {
     zoomOut,
     zoomTo100,
     startPan,
+    startTouchPan,
     startMarquee,
     updateMarquee,
     isMarquee,
